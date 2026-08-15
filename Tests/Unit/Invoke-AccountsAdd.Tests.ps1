@@ -170,6 +170,7 @@ Describe 'Invoke-AccountsAdd — successful response' {
     It 'AA08 — POST method is used' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-AccountApiResponse -Account $script:SampleAccount
         }
@@ -197,6 +198,7 @@ Describe 'Invoke-AccountsAdd — successful response' {
         $input.Name = ''
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-AccountApiResponse -Account $script:SampleAccount
         }

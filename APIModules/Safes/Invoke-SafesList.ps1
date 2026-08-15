@@ -77,9 +77,9 @@ function Invoke-SafesList {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $search     = if ($InputData.Search)  { "$($InputData.Search)".Trim()  } else { $null }
-    $filter     = if ($InputData.Filter)  { "$($InputData.Filter)".Trim()  } else { $null }
-    $extDetails = [bool]$InputData.ExtendedDetails
+    $search     = if ($InputData['Search'])  { "$($InputData['Search'])".Trim()  } else { $null }
+    $filter     = if ($InputData['Filter'])  { "$($InputData['Filter'])".Trim()  } else { $null }
+    $extDetails = [bool]$InputData['ExtendedDetails']
 
     # Build query parameters — only include keys that have a value
     $queryParams = @{}
@@ -123,14 +123,14 @@ function Invoke-SafesList {
         @($response.Data.value)
     } else { @() }
 
-    if ($safes.Count -eq 0) {
+    if ((-not $safes) -or $safes.Count -eq 0) {
         Write-CyberArkLog -Level 'WARN' -Message 'No safes returned for the given criteria.'
         # Not a failure — a valid empty result
         return $result
     }
 
     foreach ($safe in $safes) {
-        $creationDate = if ($safe.creationTime) {
+        $creationDate = if ($safe.PSObject.Properties['creationTime'] -and $safe.creationTime) {
             try { [DateTimeOffset]::FromUnixTimeSeconds($safe.creationTime).LocalDateTime.ToString('yyyy-MM-dd') }
             catch { '' }
         } else { '' }

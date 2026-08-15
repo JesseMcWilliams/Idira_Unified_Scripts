@@ -72,8 +72,8 @@ function Invoke-UsersList {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $search   = if ($InputData.Search)   { "$($InputData.Search)".Trim()   } else { $null }
-    $userType = if ($InputData.UserType) { "$($InputData.UserType)".Trim() } else { $null }
+    $search   = if ($InputData['Search'])   { "$($InputData['Search'])".Trim()   } else { $null }
+    $userType = if ($InputData['UserType']) { "$($InputData['UserType'])".Trim() } else { $null }
 
     # Build query parameters — only include keys that have a value
     $queryParams = @{}
@@ -116,7 +116,7 @@ function Invoke-UsersList {
         @($response.Data.Users)
     } else { @() }
 
-    if ($users.Count -eq 0) {
+    if ((-not $users) -or $users.Count -eq 0) {
         Write-CyberArkLog -Level 'WARN' -Message 'No users returned for the given criteria.'
         # Not a failure — a valid empty result
         return $result

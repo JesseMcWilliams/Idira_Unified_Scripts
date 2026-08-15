@@ -213,6 +213,7 @@ Describe 'Invoke-UsersList — successful response' {
     It 'UL18 — Search value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-UsersApiResponse
         }
@@ -223,6 +224,7 @@ Describe 'Invoke-UsersList — successful response' {
     It 'UL19 — UserType value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-UsersApiResponse
         }
@@ -233,6 +235,7 @@ Describe 'Invoke-UsersList — successful response' {
     It 'UL20 — empty Search string means no search key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-UsersApiResponse
         }
@@ -243,6 +246,7 @@ Describe 'Invoke-UsersList — successful response' {
     It 'UL21 — empty UserType string means no UserType key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-UsersApiResponse
         }

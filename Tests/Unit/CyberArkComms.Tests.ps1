@@ -237,16 +237,17 @@ Describe 'Invoke-CyberArkAPI — success paths (mocked Invoke-WebRequest)' {
 
     It 'C25 — Body is sent with JSON Content-Type' {
         $json = '{"id":"123"}'
-        $capturedParams = $null
+        $capturedContentType = $null
         Mock Invoke-WebRequest {
-            Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
+            param($Uri, $Method, $Headers, $Body, $ContentType, $UseBasicParsing, $ErrorAction)
+            Set-Variable -Name capturedContentType -Value $ContentType -Scope Script
             script:New-MockWebResponse -StatusCode 201 -Body $json
         } -ModuleName 'CyberArkComms'
 
         Invoke-CyberArkAPI -Token $script:MockToken -Method 'POST' -Endpoint '/API/Safes' `
             -Body @{ safeName = 'X' } | Out-Null
 
-        $script:capturedParams.ContentType | Should -Be 'application/json'
+        $script:capturedContentType | Should -Be 'application/json'
     }
 }
 
@@ -256,18 +257,21 @@ Describe 'Invoke-CyberArkAPI — pagination (mocked Invoke-WebRequest)' {
     It 'C26 — two full pages combined into single value array' {
         $page1 = '{"value":[{"safeName":"Safe1"},{"safeName":"Safe2"}],"count":4}'
         $page2 = '{"value":[{"safeName":"Safe3"},{"safeName":"Safe4"}],"count":4}'
+        $page3 = '{"value":[],"count":4}'  # empty page terminates pagination
         $callCount = 0
         Mock Invoke-WebRequest {
             $script:callCount++
             if ($script:callCount -eq 1) {
                 [PSCustomObject]@{ StatusCode = 200; Content = $page1 }
-            } else {
+            } elseif ($script:callCount -eq 2) {
                 [PSCustomObject]@{ StatusCode = 200; Content = $page2 }
+            } else {
+                [PSCustomObject]@{ StatusCode = 200; Content = $page3 }
             }
         } -ModuleName 'CyberArkComms'
 
         $script:callCount = 0
-        # PageSize=2 so two items per page triggers a second fetch
+        # PageSize=2 so two items per page triggers a second fetch; empty 3rd page terminates
         $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes' `
             -PageSize 2
         $r.Data.value.Count | Should -Be 4

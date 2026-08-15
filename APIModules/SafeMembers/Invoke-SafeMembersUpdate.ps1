@@ -211,7 +211,7 @@ function Invoke-SafeMembersUpdate {
     if (-not $InputData) { $InputData = @{} }
 
     # Validate SafeName
-    $safeName = if ($InputData.SafeName) { "$($InputData.SafeName)".Trim() } else { '' }
+    $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } else { '' }
     if (-not $safeName) {
         $msg = 'SafeName is required and cannot be empty.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
@@ -226,7 +226,7 @@ function Invoke-SafeMembersUpdate {
     }
 
     # Validate MemberName
-    $memberName = if ($InputData.MemberName) { "$($InputData.MemberName)".Trim() } else { '' }
+    $memberName = if ($InputData['MemberName']) { "$($InputData['MemberName'])".Trim() } else { '' }
     if (-not $memberName) {
         $msg = 'MemberName is required and cannot be empty.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
@@ -244,16 +244,16 @@ function Invoke-SafeMembersUpdate {
     $encodedMember = [System.Uri]::EscapeDataString($memberName)
 
     # Resolve permissions — InputData.Permissions (hashtable) takes priority over PermissionRole
-    $permissions = if ($InputData.Permissions -and $InputData.Permissions -is [hashtable]) {
-        $InputData.Permissions
+    $permissions = if ($InputData['Permissions'] -and $InputData['Permissions'] -is [hashtable]) {
+        $InputData['Permissions']
     } else {
-        $role = if ($InputData.PermissionRole) { "$($InputData.PermissionRole)".Trim() } else { 'ReadOnly' }
+        $role = if ($InputData['PermissionRole']) { "$($InputData['PermissionRole'])".Trim() } else { 'ReadOnly' }
         Get-PermissionSet -Role $role
     }
 
     # Resolve expiration date — null when blank (API expects null for no expiration)
-    $expirationDate = if ($InputData.ExpirationDate -and "$($InputData.ExpirationDate)".Trim() -ne '') {
-        "$($InputData.ExpirationDate)".Trim()
+    $expirationDate = if ($InputData['ExpirationDate'] -and "$($InputData['ExpirationDate'])".Trim() -ne '') {
+        "$($InputData['ExpirationDate'])".Trim()
     } else {
         $null
     }
@@ -267,29 +267,6 @@ function Invoke-SafeMembersUpdate {
     Write-CyberArkLog -Level 'INFO'  -Message "Updating safe member '$memberName' in safe '$safeName'."
     Write-CyberArkLog -Level 'DEBUG' -Message "PUT /API/Safes/$encodedSafe/Members/$encodedMember"
 
-    $response = Invoke-CyberArkAPI `
-        -Token    $Token `
-        -Method   'PUT' `
-        -Endpoint "/API/Safes/$encodedSafe/Members/$encodedMember" `
-        -Body     $body `
-        -WhatIf:  $WhatIf.IsPresent
-
-    if (-not $response.IsSuccess) {
-        $msg = "Safe member update failed for '$memberName' in '$safeName' (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
-        Write-CyberArkLog -Level 'ERROR' -Message $msg
-        $result.Errors.Add([PSCustomObject]@{
-            InputData    = $InputData
-            ErrorMessage = $response.ErrorMessage
-            ErrorDetails = $response.ErrorDetails
-        })
-        $result.Failures++
-        $result.ItemsProcessed++
-        $result.IsFatal = ($response.StatusCode -in @(401, 0))
-        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
-        return $result
-    }
-
-    # WhatIf: Invoke-CyberArkAPI returns IsSuccess=$true without actually calling the API
     if ($WhatIf.IsPresent) {
         Write-CyberArkLog -Level 'INFO' -Message "WhatIf: Safe member update suppressed for '$memberName' in '$safeName'."
         $result.Results.Add([PSCustomObject]@{
@@ -302,7 +279,28 @@ function Invoke-SafeMembersUpdate {
         })
         $result.Successes++
         $result.ItemsProcessed++
-        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
+        return $result
+    }
+
+    $response = Invoke-CyberArkAPI `
+        -Token    $Token `
+        -Method   'PUT' `
+        -Endpoint "/API/Safes/$encodedSafe/Members/$encodedMember" `
+        -Body     $body
+
+    if (-not $response.IsSuccess) {
+        $msg = "Safe member update failed for '$memberName' in '$safeName' (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = $response.ErrorMessage
+            ErrorDetails = $response.ErrorDetails
+        })
+        $result.Failures++
+        $result.ItemsProcessed++
+        $result.IsFatal = ($response.StatusCode -in @(401, 0))
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
@@ -321,6 +319,6 @@ function Invoke-SafeMembersUpdate {
     $result.ItemsProcessed++
 
     Write-CyberArkLog -Level 'INFO' -Message "Safe member '$memberName' updated successfully in safe '$safeName'."
-    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
     return $result
 }

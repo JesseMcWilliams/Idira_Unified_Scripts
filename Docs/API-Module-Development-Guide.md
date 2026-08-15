@@ -367,7 +367,8 @@ if ($response.StatusCode -eq 401) {
 ### Input validation failure — reject before any API calls
 
 ```powershell
-if ([string]::IsNullOrWhiteSpace($InputData.SafeName)) {
+$safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } else { '' }
+if ([string]::IsNullOrWhiteSpace($safeName)) {
     Write-CyberArkLog -Level ERROR -Message 'SafeName is required but was not provided.'
     $result.Errors.Add([PSCustomObject]@{
         InputData    = $InputData
@@ -379,6 +380,10 @@ if ([string]::IsNullOrWhiteSpace($InputData.SafeName)) {
     return $result
 }
 ```
+
+> **Important:** Always use bracket notation `$InputData['Key']` — never dot notation
+> `$InputData.Key`. Under `Set-StrictMode -Version Latest` (active in this project),
+> dot-notation access on a missing hashtable key throws `PropertyNotFoundException`.
 
 ---
 
@@ -430,9 +435,10 @@ function Invoke-AccountsList {
 
     Write-CyberArkLog -Level INFO -Message 'Starting account list retrieval.'
 
-    $query = New-CyberArkQuery -Search $InputData.Search -Limit 100
+    $search = if ($InputData['Search']) { "$($InputData['Search'])".Trim() } else { $null }
+    $query = New-CyberArkQuery -Search $search -Limit 100
 
-    Write-CyberArkLog -Level DEBUG -Message "Endpoint: GET /API/Accounts | Search: '$($InputData.Search)'"
+    Write-CyberArkLog -Level DEBUG -Message "Endpoint: GET /API/Accounts | Search: '$search'"
 
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
@@ -501,8 +507,15 @@ Use this checklist before considering a module complete.
 
 ### API calls
 - [ ] `$WhatIf.IsPresent` forwarded to every `Invoke-CyberArkAPI` call
+- [ ] WhatIf check is **before** the `Invoke-CyberArkAPI` call (not after)
 - [ ] `IsSuccess` checked on every response before accessing `Data`
 - [ ] Fatal vs. recoverable error distinction is correct
+
+### Strict-mode safety (Set-StrictMode -Version Latest is always active)
+- [ ] All `$InputData` access uses bracket notation: `$InputData['Key']` (never `$InputData.Key`)
+- [ ] All optional fields on API response `PSCustomObject` are guarded: `$obj.PSObject.Properties['field']`
+- [ ] All empty-collection checks use: `if ((-not $col) -or $col.Count -eq 0)`
+- [ ] `Get-ChildItem` results wrapped in `@()` before calling `.Count`
 
 ### Logging
 - [ ] INFO at start and end of operation

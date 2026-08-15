@@ -1,23 +1,23 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
-    Name             = 'Delete Account'
-    Category         = 'Accounts'
+    Name             = 'Delete Group'
+    Category         = 'Groups'
     Action           = 'Delete'
-    Description      = 'Permanently delete an account from CyberArk.'
+    Description      = 'Permanently delete an existing CyberArk user group.'
     SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $true
     AcceptsInputFile = $true
     ProducesOutput   = $false
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'AccountID'; Required = $true; Description = 'Account ID to delete.' }
+        @{ Column = 'GroupID'; Required = $true; Description = 'Numeric ID of the group to delete.' }
     )
-    Priority         = 34
+    Priority         = 63
     Version          = '1.0.0'
 }
 
-function Get-AccountsDeleteInput {
+function Get-GroupsDeleteInput {
     <#
         Called by the driver when HasCustomInput = $true.
         Show-FieldPrompt is available because this module is dot-sourced into the driver scope.
@@ -30,22 +30,22 @@ function Get-AccountsDeleteInput {
 
     if (-not $Defaults) { $Defaults = @{} }
 
-    Write-Host '  Account to Delete' -ForegroundColor DarkGray
+    Write-Host '  Group to Delete' -ForegroundColor DarkGray
     Write-Host ''
-    Write-Host '  WARNING: This operation permanently deletes the account and cannot be undone.' -ForegroundColor Red
+    Write-Host '  WARNING: This operation permanently deletes the group.' -ForegroundColor Red
     Write-Host ''
 
-    $accountId = Show-FieldPrompt -Label 'AccountID' `
-        -Default $(if ($Defaults.AccountID) { $Defaults.AccountID } else { '' }) `
+    $groupId = Show-FieldPrompt -Label 'GroupID' `
+        -Default $(if ($Defaults.GroupID) { $Defaults.GroupID } else { '' }) `
         -Required $true `
-        -Description 'Account ID to delete.'
+        -Description 'Numeric ID of the group to delete.'
 
     return @{
-        AccountID = $accountId
+        GroupID = $groupId
     }
 }
 
-function Invoke-AccountsDelete {
+function Invoke-GroupsDelete {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -72,7 +72,7 @@ function Invoke-AccountsDelete {
 
     # Validate InputData presence
     if (-not $InputData) {
-        $msg = 'InputData is null or missing. AccountID is required.'
+        $msg = 'InputData is null or missing. GroupID is required.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -84,11 +84,11 @@ function Invoke-AccountsDelete {
         return $result
     }
 
-    # Validate AccountID
-    $accountId = if ($InputData.AccountID) { "$($InputData.AccountID)".Trim() } else { '' }
+    # Validate GroupID
+    $groupId = if ($InputData.GroupID) { "$($InputData.GroupID)".Trim() } else { '' }
 
-    if (-not $accountId) {
-        $msg = 'AccountID is required and must not be empty.'
+    if (-not $groupId) {
+        $msg = 'GroupID is required and must not be empty.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -100,10 +100,10 @@ function Invoke-AccountsDelete {
         return $result
     }
 
-    $encodedId = [Uri]::EscapeDataString($accountId)
-    $endpoint  = "/API/Accounts/$encodedId"
+    $encodedId = [Uri]::EscapeDataString($groupId)
+    $endpoint  = "/API/UserGroups/$encodedId"
 
-    Write-CyberArkLog -Level 'INFO'  -Message "Starting account delete. AccountID='$accountId'."
+    Write-CyberArkLog -Level 'INFO'  -Message "Starting group delete. GroupID='$groupId'."
     Write-CyberArkLog -Level 'DEBUG' -Message "DELETE $endpoint"
 
     if ($WhatIf.IsPresent) {
@@ -120,7 +120,7 @@ function Invoke-AccountsDelete {
         -Endpoint $endpoint
 
     if (-not $response.IsSuccess) {
-        $msg = "Account delete failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+        $msg = "Group delete failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -135,13 +135,13 @@ function Invoke-AccountsDelete {
 
     # Success — 204 No Content
     $result.Results.Add([PSCustomObject]@{
-        AccountID = $accountId
-        Deleted   = $true
+        GroupID = $groupId
+        Deleted = $true
     })
     $result.Successes++
     $result.ItemsProcessed++
 
-    Write-CyberArkLog -Level 'INFO' -Message "Account delete complete. AccountID='$accountId'."
+    Write-CyberArkLog -Level 'INFO' -Message "Group delete complete. GroupID='$groupId'."
 
     Add-CyberArkLogSummaryEntry `
         -ModuleName     $ModuleMeta.Name `

@@ -81,8 +81,8 @@ function Invoke-AccountsList {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $search = if ($InputData.Search) { "$($InputData.Search)".Trim() } else { $null }
-    $filter = if ($InputData.Filter) { "$($InputData.Filter)".Trim() } else { $null }
+    $search = if ($InputData['Search']) { "$($InputData['Search'])".Trim() } else { $null }
+    $filter = if ($InputData['Filter']) { "$($InputData['Filter'])".Trim() } else { $null }
 
     # Build query parameters — only include keys that have a value
     $queryParams = @{}
@@ -124,7 +124,7 @@ function Invoke-AccountsList {
         @($response.Data.value)
     } else { @() }
 
-    if ($accounts.Count -eq 0) {
+    if ((-not $accounts) -or $accounts.Count -eq 0) {
         Write-CyberArkLog -Level 'WARN' -Message 'No accounts returned for the given criteria.'
         # Not a failure — a valid empty result
         return $result

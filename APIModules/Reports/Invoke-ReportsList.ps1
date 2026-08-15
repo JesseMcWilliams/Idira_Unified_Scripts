@@ -1,21 +1,21 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
-    Name             = 'List Platforms'
-    Category         = 'Platforms'
+    Name             = 'List Reports'
+    Category         = 'Reports'
     Action           = 'List'
-    Description      = 'Retrieve all available CyberArk platforms.'
-    SupportedSystems = @('ISPSS', 'SelfHosted')
+    Description      = 'Retrieve CyberArk PVWA reports.'
+    SupportedSystems = @('SelfHosted')
     SupportsWhatIf   = $false
     AcceptsInputFile = $false
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @()
-    Priority         = 40
+    Priority         = 70
     Version          = '1.0.0'
 }
 
-function Get-PlatformsListInput {
+function Get-ReportsListInput {
     <#
         Called by the driver when HasCustomInput = $true.
         Show-FieldPrompt is available because this module is dot-sourced into the driver scope.
@@ -33,19 +33,14 @@ function Get-PlatformsListInput {
 
     $search = Show-FieldPrompt -Label 'Search' `
         -Default $(if ($Defaults.Search) { $Defaults.Search } else { '' }) `
-        -Description 'Free-text search across platform name and description. Leave blank for all platforms.'
-
-    $activeOnlyStr = Show-FieldPrompt -Label 'Active Only' `
-        -Default $(if ($Defaults.ActiveOnly) { 'Y' } else { 'N' }) `
-        -Description 'Return only active platforms? (Y/N)'
+        -Description 'Free-text search across report name. Leave blank for all reports.'
 
     return @{
-        Search     = $search
-        ActiveOnly = ($activeOnlyStr -match '^[Yy]$')
+        Search = $search
     }
 }
 
-function Invoke-PlatformsList {
+function Invoke-ReportsList {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -72,33 +67,25 @@ function Invoke-PlatformsList {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $search     = if ($InputData['Search'])     { "$($InputData['Search'])".Trim() } else { $null }
-    $activeOnly = [bool]$InputData['ActiveOnly']
+    $search = if ($InputData['Search']) { "$($InputData['Search'])".Trim() } else { $null }
 
-    # Build query parameters — only include keys that have a value
     $queryParams = @{}
-    if ($search)     { $queryParams['Search'] = $search  }
-    if ($activeOnly) { $queryParams['Active'] = 'true'   }
+    if ($search) { $queryParams['search'] = $search }
 
-    $criteriaLog = $(
-        $parts = @()
-        if ($search)     { $parts += "Search='$search'" }
-        if ($activeOnly) { $parts += 'Active=true' }
-        if ($parts)      { $parts -join '  ' } else { '(all platforms)' }
-    )
+    $criteriaLog = if ($search) { "Search='$search'" } else { '(all reports)' }
 
-    Write-CyberArkLog -Level 'INFO'  -Message 'Starting platform list retrieval.'
-    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/Platforms | $criteriaLog"
+    Write-CyberArkLog -Level 'INFO'  -Message 'Starting report list retrieval.'
+    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/Reports | $criteriaLog"
 
     $response = Invoke-CyberArkAPI `
         -Token       $Token `
         -Method      'GET' `
-        -Endpoint    '/API/Platforms' `
+        -Endpoint    '/API/Reports' `
         -QueryParams $queryParams `
         -WhatIf:     $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
-        $msg = "Platform list failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+        $msg = "Report list failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -111,29 +98,28 @@ function Invoke-PlatformsList {
         return $result
     }
 
-    # Platforms API uses 'Platforms' property, not 'value'
-    $platforms = if ($response.Data -and $response.Data.PSObject.Properties['Platforms']) {
-        @($response.Data.Platforms)
+    $reports = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
+        @($response.Data.value)
     } else { @() }
 
-    if ((-not $platforms) -or $platforms.Count -eq 0) {
-        Write-CyberArkLog -Level 'WARN' -Message 'No platforms returned for the given criteria.'
-        # Not a failure — a valid empty result
+    if ((-not $reports) -or $reports.Count -eq 0) {
+        Write-CyberArkLog -Level 'WARN' -Message 'No reports returned for the given criteria.'
         return $result
     }
 
-    foreach ($platform in $platforms) {
+    foreach ($report in $reports) {
         $result.Results.Add([PSCustomObject]@{
-            PlatformID   = $platform.id
-            Name         = $platform.name
-            Description  = $platform.description
-            Active       = $platform.active
-            PlatformType = $platform.platformType
+            ReportID    = $report.reportId
+            ReportName  = $report.reportName
+            Description = $report.description
+            ReportType  = $report.reportType
+            RunDate     = $report.runDate
+            Aggregated  = [bool]$report.aggregated
         })
         $result.Successes++
         $result.ItemsProcessed++
     }
 
-    Write-CyberArkLog -Level 'INFO' -Message "Platform list complete. Platforms retrieved: $($result.Successes)."
+    Write-CyberArkLog -Level 'INFO' -Message "Report list complete. Reports retrieved: $($result.Successes)."
     return $result
 }

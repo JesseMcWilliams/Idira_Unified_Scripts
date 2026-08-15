@@ -164,6 +164,7 @@ Describe 'Invoke-SafesUpdate — success' {
     It 'U06 — second API call uses PUT method' {
         $capturedCalls = [System.Collections.Generic.List[hashtable]]::new()
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             $capturedCalls.Add($PSBoundParameters)
             $script:CallCount++
             if ($script:CallCount -eq 1) {

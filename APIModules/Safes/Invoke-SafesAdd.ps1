@@ -113,7 +113,7 @@ function Invoke-SafesAdd {
     if (-not $InputData) { $InputData = @{} }
 
     # Validate required field SafeName
-    $safeName = if ($InputData.SafeName) { "$($InputData.SafeName)".Trim() } else { '' }
+    $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } else { '' }
     if (-not $safeName) {
         $msg = 'SafeName is required and cannot be empty.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
@@ -142,12 +142,31 @@ function Invoke-SafesAdd {
     Write-CyberArkLog -Level 'INFO'  -Message "Adding safe '$safeName'."
     Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Safes | SafeName='$safeName'"
 
+    if ($WhatIf.IsPresent) {
+        Write-CyberArkLog -Level 'INFO' -Message "[WhatIf] Would POST /API/Safes for '$safeName'."
+        $result.Results.Add([PSCustomObject]@{
+            SafeName         = $safeName
+            Description      = $body.Description
+            Location         = $body.Location
+            ManagingCPM      = $body.ManagingCPM
+            VersionRetention = $body.NumberOfVersionsRetention
+            DayRetention     = $body.NumberOfDaysRetention
+            AutoPurge        = $body.AutoPurgeEnabled
+            OLACEnabled      = $body.OLACEnabled
+            Creator          = ''
+            Created          = ''
+        })
+        $result.Successes++
+        $result.ItemsProcessed++
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
+        return $result
+    }
+
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'POST' `
         -Endpoint '/API/Safes' `
-        -Body     $body `
-        -WhatIf:  $WhatIf.IsPresent
+        -Body     $body
 
     if (-not $response.IsSuccess) {
         $msg = "Add safe failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
@@ -160,7 +179,7 @@ function Invoke-SafesAdd {
         $result.Failures++
         $result.ItemsProcessed++
         $result.IsFatal = ($response.StatusCode -in @(401, 0))
-        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
@@ -188,6 +207,6 @@ function Invoke-SafesAdd {
     $result.ItemsProcessed++
 
     Write-CyberArkLog -Level 'INFO' -Message "Safe '$safeName' created successfully."
-    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
     return $result
 }

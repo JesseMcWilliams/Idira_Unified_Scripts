@@ -209,6 +209,7 @@ Describe 'Invoke-AccountsList — query parameters' {
     It 'AL17 — Search value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-AccountsApiResponse
         }
@@ -219,6 +220,7 @@ Describe 'Invoke-AccountsList — query parameters' {
     It 'AL18 — Filter value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-AccountsApiResponse
         }
@@ -229,6 +231,7 @@ Describe 'Invoke-AccountsList — query parameters' {
     It 'AL19 — empty Search string means no search key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-AccountsApiResponse
         }
@@ -239,6 +242,7 @@ Describe 'Invoke-AccountsList — query parameters' {
     It 'AL20 — empty Filter string means no filter key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-AccountsApiResponse
         }

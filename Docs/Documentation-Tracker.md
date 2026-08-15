@@ -56,6 +56,7 @@ Update the Status column as documents are created or revised.
 | Document | File | Status | Priority | Description |
 |---|---|---|---|---|
 | API Coverage Matrix | [API-Coverage-Matrix.md](API-Coverage-Matrix.md) | 📋 | Medium | Tracks every planned and implemented API module: Name, Category, SupportedSystems, endpoint, module version, status (Planned / In Progress / Complete) |
+| Lessons Learned | [Lessons-Learned-PowerShell-Pester.md](Lessons-Learned-PowerShell-Pester.md) | ✅ | Medium | PS 5.1 compatibility, Pester v6 mock patterns, API module conventions — bugs found during unit test development |
 
 ---
 
@@ -86,3 +87,11 @@ Build documents in this sequence to support the implementation phases:
 | 2026-08-14 | Interfaces.md | Created |
 | 2026-08-14 | API-Module-Development-Guide.md | Created |
 | 2026-08-14 | Documentation-Tracker.md | Created |
+| 2026-08-15 | Lessons-Learned-PowerShell-Pester.md | Created — PS 5.1 / Pester v6 patterns |
+| 2026-08-15 | Architecture.md | Added Groups category (7 modules) |
+| 2026-08-15 | Groups modules | Created 7 APIModules\Groups\Invoke-Groups*.ps1 + 7 test files — 103 new tests, all passing |
+| 2026-08-15 | Reports module | Created APIModules\Reports\Invoke-ReportsList.ps1 (SelfHosted only, Priority=70) + 15 unit tests (RL01–RL15) |
+| 2026-08-15 | Architecture.md | Added Reports category (Invoke-ReportsList.ps1) to folder structure |
+| 2026-08-15 | Lessons-Learned-PowerShell-Pester.md | Added Section 4 — PS 5.1 strict-mode patterns: hashtable dot notation, PSCustomObject optional properties, null-safe Count, Pester Should-Not-Throw scope |
+| 2026-08-15 | API-Module-Development-Guide.md | Fixed dot-notation examples to bracket notation; added strict-mode safety checklist items |
+| 2026-08-15 | 10+ API modules | Fixed PS 5.1 strict-mode bugs: $InputData bracket notation, PSObject.Properties guards, null-safe Count — all 583 unit tests passing |

@@ -67,7 +67,7 @@ function Invoke-SafesGet {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $safeName = if ($InputData.SafeName) { "$($InputData.SafeName)".Trim() } else { '' }
+    $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } else { '' }
 
     if (-not $safeName) {
         Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-SafesGet: SafeName is required but was not provided.'
@@ -108,7 +108,7 @@ function Invoke-SafesGet {
 
     $safe = $response.Data
 
-    $creationDate = if ($safe.creationTime) {
+    $creationDate = if ($safe.PSObject.Properties['creationTime'] -and $safe.creationTime) {
         try { [DateTimeOffset]::FromUnixTimeSeconds($safe.creationTime).LocalDateTime.ToString('yyyy-MM-dd') }
         catch { '' }
     } else { '' }

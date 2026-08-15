@@ -67,7 +67,7 @@ function Invoke-AccountsGet {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $accountId = if ($InputData.AccountID) { "$($InputData.AccountID)".Trim() } else { '' }
+    $accountId = if ($InputData['AccountID']) { "$($InputData['AccountID'])".Trim() } else { '' }
 
     if (-not $accountId) {
         Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-AccountsGet: AccountID is required but was not provided.'
@@ -108,7 +108,7 @@ function Invoke-AccountsGet {
 
     $acct = $response.Data
 
-    $createdDate = if ($acct.createdTime) {
+    $createdDate = if ($acct.PSObject.Properties['createdTime'] -and $acct.createdTime) {
         try { [DateTimeOffset]::FromUnixTimeSeconds($acct.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
         catch { '' }
     } else { '' }

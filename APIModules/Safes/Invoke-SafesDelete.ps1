@@ -106,19 +106,18 @@ function Invoke-SafesDelete {
     Write-CyberArkLog -Level 'INFO'  -Message "Starting safe delete. SafeName='$safeName'."
     Write-CyberArkLog -Level 'DEBUG' -Message "DELETE $endpoint"
 
-    $response = Invoke-CyberArkAPI `
-        -Token   $Token `
-        -Method  'DELETE' `
-        -Endpoint $endpoint `
-        -WhatIf: $WhatIf.IsPresent
-
-    # WhatIf: API returns without executing; log and count as success
     if ($WhatIf.IsPresent) {
         Write-CyberArkLog -Level 'INFO' -Message "WhatIf: DELETE $endpoint would be performed."
         $result.Successes++
         $result.ItemsProcessed++
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
+
+    $response = Invoke-CyberArkAPI `
+        -Token   $Token `
+        -Method  'DELETE' `
+        -Endpoint $endpoint
 
     if (-not $response.IsSuccess) {
         $msg = "Safe delete failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
@@ -145,9 +144,10 @@ function Invoke-SafesDelete {
     Write-CyberArkLog -Level 'INFO' -Message "Safe delete complete. SafeName='$safeName'."
 
     Add-CyberArkLogSummaryEntry `
-        -ModuleName $ModuleMeta.Name `
-        -Successes  $result.Successes `
-        -Failures   $result.Failures
+        -ModuleName     $ModuleMeta.Name `
+        -ItemsProcessed $result.ItemsProcessed `
+        -Successes      $result.Successes `
+        -Failures       $result.Failures
 
     return $result
 }

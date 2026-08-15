@@ -251,7 +251,7 @@ function Invoke-SafesUpdate {
         })
         $result.Successes++
         $result.ItemsProcessed++
-        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
@@ -280,7 +280,7 @@ function Invoke-SafesUpdate {
 
     Write-CyberArkLog -Level 'INFO' -Message "Safe update complete for '$safeName'."
 
-    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
 
     return $result
 }

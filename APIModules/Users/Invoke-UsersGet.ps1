@@ -67,7 +67,7 @@ function Invoke-UsersGet {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $userID = if ($InputData.UserID) { "$($InputData.UserID)".Trim() } else { '' }
+    $userID = if ($InputData['UserID']) { "$($InputData['UserID'])".Trim() } else { '' }
 
     if (-not $userID) {
         Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-UsersGet: UserID is required but was not provided.'

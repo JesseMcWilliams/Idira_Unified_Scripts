@@ -134,6 +134,7 @@ Describe 'Invoke-AccountsGetCredential — successful response' {
     It 'AC10 — POST method is used' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-CredentialApiResponse
         }
@@ -144,6 +145,7 @@ Describe 'Invoke-AccountsGetCredential — successful response' {
     It 'AC11 — endpoint contains AccountID and Password/Retrieve' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-CredentialApiResponse
         }
@@ -155,6 +157,7 @@ Describe 'Invoke-AccountsGetCredential — successful response' {
     It 'AC12 — Reason is sent in body' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-CredentialApiResponse
         }
@@ -165,6 +168,7 @@ Describe 'Invoke-AccountsGetCredential — successful response' {
     It 'AC13 — empty Reason: body reason is empty string (not null)' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-CredentialApiResponse
         }

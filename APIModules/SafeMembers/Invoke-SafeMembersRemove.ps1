@@ -170,9 +170,10 @@ function Invoke-SafeMembersRemove {
     Write-CyberArkLog -Level 'INFO' -Message "Safe member remove complete. SafeName='$safeName', MemberName='$memberName'."
 
     Add-CyberArkLogSummaryEntry `
-        -ModuleName $ModuleMeta.Name `
-        -Successes  $result.Successes `
-        -Failures   $result.Failures
+        -ModuleName     $ModuleMeta.Name `
+        -ItemsProcessed $result.ItemsProcessed `
+        -Successes      $result.Successes `
+        -Failures       $result.Failures
 
     return $result
 }

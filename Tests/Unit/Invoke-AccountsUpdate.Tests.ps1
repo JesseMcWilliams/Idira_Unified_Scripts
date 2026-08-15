@@ -170,6 +170,7 @@ Describe 'Invoke-AccountsUpdate — success' {
     It 'AU06 — second API call uses PUT method' {
         $capturedCalls = [System.Collections.Generic.List[hashtable]]::new()
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             $capturedCalls.Add($PSBoundParameters)
             $script:CallCount++
             if ($script:CallCount -eq 1) {
@@ -226,6 +227,7 @@ Describe 'Invoke-AccountsUpdate — success' {
     It 'AU13 — blank optional field falls back to current account value (UserName)' {
         $capturedCalls = [System.Collections.Generic.List[hashtable]]::new()
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             $capturedCalls.Add($PSBoundParameters)
             $script:CallCount++
             if ($script:CallCount -eq 1) {

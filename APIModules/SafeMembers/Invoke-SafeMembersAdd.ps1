@@ -231,7 +231,7 @@ function Invoke-SafeMembersAdd {
     if (-not $InputData) { $InputData = @{} }
 
     # Validate required field SafeName
-    $safeName = if ($InputData.SafeName) { "$($InputData.SafeName)".Trim() } else { '' }
+    $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } else { '' }
     if (-not $safeName) {
         $msg = 'SafeName is required and cannot be empty.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
@@ -246,7 +246,7 @@ function Invoke-SafeMembersAdd {
     }
 
     # Validate required field MemberName
-    $memberName = if ($InputData.MemberName) { "$($InputData.MemberName)".Trim() } else { '' }
+    $memberName = if ($InputData['MemberName']) { "$($InputData['MemberName'])".Trim() } else { '' }
     if (-not $memberName) {
         $msg = 'MemberName is required and cannot be empty.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
@@ -261,19 +261,19 @@ function Invoke-SafeMembersAdd {
     }
 
     $encodedSafe   = [Uri]::EscapeDataString($safeName)
-    $permissionRole = if ($InputData.PermissionRole) { $InputData.PermissionRole } else { 'ReadOnly' }
+    $permissionRole = if ($InputData['PermissionRole']) { $InputData['PermissionRole'] } else { 'ReadOnly' }
 
     # Resolve permissions: use explicit Custom hashtable if provided, otherwise use preset
-    $permissions = if ($InputData.Permissions -and $InputData.PermissionRole -eq 'Custom') {
-        $InputData.Permissions
+    $permissions = if ($InputData['Permissions'] -and $InputData['PermissionRole'] -eq 'Custom') {
+        $InputData['Permissions']
     } else {
         script:Get-PermissionSet -Role $permissionRole
     }
 
     $body = @{
         MemberName               = $memberName
-        SearchIn                 = if ($InputData.SearchIn) { $InputData.SearchIn } else { 'Vault' }
-        MembershipExpirationDate = if ($InputData.ExpirationDate) { $InputData.ExpirationDate } else { $null }
+        SearchIn                 = if ($InputData['SearchIn']) { $InputData['SearchIn'] } else { 'Vault' }
+        MembershipExpirationDate = if ($InputData['ExpirationDate']) { $InputData['ExpirationDate'] } else { $null }
         Permissions              = $permissions
     }
 
@@ -285,12 +285,12 @@ function Invoke-SafeMembersAdd {
         $result.Results.Add([PSCustomObject]@{
             SafeName       = $safeName
             MemberName     = $memberName
-            MemberType     = if ($InputData.MemberType) { $InputData.MemberType } else { 'User' }
+            MemberType     = if ($InputData['MemberType']) { $InputData['MemberType'] } else { 'User' }
             PermissionRole = $permissionRole
         })
         $result.Successes++
         $result.ItemsProcessed++
-        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
@@ -312,7 +312,7 @@ function Invoke-SafeMembersAdd {
         $result.Failures++
         $result.ItemsProcessed++
         $result.IsFatal = ($response.StatusCode -in @(401, 0))
-        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
@@ -321,13 +321,13 @@ function Invoke-SafeMembersAdd {
     $result.Results.Add([PSCustomObject]@{
         SafeName       = if ($member -and $member.safeName)    { $member.safeName }    else { $safeName }
         MemberName     = if ($member -and $member.memberName)  { $member.memberName }  else { $memberName }
-        MemberType     = if ($member -and $member.memberType)  { $member.memberType }  else { if ($InputData.MemberType) { $InputData.MemberType } else { 'User' } }
+        MemberType     = if ($member -and $member.memberType)  { $member.memberType }  else { if ($InputData['MemberType']) { $InputData['MemberType'] } else { 'User' } }
         PermissionRole = $permissionRole
     })
     $result.Successes++
     $result.ItemsProcessed++
 
     Write-CyberArkLog -Level 'INFO' -Message "Member '$memberName' added to safe '$safeName' successfully."
-    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
     return $result
 }

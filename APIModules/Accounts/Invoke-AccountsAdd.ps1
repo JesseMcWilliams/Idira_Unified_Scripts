@@ -155,7 +155,7 @@ function Invoke-AccountsAdd {
         }
     }
 
-    if ($InputData.Secret) { $body.secret = $InputData.Secret }
+    if ($InputData['Secret']) { $body['secret'] = $InputData['Secret'] }
 
     Write-CyberArkLog -Level 'INFO' -Message "Adding account UserName=$($InputData.UserName) to SafeName=$($InputData.SafeName)"
 
@@ -177,8 +177,7 @@ function Invoke-AccountsAdd {
         })
         $result.Successes++
         $result.ItemsProcessed++
-        Add-CyberArkLogSummaryEntry -Action $ModuleMeta.Action -Category $ModuleMeta.Category `
-            -Successes $result.Successes -Failures $result.Failures -WhatIf
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
@@ -194,7 +193,7 @@ function Invoke-AccountsAdd {
         -WhatIf:  $false
 
     # Clear the secret from the body immediately after the call
-    if ($body.secret) { $body.secret = '***' }
+    if ($body['secret']) { $body['secret'] = '***' }
 
     if (-not $response.IsSuccess) {
         $msg = "Add account failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
@@ -207,8 +206,7 @@ function Invoke-AccountsAdd {
         $result.Failures++
         $result.ItemsProcessed++
         $result.IsFatal = ($response.StatusCode -in @(401, 0))
-        Add-CyberArkLogSummaryEntry -Action $ModuleMeta.Action -Category $ModuleMeta.Category `
-            -Successes $result.Successes -Failures $result.Failures
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
@@ -237,7 +235,6 @@ function Invoke-AccountsAdd {
     $result.ItemsProcessed++
 
     Write-CyberArkLog -Level 'INFO' -Message "Account added successfully. AccountID=$($acct.id) UserName=$($acct.userName) SafeName=$($acct.safeName)"
-    Add-CyberArkLogSummaryEntry -Action $ModuleMeta.Action -Category $ModuleMeta.Category `
-        -Successes $result.Successes -Failures $result.Failures
+    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
     return $result
 }

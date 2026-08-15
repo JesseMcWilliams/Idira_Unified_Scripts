@@ -35,7 +35,7 @@ function script:Get-StatusMessage {
         409 = 'Conflict'; 429 = 'Too Many Requests'
         500 = 'Internal Server Error'; 502 = 'Bad Gateway'; 503 = 'Service Unavailable'
     }
-    return if ($map.ContainsKey($Code)) { $map[$Code] } else { "HTTP $Code" }
+    if ($map.ContainsKey($Code)) { return $map[$Code] } else { return "HTTP $Code" }
 }
 
 function script:New-ApiResponse {
@@ -135,7 +135,7 @@ function New-CyberArkQuery {
     }
 
     $joined = $parts -join '&'
-    return if ($joined) { "?$joined" } else { '' }
+    if ($joined) { return "?$joined" } else { return '' }
 }
 
 function Join-CyberArkUrl {
@@ -456,12 +456,9 @@ function Invoke-CyberArkAPI {
         }
 
         if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
-            $logMsg = if ($isSuccess) {
-                "Response $statusCode — $(if ($allItems.Count -gt 0) { "$($allItems.Count) total items (paginated)" } else { $dataType })"
-            } else {
-                "Response $statusCode $($script:LevelColor)"
-            }
-            Write-CyberArkLog -Message "Response $statusCode — DataType: $dataType" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI'
+            $itemsNote = if ($allItems.Count -gt 0) { "$($allItems.Count) total items (paginated)" } else { $dataType }
+            $logMsg = "Response $statusCode — $itemsNote"
+            Write-CyberArkLog -Message $logMsg -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI'
         }
 
         $errDetails = $null

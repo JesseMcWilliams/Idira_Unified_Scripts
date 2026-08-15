@@ -1,23 +1,23 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
-    Name             = 'List Safe Members'
-    Category         = 'SafeMembers'
-    Action           = 'List'
-    Description      = 'Retrieve all members of a safe with their permissions.'
+    Name             = 'Get Group Members'
+    Category         = 'Groups'
+    Action           = 'GetMembers'
+    Description      = 'Retrieve all members of a user group.'
     SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $false
     AcceptsInputFile = $false
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'SafeName'; Required = $true; Description = 'Name of the safe.' }
+        @{ Column = 'GroupID'; Required = $true; Description = 'Numeric ID of the group.' }
     )
-    Priority         = 20
+    Priority         = 64
     Version          = '1.0.0'
 }
 
-function Get-SafeMembersListInput {
+function Get-GroupsGetMembersInput {
     <#
         Called by the driver when HasCustomInput = $true.
         Show-FieldPrompt is available because this module is dot-sourced into the driver scope.
@@ -30,20 +30,20 @@ function Get-SafeMembersListInput {
 
     if (-not $Defaults) { $Defaults = @{} }
 
-    Write-Host '  Safe Member List Criteria' -ForegroundColor DarkGray
+    Write-Host '  Get Group Members Criteria' -ForegroundColor DarkGray
     Write-Host ''
 
-    $safeName = Show-FieldPrompt -Label 'SafeName' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
-        -Description 'Name of the safe to list members for. (Required)' `
+    $groupId = Show-FieldPrompt -Label 'GroupID' `
+        -Default $(if ($Defaults.GroupID) { $Defaults.GroupID } else { '' }) `
+        -Description 'Numeric ID of the group to retrieve members for. (Required)' `
         -Required $true
 
     return @{
-        SafeName = $safeName
+        GroupID = $groupId
     }
 }
 
-function Invoke-SafeMembersList {
+function Invoke-GroupsGetMembers {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -70,7 +70,7 @@ function Invoke-SafeMembersList {
 
     # Validate InputData
     if (-not $InputData) {
-        $msg = 'InputData is null or missing. SafeName is required.'
+        $msg = 'InputData is null or missing. GroupID is required.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $null
@@ -82,10 +82,10 @@ function Invoke-SafeMembersList {
         return $result
     }
 
-    $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } else { '' }
+    $groupId = if ($InputData['GroupID']) { "$($InputData['GroupID'])".Trim() } else { '' }
 
-    if ([string]::IsNullOrEmpty($safeName)) {
-        $msg = 'SafeName is required and must not be empty.'
+    if ([string]::IsNullOrEmpty($groupId)) {
+        $msg = 'GroupID is required and must not be empty.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -97,19 +97,19 @@ function Invoke-SafeMembersList {
         return $result
     }
 
-    $encodedSafe = [Uri]::EscapeDataString($safeName)
+    $encodedId = [Uri]::EscapeDataString($groupId)
 
-    Write-CyberArkLog -Level 'INFO'  -Message "Starting safe members list retrieval for safe: $safeName"
-    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/Safes/$encodedSafe/Members"
+    Write-CyberArkLog -Level 'INFO'  -Message "Starting group members retrieval for group ID: $groupId"
+    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/UserGroups/$encodedId/Members"
 
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'GET' `
-        -Endpoint "/API/Safes/$encodedSafe/Members" `
+        -Endpoint "/API/UserGroups/$encodedId/Members" `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
-        $msg = "Safe members list failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+        $msg = "Get group members failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -127,34 +127,22 @@ function Invoke-SafeMembersList {
     } else { @() }
 
     if ((-not $members) -or $members.Count -eq 0) {
-        Write-CyberArkLog -Level 'WARN' -Message "No members returned for safe: $safeName"
+        Write-CyberArkLog -Level 'WARN' -Message 'No members found in group.'
         # Not a failure — a valid empty result
         return $result
     }
 
-    foreach ($member in $members) {
-        $expirationDate = if ($member.membershipExpirationDate) { $member.membershipExpirationDate } else { '' }
-
+    foreach ($m in $members) {
         $result.Results.Add([PSCustomObject]@{
-            SafeName          = $member.safeName
-            MemberName        = $member.memberName
-            MemberType        = $member.memberType
-            SearchIn          = ''
-            IsPredefined      = $member.isPredefinedUser
-            IsMemberOfSafe    = $member.isMemberOfSafe
-            ExpirationDate    = $expirationDate
-            UseAccounts       = $member.permissions.UseAccounts
-            RetrieveAccounts  = $member.permissions.RetrieveAccounts
-            ListAccounts      = $member.permissions.ListAccounts
-            AddAccounts       = $member.permissions.AddAccounts
-            ManageSafe        = $member.permissions.ManageSafe
-            ManageSafeMembers = $member.permissions.ManageSafeMembers
-            ViewAuditLog      = $member.permissions.ViewAuditLog
+            MemberID      = $m.id
+            Username      = $m.username
+            UserType      = $m.userType
+            ComponentUser = $m.componentUser
         })
         $result.Successes++
         $result.ItemsProcessed++
     }
 
-    Write-CyberArkLog -Level 'INFO' -Message "Safe members list complete. Members retrieved: $($result.Successes)."
+    Write-CyberArkLog -Level 'INFO' -Message "Group members retrieval complete. Members retrieved: $($result.Successes)."
     return $result
 }

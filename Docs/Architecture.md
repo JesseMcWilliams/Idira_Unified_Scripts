@@ -92,9 +92,19 @@ PowerShell\
 │   ├── Platforms\
 │   │   ├── Invoke-PlatformsList.ps1
 │   │   └── Invoke-PlatformsGet.ps1
-│   └── Users\
-│       ├── Invoke-UsersList.ps1
-│       └── Invoke-UsersGet.ps1
+│   ├── Users\
+│   │   ├── Invoke-UsersList.ps1
+│   │   └── Invoke-UsersGet.ps1
+│   ├── Groups\
+│   │   ├── Invoke-GroupsList.ps1
+│   │   ├── Invoke-GroupsAdd.ps1
+│   │   ├── Invoke-GroupsUpdate.ps1
+│   │   ├── Invoke-GroupsDelete.ps1
+│   │   ├── Invoke-GroupsGetMembers.ps1
+│   │   ├── Invoke-GroupsAddMember.ps1
+│   │   └── Invoke-GroupsRemoveMember.ps1
+│   └── Reports\
+│       └── Invoke-ReportsList.ps1          # SelfHosted only (GET /API/Reports)
 ├── Profiles\                           # Created at runtime (default: %APPDATA%\CyberArkPAS\)
 │   ├── Production.json
 │   ├── Production.xml

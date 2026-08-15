@@ -210,6 +210,7 @@ Describe 'Invoke-PlatformsList — query parameters' {
     It 'PL15 — Search value is sent in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-PlatformsApiResponse
         }
@@ -220,6 +221,7 @@ Describe 'Invoke-PlatformsList — query parameters' {
     It 'PL16 — ActiveOnly=$true sends Active=true in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-PlatformsApiResponse
         }
@@ -230,6 +232,7 @@ Describe 'Invoke-PlatformsList — query parameters' {
     It 'PL17 — empty Search string means no Search key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-PlatformsApiResponse
         }

@@ -255,7 +255,7 @@ function Invoke-AccountsUpdate {
         })
         $result.Successes++
         $result.ItemsProcessed++
-        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
@@ -284,7 +284,7 @@ function Invoke-AccountsUpdate {
 
     Write-CyberArkLog -Level 'INFO' -Message "Account update complete for '$accountID'."
 
-    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -Successes $result.Successes -Failures $result.Failures
+    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
 
     return $result
 }

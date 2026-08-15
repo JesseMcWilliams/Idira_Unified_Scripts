@@ -202,6 +202,7 @@ Describe 'Invoke-SafeMembersAdd — permission presets' {
     It 'MA11 — ReadOnly: only ListAccounts, ViewAuditLog, ViewSafeMembers are $true in body' {
         $capturedBody = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedBody -Value $PSBoundParameters.Body -Scope Script
             script:New-MemberApiResponse -Member $script:SampleResponse -StatusCode 201
         }
@@ -216,6 +217,7 @@ Describe 'Invoke-SafeMembersAdd — permission presets' {
     It 'MA12 — SafeManager: ManageSafe is $true in body' {
         $capturedBody = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedBody -Value $PSBoundParameters.Body -Scope Script
             $mgr = $script:SampleResponse.PSObject.Copy()
             script:New-MemberApiResponse -Member $mgr -StatusCode 201
@@ -317,6 +319,7 @@ Describe 'Invoke-SafeMembersAdd — API errors' {
     It 'MA22 — endpoint contains URL-encoded SafeName' {
         $capturedEndpoint = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedEndpoint -Value $PSBoundParameters.Endpoint -Scope Script
             script:New-MemberApiResponse -Member $script:SampleResponse -StatusCode 201
         }

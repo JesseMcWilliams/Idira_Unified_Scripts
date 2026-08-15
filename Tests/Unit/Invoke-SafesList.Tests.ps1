@@ -205,6 +205,7 @@ Describe 'Invoke-SafesList — successful response' {
     It 'S17 — Search value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-SafesApiResponse
         }
@@ -215,6 +216,7 @@ Describe 'Invoke-SafesList — successful response' {
     It 'S18 — Filter value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-SafesApiResponse
         }
@@ -225,6 +227,7 @@ Describe 'Invoke-SafesList — successful response' {
     It 'S19 — ExtendedDetails=$true sends extendedDetails=true' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-SafesApiResponse
         }
@@ -235,6 +238,7 @@ Describe 'Invoke-SafesList — successful response' {
     It 'S20 — empty Search string means no search key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-SafesApiResponse
         }
@@ -245,6 +249,7 @@ Describe 'Invoke-SafesList — successful response' {
     It 'S21 — empty Filter string means no filter key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-SafesApiResponse
         }
@@ -255,6 +260,7 @@ Describe 'Invoke-SafesList — successful response' {
     It 'S22 — ExtendedDetails=$false means no extendedDetails key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-SafesApiResponse
         }

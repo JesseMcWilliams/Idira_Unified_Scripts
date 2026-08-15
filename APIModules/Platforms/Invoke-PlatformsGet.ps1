@@ -67,7 +67,7 @@ function Invoke-PlatformsGet {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $platformID = if ($InputData.PlatformID) { "$($InputData.PlatformID)".Trim() } else { '' }
+    $platformID = if ($InputData['PlatformID']) { "$($InputData['PlatformID'])".Trim() } else { '' }
 
     if (-not $platformID) {
         Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-PlatformsGet: PlatformID is required but was not provided.'
