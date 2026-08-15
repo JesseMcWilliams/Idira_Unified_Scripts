@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Idira Unified Scripts — CyberArk PAS interactive driver.
@@ -987,7 +987,7 @@ function Show-ActionMenu {
         Write-Host ''
     } else {
         $groups = $script:LoadedModules |
-                  Sort-Object { $_.Meta.PSObject.Properties['Priority'] ? $_.Meta.Priority : 99 },
+                  Sort-Object { if ($_.Meta.PSObject.Properties['Priority']) { $_.Meta.Priority } else { 99 } },
                                { $_.Meta.Category }, { $_.Meta.Action } |
                   Group-Object { $_.Meta.Category }
 

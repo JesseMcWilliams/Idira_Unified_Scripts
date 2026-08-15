@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Shared logging module for CyberArk PAS Scripts.
@@ -253,7 +253,7 @@ function Write-CyberArkLog {
         $FunctionName = if ($frame.FunctionName -and $frame.FunctionName -ne '<ScriptBlock>') {
             $frame.FunctionName
         } else {
-            $frame.ScriptName ? [System.IO.Path]::GetFileName($frame.ScriptName) : '<unknown>'
+            if ($frame.ScriptName) { [System.IO.Path]::GetFileName($frame.ScriptName) } else { '<unknown>' }
         }
     }
 

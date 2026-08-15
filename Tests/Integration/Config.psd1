@@ -1,4 +1,4 @@
-@{
+﻿@{
     # CyberArk self-hosted PVWA connection
     PVWABaseURL    = 'https://pvwa.company.com/PasswordVault'
     AuthMethod     = 'CyberArk'
