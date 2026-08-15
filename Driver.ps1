@@ -166,7 +166,7 @@ function Get-AllDriverProfiles {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
             # Normalize: add any fields introduced after this profile was saved
-            foreach ($field in @('BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
+            foreach ($field in @('SystemType', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
                 if (-not $p.PSObject.Properties[$field]) {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue '' -Force
                 }
@@ -200,9 +200,15 @@ function Get-AllDriverProfiles {
                 }
             }
 
+            # Profile's SystemType takes precedence; map legacy token values to display labels
+            $displaySystemType = if ($p.SystemType) { $p.SystemType }
+                                 elseif ($systemType -eq 'ISPSS')      { 'Privilege Cloud' }
+                                 elseif ($systemType -eq 'SelfHosted') { 'Self-Hosted' }
+                                 else                                   { $systemType }
+
             [PSCustomObject]@{
                 ProfileName  = $p.ProfileName
-                SystemType   = $systemType
+                SystemType   = $displaySystemType
                 AuthMethod   = $authMethod
                 BaseURL      = $baseURL
                 TokenStatus  = $tokenStatus
@@ -237,6 +243,7 @@ function New-BlankProfile {
     return [PSCustomObject]@{
         ProfileName      = $Name
         AuthTokenProfile = $Name
+        SystemType       = ''
         BaseURL          = ''
         LogFolder        = ''
         InputFolder      = ''
@@ -275,7 +282,7 @@ function Show-ProfileList {
     # Column widths
     $numW  = 3
     $nameW = [Math]::Max(16, ($selectedProfiles | ForEach-Object { $_.ProfileName.Length } | Measure-Object -Maximum).Maximum + 2)
-    $sysW  = 11
+    $sysW  = 15
     $authW = 20
     $useW  = 17
     $statW = 10
@@ -324,6 +331,7 @@ function Show-ProfileDetail {
     Show-Divider
     Field 'currentProfile Name'    $p.ProfileName    'Cyan'
     Field 'Auth currentProfile'    $p.AuthTokenProfile
+    Field 'System Type'     $(if ($p.SystemType)  { $p.SystemType }  else { '(Not Set)' }) $(if ($p.SystemType) { 'Cyan' } else { 'Yellow' })
     Field 'Base URL'        $(if ($p.BaseURL)      {$p.BaseURL} else { '(Not Set)' })
     Field 'Log Folder'      $(if ($p.LogFolder)    { $p.LogFolder    } else { '(launch directory)' })
     Field 'Input Folder'    $(if ($p.InputFolder)  { $p.InputFolder  } else { '(launch directory)' })
@@ -404,8 +412,41 @@ function Invoke-ProfileEditFlow {
     }
 
     Write-Host ''
-    $currentProfile.BaseURL = Show-FieldPrompt -Label 'Base URL' -Default $currentProfile.BaseURL `
-        -Description 'Base URL for API calls. https://pvwa.company.com or https://tenantID.privilegecloud.cyberark.com'
+    # System Type — must be set before the Base URL prompt can be tailored
+    $validSystemTypes = @('Privilege Cloud', 'Self-Hosted')
+    $sysTypeIn = $currentProfile.SystemType
+    do {
+        $sysTypeIn = Show-FieldPrompt -Label 'System Type' -Default $sysTypeIn `
+            -Description 'Deployment: Privilege Cloud (SaaS / ISPSS)  or  Self-Hosted (on-premises PVWA)'
+        if ($sysTypeIn -notin $validSystemTypes) {
+            Write-Host "    Enter 'Privilege Cloud' or 'Self-Hosted'." -ForegroundColor Red
+        }
+    } while ($sysTypeIn -notin $validSystemTypes)
+    $currentProfile.SystemType = $sysTypeIn
+
+    # Base URL — prompt depends on SystemType
+    Write-Host ''
+    $pcloudTemplate = 'https://{0}.privilegecloud.cyberark.cloud'
+    switch ($currentProfile.SystemType) {
+        'Privilege Cloud' {
+            $subdomain = ''
+            if ($currentProfile.BaseURL -match '^https://(.+)\.privilegecloud\.cyberark\.cloud/?$') {
+                $subdomain = $Matches[1]
+            }
+            $subdomain = Show-FieldPrompt -Label 'Privilege Cloud Subdomain' -Default $subdomain `
+                -Description 'Subdomain of your tenant URL. For acme.privilegecloud.cyberark.cloud, enter: acme'
+            if ($subdomain) {
+                $currentProfile.BaseURL = $pcloudTemplate -f $subdomain.Trim()
+            }
+        }
+        'Self-Hosted' {
+            $currentProfile.BaseURL = Show-FieldPrompt -Label 'PVWA Base URL' -Default $currentProfile.BaseURL `
+                -Description 'Base URL of your PVWA server. Example: https://pvwa.company.com'
+            if ($currentProfile.BaseURL) {
+                $currentProfile.BaseURL = $currentProfile.BaseURL.TrimEnd('/')
+            }
+        }
+    }
 
     $currentProfile.LogFolder = Show-FieldPrompt -Label 'Log Folder' -Default $currentProfile.LogFolder `
         -Description 'Absolute path for log files. Leave blank to use the script launch directory.'
@@ -569,10 +610,15 @@ function Invoke-ProfileManagementLoop {
 
             Show-ProfileDetail -Summary $selected -Breadcrumbs $detailCrumbs
 
-            $isIncomplete = [string]::IsNullOrWhiteSpace($selected.currentProfile.BaseURL)
+            $missingSystemType = [string]::IsNullOrWhiteSpace($selected.currentProfile.SystemType)
+            $missingBaseURL    = [string]::IsNullOrWhiteSpace($selected.currentProfile.BaseURL)
+            $isIncomplete      = $missingSystemType -or $missingBaseURL
             if ($isIncomplete) {
+                $missingFields = @()
+                if ($missingSystemType) { $missingFields += 'System Type' }
+                if ($missingBaseURL)    { $missingFields += 'Base URL' }
                 Write-Host ''
-                Write-Host '  WARNING: This profile is incomplete — Base URL is required to connect.' -ForegroundColor Yellow
+                Write-Host ("  WARNING: Profile incomplete — missing: $($missingFields -join ', ').") -ForegroundColor Yellow
                 Write-Host '  Choose E to edit it or D to delete this profile.' -ForegroundColor Yellow
             }
 
@@ -608,6 +654,16 @@ function Invoke-ProfileManagementLoop {
                         Write-Host ''
                         try {
                             $authParams = @{ IgnoreSSL = $selectedProfile.IgnoreSSL }
+                            # Map profile SystemType to the auth script's expected values
+                            if ($selectedProfile.SystemType -eq 'Privilege Cloud') {
+                                $authParams['SystemType'] = 'ISPSS'
+                                if ($selectedProfile.BaseURL -match '^https://(.+)\.privilegecloud\.cyberark\.cloud') {
+                                    $authParams['PCloudSubdomain'] = $Matches[1]
+                                }
+                            } elseif ($selectedProfile.SystemType -eq 'Self-Hosted') {
+                                $authParams['SystemType'] = 'SelfHosted'
+                                if ($selectedProfile.BaseURL) { $authParams['PVWAUrl'] = $selectedProfile.BaseURL }
+                            }
                             $token = Get-AuthToken @authParams
                         } catch {
                             Write-Host "  Authentication failed: $_" -ForegroundColor Red

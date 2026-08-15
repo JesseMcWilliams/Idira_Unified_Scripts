@@ -243,6 +243,8 @@ Non-sensitive settings only. Human-readable without decryption.
 {
     "ProfileName":      "Production",
     "AuthTokenProfile": "Production",
+    "SystemType":       "Privilege Cloud",
+    "BaseURL":          "https://acme.privilegecloud.cyberark.cloud",
     "LogFolder":        "",
     "InputFolder":      "",
     "OutputFolder":     "",
@@ -261,6 +263,8 @@ Non-sensitive settings only. Human-readable without decryption.
 |---|---|---|
 | `ProfileName` | string | Display name. Also used to derive file names. |
 | `AuthTokenProfile` | string | Name portion of the corresponding `.xml` auth token file. Usually identical to `ProfileName`. |
+| `SystemType` | string | `Privilege Cloud` (SaaS / ISPSS) or `Self-Hosted` (on-premises PVWA). Drives the Base URL prompt and maps to the auth script's `ISPSS` / `SelfHosted` parameter values. |
+| `BaseURL` | string | Full base URL for API calls. For Privilege Cloud: `https://<subdomain>.privilegecloud.cyberark.cloud`. For Self-Hosted: `https://pvwa.company.com`. No trailing slash. |
 | `LogFolder` | string | Absolute path. Empty string resolves to the script launch directory at runtime. |
 | `InputFolder` | string | Default folder for open-file dialogs. Empty = launch directory. |
 | `OutputFolder` | string | Destination for output CSVs and save-file dialogs. Empty = launch directory. |
@@ -270,6 +274,17 @@ Non-sensitive settings only. Human-readable without decryption.
 | `LastUsed` | ISO 8601 UTC | Updated each time the profile is selected. |
 | `Created` | ISO 8601 UTC | Set once at profile creation. |
 | `Modified` | ISO 8601 UTC | Updated whenever any profile field changes. |
+
+### SystemType → BaseURL prompt mapping
+
+| `SystemType` value | Edit-flow prompt | `BaseURL` format stored |
+|---|---|---|
+| `Privilege Cloud` | Asks for the tenant **subdomain** (e.g. `acme`). URL is constructed automatically. | `https://<subdomain>.privilegecloud.cyberark.cloud` |
+| `Self-Hosted` | Asks for the full **PVWA base URL** directly. Trailing slash is stripped on save. | `https://pvwa.company.com` |
+
+When calling `Get-AuthToken`, the driver maps these values back to the auth script's parameter set:
+`Privilege Cloud` → `-SystemType ISPSS -PCloudSubdomain <subdomain>` |
+`Self-Hosted` → `-SystemType SelfHosted -PVWAUrl <BaseURL>`
 
 ---
 

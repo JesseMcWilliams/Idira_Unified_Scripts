@@ -259,6 +259,8 @@ result object. See [API-Module-Development-Guide.md](API-Module-Development-Guid
 | Decision | Choice | Reason |
 |---|---|---|
 | Profile storage | Two files: JSON + DPAPI XML | JSON for non-sensitive settings (readable without decryption); XML for credentials (DPAPI-protected). Keeps profile listing fast. |
+| SystemType in profile | `'Privilege Cloud'` / `'Self-Hosted'` (user-facing labels) | Maps to auth script values `'ISPSS'`/`'SelfHosted'` at call time. User-facing labels are more descriptive than the internal values. Stored in JSON so the edit flow can tailor the Base URL prompt without loading the XML token. |
+| Base URL collection | Branched by SystemType | Privilege Cloud: user enters subdomain only; URL is constructed from the template (`https://{0}.privilegecloud.cyberark.cloud`). Self-Hosted: user enters the full PVWA URL. Matches the prompting logic in `Get-AuthToken.ps1`. |
 | Credential protection | `Export-Clixml` (DPAPI) | Native PowerShell, no external dependencies. User+machine locked — deliberate trade-off for security over portability. |
 | Token string protection | Convert to `SecureString` before `Export-Clixml` | Ensures the bearer token is DPAPI-encrypted in the XML, not stored as plaintext. |
 | Browser-based auth | WebView2 over IE `WebBrowser` | IE-based `Windows.Forms.WebBrowser` is deprecated. WebView2 uses the Edge engine, supports modern auth flows, and provides `CookieManager` API. |

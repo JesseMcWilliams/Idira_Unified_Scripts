@@ -95,3 +95,6 @@ Build documents in this sequence to support the implementation phases:
 | 2026-08-15 | Lessons-Learned-PowerShell-Pester.md | Added Section 4 — PS 5.1 strict-mode patterns: hashtable dot notation, PSCustomObject optional properties, null-safe Count, Pester Should-Not-Throw scope |
 | 2026-08-15 | API-Module-Development-Guide.md | Fixed dot-notation examples to bracket notation; added strict-mode safety checklist items |
 | 2026-08-15 | 10+ API modules | Fixed PS 5.1 strict-mode bugs: $InputData bracket notation, PSObject.Properties guards, null-safe Count — all 583 unit tests passing |
+| 2026-08-15 | Driver.ps1 | Added SystemType field (Privilege Cloud / Self-Hosted) to profile; branched BaseURL prompt in edit flow; passes SystemType + URL pre-populated to Get-AuthToken |
+| 2026-08-15 | Interfaces.md | Updated Driver Profile JSON schema: added SystemType and BaseURL fields, field reference table, and SystemType→BaseURL prompt mapping table |
+| 2026-08-15 | Architecture.md | Added Design Decisions rows for SystemType labelling and branched BaseURL collection |
