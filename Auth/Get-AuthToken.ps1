@@ -811,7 +811,7 @@ function Invoke-SelfHostedPasswordAuth {
     try {
         $token = Invoke-PVWALogon -Url $logonUrl -Body $body -IgnoreSSL:$IgnoreSSL
     } catch {
-        throw "$AuthMethod authentication failed: $_"
+        throw "$AuthMethod authentication failed at '$logonUrl': $_"
     }
 
     New-AuthTokenObject `
@@ -847,7 +847,7 @@ function Invoke-SelfHostedShared {
     try {
         $token = Invoke-PVWALogon -Url $logonUrl -Body $body -IgnoreSSL:$IgnoreSSL
     } catch {
-        throw "Shared authentication failed: $_"
+        throw "Shared authentication failed at '$logonUrl': $_"
     }
 
     New-AuthTokenObject `
@@ -884,7 +884,7 @@ function Invoke-SelfHostedPKI {
     try {
         $token = Invoke-PVWALogon -Url $logonUrl -Body $body -Certificate $Certificate -IgnoreSSL:$IgnoreSSL
     } catch {
-        throw "$AuthMethod authentication failed: $_"
+        throw "$AuthMethod authentication failed at '$logonUrl': $_"
     }
 
     New-AuthTokenObject `
@@ -1013,10 +1013,20 @@ function Get-AuthToken {
 
     $validMethods = $script:VALID_AUTH_METHODS[$SystemType]
     if (-not $AuthMethod -or $AuthMethod -notin $validMethods) {
-        Write-Host "`nSupported methods for $SystemType`: $($validMethods -join ', ')"
+        Write-Host ''
+        Write-Host "  Authentication Method ($SystemType):" -ForegroundColor White
+        for ($i = 0; $i -lt $validMethods.Count; $i++) {
+            Write-Host ("    [$($i+1)] $($validMethods[$i])") -ForegroundColor Gray
+        }
         do {
-            $AuthMethod = Read-Host "Authentication method"
-        } while ($AuthMethod -notin $validMethods)
+            $authChoice = Read-Host "Select method (1-$($validMethods.Count))"
+            $authIdx = 0
+            $authValid = [int]::TryParse($authChoice, [ref]$authIdx) -and $authIdx -ge 1 -and $authIdx -le $validMethods.Count
+            if (-not $authValid) {
+                Write-Host "  Enter a number between 1 and $($validMethods.Count)." -ForegroundColor Yellow
+            }
+        } while (-not $authValid)
+        $AuthMethod = $validMethods[$authIdx - 1]
     }
 
     if ($IgnoreSSL -and $PSVersionTable.PSVersion.Major -lt 6) {

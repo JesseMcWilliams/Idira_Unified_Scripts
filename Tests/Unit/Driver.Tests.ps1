@@ -195,8 +195,8 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
     }
 
     It 'DP13 — creates profile and returns null when user then quits' {
-        'N', '2', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
-        'CreatedProfile', 'https://pvwa.test.com', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
+        'N', '2', '1', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+        'CreatedProfile', 'https://pvwa.test.com', '', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
 
         $result = Invoke-ProfileManagementLoop
         $result | Should -BeNullOrEmpty
@@ -206,8 +206,8 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
     }
 
     It 'DP14 — profile saved with correct ProfileName' {
-        'N', '2', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
-        'VerifyName', 'https://pvwa.test.com', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
+        'N', '2', '1', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+        'VerifyName', 'https://pvwa.test.com', '', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
 
         Invoke-ProfileManagementLoop | Out-Null
 
@@ -215,6 +215,8 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
         $saved               | Should -Not -BeNullOrEmpty
         $saved.ProfileName   | Should -Be 'VerifyName'
         $saved.SystemType    | Should -Be 'Self-Hosted'
+        $saved.AuthMethod    | Should -Be 'CyberArk'
+        $saved.AppName       | Should -Be 'PasswordVault'
         $saved.BaseURL       | Should -Be 'https://pvwa.test.com'
         $saved.IgnoreSSL     | Should -Be $false
         $saved.WhatIfDefault | Should -Be $false

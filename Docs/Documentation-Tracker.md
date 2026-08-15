@@ -98,3 +98,6 @@ Build documents in this sequence to support the implementation phases:
 | 2026-08-15 | Driver.ps1 | Added SystemType field (Privilege Cloud / Self-Hosted) to profile; branched BaseURL prompt in edit flow; passes SystemType + URL pre-populated to Get-AuthToken |
 | 2026-08-15 | Interfaces.md | Updated Driver Profile JSON schema: added SystemType and BaseURL fields, field reference table, and SystemType→BaseURL prompt mapping table |
 | 2026-08-15 | Architecture.md | Added Design Decisions rows for SystemType labelling and branched BaseURL collection |
+| 2026-08-15 | Driver.ps1 | Added AppName field (default PasswordVault) and AuthMethod field to profile; numbered auth method selection in edit flow; fixed Self-Hosted PVWAUrl to join BaseURL+AppName; Privilege Cloud token.BaseURL patched post-auth; LogFolder/OutputFolder auto-created; URL shown in auth error messages |
+| 2026-08-15 | Get-AuthToken.ps1 | Replaced auth method text prompt with numbered list selection; logon URL included in authentication failure error messages |
+| 2026-08-15 | Interfaces.md | Updated Driver Profile JSON schema: added AppName and AuthMethod fields; updated Get-AuthToken call mapping to include AppName in PVWAUrl construction |

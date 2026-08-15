@@ -165,9 +165,10 @@ function Get-AllDriverProfiles {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
             # Normalize: add any fields introduced after this profile was saved
-            foreach ($field in @('SystemType', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
+            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
+                $defaultVal = if ($field -eq 'AppName') { 'PasswordVault' } else { '' }
                 if (-not $p.PSObject.Properties[$field]) {
-                    $p | Add-Member -NotePropertyName $field -NotePropertyValue '' -Force
+                    $p | Add-Member -NotePropertyName $field -NotePropertyValue $defaultVal -Force
                 }
             }
             foreach ($field in @('IgnoreSSL', 'WhatIfDefault')) {
@@ -243,6 +244,8 @@ function New-BlankProfile {
         ProfileName      = $Name
         AuthTokenProfile = $Name
         SystemType       = ''
+        AppName          = 'PasswordVault'
+        AuthMethod       = ''
         BaseURL          = ''
         LogFolder        = ''
         InputFolder      = ''
@@ -331,7 +334,9 @@ function Show-ProfileDetail {
     Field 'currentProfile Name'    $p.ProfileName    'Cyan'
     Field 'Auth currentProfile'    $p.AuthTokenProfile
     Field 'System Type'     $(if ($p.SystemType)  { $p.SystemType }  else { '(Not Set)' }) $(if ($p.SystemType) { 'Cyan' } else { 'Yellow' })
-    Field 'Base URL'        $(if ($p.BaseURL)      {$p.BaseURL} else { '(Not Set)' })
+    Field 'Auth Method'     $(if ($p.AuthMethod)  { $p.AuthMethod }  else { '(Not Set)' }) $(if ($p.AuthMethod) { 'Cyan' } else { 'Yellow' })
+    Field 'Base URL'        $(if ($p.BaseURL)      { $p.BaseURL } else { '(Not Set)' })
+    Field 'Application'     $(if ($p.AppName)      { $p.AppName } else { 'PasswordVault' })
     Field 'Log Folder'      $(if ($p.LogFolder)    { $p.LogFolder    } else { '(launch directory)' })
     Field 'Input Folder'    $(if ($p.InputFolder)  { $p.InputFolder  } else { '(launch directory)' })
     Field 'Output Folder'   $(if ($p.OutputFolder) { $p.OutputFolder } else { '(launch directory)' })
@@ -428,6 +433,29 @@ function Invoke-ProfileEditFlow {
     } while ($sysChoice -notin @('1', '2'))
     $currentProfile.SystemType = $sysTypeMap[$sysChoice]
 
+    # Auth Method — numbered choice, depends on SystemType
+    Write-Host ''
+    $ispssAuthMethods      = @('ClientCredentials', 'Interactive', 'SSO')
+    $selfHostedAuthMethods = @('CyberArk', 'LDAP', 'RADIUS', 'SAML', 'OIDC', 'Shared', 'PKI', 'PKIPN')
+    $authMethods = if ($currentProfile.SystemType -eq 'Privilege Cloud') { $ispssAuthMethods } else { $selfHostedAuthMethods }
+    Write-Host '  Auth Method:' -ForegroundColor White
+    for ($i = 0; $i -lt $authMethods.Count; $i++) {
+        Write-Host ("    [$($i+1)] $($authMethods[$i])") -ForegroundColor Gray
+    }
+    if ($currentProfile.AuthMethod -and $currentProfile.AuthMethod -in $authMethods) {
+        Write-Host ("    Current: $($currentProfile.AuthMethod)") -ForegroundColor DarkCyan
+    }
+    $methodChoice = ''
+    do {
+        $methodChoice = Read-MenuChoice -Prompt "1 - $($authMethods.Count)"
+        $methodIdx = 0
+        $methodValid = [int]::TryParse($methodChoice, [ref]$methodIdx) -and $methodIdx -ge 1 -and $methodIdx -le $authMethods.Count
+        if (-not $methodValid) {
+            Write-Host "    Invalid — enter 1 through $($authMethods.Count)." -ForegroundColor Red
+        }
+    } while (-not $methodValid)
+    $currentProfile.AuthMethod = $authMethods[$methodIdx - 1]
+
     # Base URL — prompt depends on SystemType
     Write-Host ''
     $pcloudTemplate = 'https://{0}.privilegecloud.cyberark.cloud'
@@ -451,6 +479,12 @@ function Invoke-ProfileEditFlow {
             }
         }
     }
+
+    Write-Host ''
+    $appNameDefault = if ($currentProfile.AppName) { $currentProfile.AppName } else { 'PasswordVault' }
+    $enteredAppName = Show-FieldPrompt -Label 'Application Name' -Default $appNameDefault `
+        -Description 'CyberArk application name in the URL path (e.g. PasswordVault). Joined with Base URL for API calls.'
+    $currentProfile.AppName = if ($enteredAppName) { $enteredAppName } else { 'PasswordVault' }
 
     $currentProfile.LogFolder = Show-FieldPrompt -Label 'Log Folder' -Default $currentProfile.LogFolder `
         -Description 'Absolute path for log files. Leave blank to use the script launch directory.'
@@ -658,6 +692,8 @@ function Invoke-ProfileManagementLoop {
                         Write-Host ''
                         try {
                             $authParams = @{ IgnoreSSL = $selectedProfile.IgnoreSSL }
+                            if ($selectedProfile.AuthMethod) { $authParams['AuthMethod'] = $selectedProfile.AuthMethod }
+                            $appName = if ($selectedProfile.AppName) { $selectedProfile.AppName.Trim('/') } else { 'PasswordVault' }
                             # Map profile SystemType to the auth script's expected values
                             if ($selectedProfile.SystemType -eq 'Privilege Cloud') {
                                 $authParams['SystemType'] = 'ISPSS'
@@ -666,12 +702,22 @@ function Invoke-ProfileManagementLoop {
                                 }
                             } elseif ($selectedProfile.SystemType -eq 'Self-Hosted') {
                                 $authParams['SystemType'] = 'SelfHosted'
-                                if ($selectedProfile.BaseURL) { $authParams['PVWAUrl'] = $selectedProfile.BaseURL }
+                                if ($selectedProfile.BaseURL) {
+                                    $authParams['PVWAUrl'] = "$($selectedProfile.BaseURL.TrimEnd('/'))/$appName"
+                                }
                             }
                             $token = Get-AuthToken @authParams
+                            # For Privilege Cloud, patch token.BaseURL to include AppName for subsequent API calls
+                            if ($token -and $selectedProfile.SystemType -eq 'Privilege Cloud' -and $token.BaseURL) {
+                                $token.BaseURL = "$($token.BaseURL.TrimEnd('/'))/$appName"
+                            }
                         } catch {
-                            Write-Host "  Authentication failed: $_" -ForegroundColor Red
-                            Write-CyberArkLog -Message "Authentication failed for profile '$($selectedProfile.ProfileName)': $_" -Level 'ERROR'
+                            $urlInfo = if ($selectedProfile.SystemType -eq 'Self-Hosted' -and $selectedProfile.BaseURL) {
+                                $an = if ($selectedProfile.AppName) { $selectedProfile.AppName.Trim('/') } else { 'PasswordVault' }
+                                " [URL: $($selectedProfile.BaseURL.TrimEnd('/'))/$an]"
+                            } else { '' }
+                            Write-Host "  Authentication failed$($urlInfo): $_" -ForegroundColor Red
+                            Write-CyberArkLog -Message "Authentication failed for profile '$($selectedProfile.ProfileName)'$($urlInfo): $_" -Level 'ERROR'
                             Write-Host '  Press Enter to return to profile selection.' -ForegroundColor DarkGray
                             Read-Host | Out-Null
                             break
@@ -1305,6 +1351,18 @@ while ($true) {
         Write-CyberArkLog -Message 'User exited at profile selection.' -Level 'INFO'
         Close-CyberArkLog
         exit 0
+    }
+
+    # Create log and output folders if configured but not yet present
+    foreach ($folderProp in @('LogFolder', 'OutputFolder')) {
+        $folderPath = $script:ActiveProfile.$folderProp
+        if ($folderPath -and -not (Test-Path -LiteralPath $folderPath)) {
+            try {
+                New-Item -ItemType Directory -Path $folderPath -Force | Out-Null
+            } catch {
+                Write-CyberArkLog -Message "Could not create folder '$folderPath': $_" -Level 'WARN'
+            }
+        }
     }
 
     # Re-initialize log with the active profile's folder and metadata

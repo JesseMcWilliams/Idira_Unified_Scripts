@@ -244,6 +244,8 @@ Non-sensitive settings only. Human-readable without decryption.
     "ProfileName":      "Production",
     "AuthTokenProfile": "Production",
     "SystemType":       "Privilege Cloud",
+    "AppName":          "PasswordVault",
+    "AuthMethod":       "ClientCredentials",
     "BaseURL":          "https://acme.privilegecloud.cyberark.cloud",
     "LogFolder":        "",
     "InputFolder":      "",
@@ -264,7 +266,9 @@ Non-sensitive settings only. Human-readable without decryption.
 | `ProfileName` | string | Display name. Also used to derive file names. |
 | `AuthTokenProfile` | string | Name portion of the corresponding `.xml` auth token file. Usually identical to `ProfileName`. |
 | `SystemType` | string | `Privilege Cloud` (SaaS / ISPSS) or `Self-Hosted` (on-premises PVWA). Drives the Base URL prompt and maps to the auth script's `ISPSS` / `SelfHosted` parameter values. |
-| `BaseURL` | string | Full base URL for API calls. For Privilege Cloud: `https://<subdomain>.privilegecloud.cyberark.cloud`. For Self-Hosted: `https://pvwa.company.com`. No trailing slash. |
+| `AppName` | string | CyberArk application name used in the URL path. Default: `PasswordVault`. Joined with `BaseURL` when making API calls: `https://pvwa.company.com/PasswordVault`. |
+| `AuthMethod` | string | Preferred authentication method for this profile. Set during profile creation; passed directly to `Get-AuthToken` to skip the interactive method prompt. |
+| `BaseURL` | string | Base URL without application path. For Privilege Cloud: `https://<subdomain>.privilegecloud.cyberark.cloud`. For Self-Hosted: `https://pvwa.company.com`. No trailing slash. |
 | `LogFolder` | string | Absolute path. Empty string resolves to the script launch directory at runtime. |
 | `InputFolder` | string | Default folder for open-file dialogs. Empty = launch directory. |
 | `OutputFolder` | string | Destination for output CSVs and save-file dialogs. Empty = launch directory. |
@@ -283,8 +287,10 @@ Non-sensitive settings only. Human-readable without decryption.
 | `Self-Hosted` | Asks for the full **PVWA base URL** directly. Trailing slash is stripped on save. | `https://pvwa.company.com` |
 
 When calling `Get-AuthToken`, the driver maps these values back to the auth script's parameter set:
-`Privilege Cloud` → `-SystemType ISPSS -PCloudSubdomain <subdomain>` |
-`Self-Hosted` → `-SystemType SelfHosted -PVWAUrl <BaseURL>`
+- `Privilege Cloud` → `-SystemType ISPSS -PCloudSubdomain <subdomain> [-AuthMethod <method>]`
+- `Self-Hosted` → `-SystemType SelfHosted -PVWAUrl <BaseURL>/<AppName> [-AuthMethod <method>]`
+
+`AppName` is always joined to `BaseURL` when constructing `PVWAUrl` for Self-Hosted calls (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, the driver patches `token.BaseURL` after auth to include `AppName` for downstream API calls.
 
 ---
 
