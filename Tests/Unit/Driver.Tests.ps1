@@ -185,7 +185,8 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
         }
 
         # Queued field values for Invoke-ProfileEditFlow:
-        #   ProfileName, SystemType, BaseURL/Subdomain, LogFolder, InputFolder, OutputFolder, IgnoreSSL, WhatIfDefault
+        #   ProfileName, BaseURL/Subdomain, LogFolder, InputFolder, OutputFolder, IgnoreSSL, WhatIfDefault
+        # SystemType is now a numbered Read-MenuChoice ('1'=Privilege Cloud, '2'=Self-Hosted) and goes into MenuQ
         $script:FieldQ = [System.Collections.Generic.Queue[string]]::new()
         Mock Show-FieldPrompt {
             param($Label, $Default, $Description, [switch]$Required, [switch]$IsSecret)
@@ -194,8 +195,8 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
     }
 
     It 'DP13 — creates profile and returns null when user then quits' {
-        'N', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
-        'CreatedProfile', 'Self-Hosted', 'https://pvwa.test.com', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
+        'N', '2', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+        'CreatedProfile', 'https://pvwa.test.com', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
 
         $result = Invoke-ProfileManagementLoop
         $result | Should -BeNullOrEmpty
@@ -205,8 +206,8 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
     }
 
     It 'DP14 — profile saved with correct ProfileName' {
-        'N', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
-        'VerifyName', 'Self-Hosted', 'https://pvwa.test.com', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
+        'N', '2', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+        'VerifyName', 'https://pvwa.test.com', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
 
         Invoke-ProfileManagementLoop | Out-Null
 

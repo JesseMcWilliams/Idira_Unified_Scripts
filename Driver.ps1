@@ -27,7 +27,7 @@ $ErrorActionPreference = 'Stop'
 
 $script:AppName              = 'Idira Unified Scripts — CyberArk PAS Driver'
 $script:Version              = '1.0.0'
-$script:AuthScriptPath       = Join-Path $PSScriptRoot 'ISPSS Scripts\Get-AuthToken.ps1'
+$script:AuthScriptPath       = Join-Path $PSScriptRoot 'Auth\Get-AuthToken.ps1'
 $script:LoggingModulePath    = Join-Path $PSScriptRoot 'Modules\CyberArkLogging.psm1'
 $script:CommsModulePath      = Join-Path $PSScriptRoot 'Modules\CyberArkComms.psm1'
 $script:APIModulesPath       = Join-Path $PSScriptRoot 'APIModules'
@@ -64,7 +64,6 @@ function Assert-Prerequisites {
 
     Import-Module $script:LoggingModulePath   -Force -ErrorAction Stop
     Import-Module $script:CommsModulePath     -Force -ErrorAction Stop
-    . $script:AuthScriptPath
 }
 
 #endregion
@@ -412,17 +411,22 @@ function Invoke-ProfileEditFlow {
     }
 
     Write-Host ''
-    # System Type — must be set before the Base URL prompt can be tailored
-    $validSystemTypes = @('Privilege Cloud', 'Self-Hosted')
-    $sysTypeIn = $currentProfile.SystemType
+    # System Type — numbered choice so the user only has to type one key
+    $sysTypeMap = @{ '1' = 'Privilege Cloud'; '2' = 'Self-Hosted' }
+    Write-Host '  System Type:' -ForegroundColor White
+    Write-Host '    [1] Privilege Cloud   — SaaS / ISPSS  (*.privilegecloud.cyberark.cloud)' -ForegroundColor Gray
+    Write-Host '    [2] Self-Hosted       — On-premises PVWA' -ForegroundColor Gray
+    if ($currentProfile.SystemType) {
+        Write-Host ("    Current: $($currentProfile.SystemType)") -ForegroundColor DarkCyan
+    }
+    $sysChoice = ''
     do {
-        $sysTypeIn = Show-FieldPrompt -Label 'System Type' -Default $sysTypeIn `
-            -Description 'Deployment: Privilege Cloud (SaaS / ISPSS)  or  Self-Hosted (on-premises PVWA)'
-        if ($sysTypeIn -notin $validSystemTypes) {
-            Write-Host "    Enter 'Privilege Cloud' or 'Self-Hosted'." -ForegroundColor Red
+        $sysChoice = Read-MenuChoice -Prompt '1 / 2'
+        if ($sysChoice -notin @('1', '2')) {
+            Write-Host '    Invalid — enter 1 or 2.' -ForegroundColor Red
         }
-    } while ($sysTypeIn -notin $validSystemTypes)
-    $currentProfile.SystemType = $sysTypeIn
+    } while ($sysChoice -notin @('1', '2'))
+    $currentProfile.SystemType = $sysTypeMap[$sysChoice]
 
     # Base URL — prompt depends on SystemType
     Write-Host ''
@@ -1285,6 +1289,7 @@ if ($MyInvocation.InvocationName -eq '.') { return }
 try {
 
 Assert-Prerequisites
+. $script:AuthScriptPath   # dot-source at script scope so Get-AuthToken is available everywhere
 
 Initialize-CyberArkLog -ProfileName 'Startup' -Destination 'Console' -MinLevel 'INFO'
 Write-CyberArkLog -Message "$($script:AppName) v$($script:Version) starting. PID: $PID" -Level 'INFO'

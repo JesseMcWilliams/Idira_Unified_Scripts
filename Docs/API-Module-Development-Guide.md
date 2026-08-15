@@ -29,7 +29,7 @@ PowerShell/
 │   └── SafeMembers/
 │       ├── Invoke-SafeMembersList.ps1
 │       └── Invoke-SafeMembersAdd.ps1
-├── ISPSS Scripts/
+├── Auth/
 │   └── Get-AuthToken.ps1
 └── Docs/
     └── API-Module-Development-Guide.md

@@ -63,7 +63,7 @@ the driver.
 ```
 PowerShell\
 ├── Driver.ps1                          # Interactive driver script
-├── ISPSS Scripts\
+├── Auth\
 │   └── Get-AuthToken.ps1               # Authentication — ISPSS and Self-Hosted
 ├── Modules\
 │   ├── CyberArkComms.psm1              # Shared REST communications module
