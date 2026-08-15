@@ -232,9 +232,9 @@ Describe 'Invoke-SafesUpdate — validation' {
     }
 
     It 'U12 — empty SafeName: Failures=1 and no API call made' {
-        $input = $script:ValidInput.Clone()
-        $input.SafeName = ''
-        $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.SafeName = ''
+        $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }

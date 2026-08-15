@@ -261,17 +261,17 @@ Describe 'Invoke-SafeMembersAdd — validation' {
     }
 
     It 'MA15 — empty SafeName: Failures=1, no API call' {
-        $input = $script:ValidInput.Clone()
-        $input.SafeName = ''
-        $r = Invoke-SafeMembersAdd -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.SafeName = ''
+        $r = Invoke-SafeMembersAdd -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
     It 'MA16 — empty MemberName: Failures=1, no API call' {
-        $input = $script:ValidInput.Clone()
-        $input.MemberName = ''
-        $r = Invoke-SafeMembersAdd -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.MemberName = ''
+        $r = Invoke-SafeMembersAdd -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }

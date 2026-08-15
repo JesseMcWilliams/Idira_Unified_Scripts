@@ -445,3 +445,80 @@ Treat all test failures as genuine bugs, not test-environment artifacts.
 - Bracket notation for all hashtable key access
 - `PSObject.Properties` guard for all optional PSCustomObject fields
 - `(-not $x) -or $x.Count -eq 0` for all empty-collection checks
+
+---
+
+## 5. PowerShell Reserved and Automatic Variable Names
+
+PowerShell maintains a set of automatic variables that the runtime owns. Assigning to them
+(or declaring a parameter with the same name) either throws a runtime error or silently
+corrupts the variable's expected behaviour. The PSScriptAnalyzer rule
+`PSAvoidAssignmentToAutomaticVariable` flags these.
+
+### 5.1 Never use automatic variable names as parameters or local variables
+
+**Root cause:** PowerShell's automatic variables are populated by the runtime before your code
+runs. Declaring `param([string]$Profile)` or writing `$input = ...` inside a function shadows
+the automatic value for that scope. Under `Set-StrictMode -Version Latest`, attempting to read
+the automatic variable later can also result in `PropertyNotFoundException` if the shadowed
+value is not the expected type.
+
+`$Profile` (the user's profile script path) is particularly dangerous: a function parameter
+named `-Profile` will never bind correctly when called with `-Profile $obj` because PowerShell
+cannot determine whether the caller meant the automatic variable or the parameter.
+
+**Automatic variables never to use as variable or parameter names:**
+
+| Variable | What it is |
+|----------|------------|
+| `$Profile` | Path to the current user's PowerShell profile script |
+| `$Error` | Circular buffer of recent errors |
+| `$Host` | Current `PSHost` object |
+| `$input` | Pipeline input enumerator in `process {}` blocks |
+| `$Args` | Array of unbound positional arguments |
+| `$Matches` | Hash of named and positional regex capture groups |
+| `$null` / `$true` / `$false` | Language literals — cannot be assigned |
+| `$OFS` | Output Field Separator used by `-join` |
+| `$foreach` / `$switch` | Active enumerators inside `foreach` / `switch` |
+| `$PID` | Current process ID |
+| `$PSScriptRoot` | Directory of the running script |
+| `$PSCommandPath` | Full path of the running script |
+| `$PSBoundParameters` | Bound parameters for the current function |
+| `$MyInvocation` | Invocation metadata for the current command |
+| `$ExecutionContext` | Current execution context |
+
+Preference variables (`$ErrorActionPreference`, `$VerbosePreference`, etc.) **may** be assigned
+intentionally at the top of a script to configure behaviour — that is their purpose. They must
+**not** be used as function parameter names.
+
+**Wrong:**
+```powershell
+function Save-DriverProfile {
+    param([PSCustomObject]$Profile)   # shadows $PROFILE automatic variable
+    ...
+}
+
+It 'validates input' {
+    $input = $script:ValidInput.Clone()   # shadows $input pipeline enumerator
+    $input.SafeName = ''
+    ...
+}
+```
+
+**Correct:**
+```powershell
+function Save-DriverProfile {
+    param([PSCustomObject]$currentProfile)   # unambiguous name
+    ...
+}
+
+It 'validates input' {
+    $testInput = $script:ValidInput.Clone()   # unambiguous name
+    $testInput.SafeName = ''
+    ...
+}
+```
+
+**Rule:** Run PSScriptAnalyzer with the `PSAvoidAssignmentToAutomaticVariable` rule enabled
+on all `.ps1` and `.psm1` files. Any warning from this rule must be treated as an error and
+resolved before merging.

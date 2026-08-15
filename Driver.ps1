@@ -410,7 +410,7 @@ function Invoke-ProfileEditFlow {
     $currentProfile.WhatIfDefault = $wiStr -match '^[Yy]$'
 
     Write-Host ''
-    Save-DriverProfile -Profile $currentProfile
+    Save-DriverProfile -currentProfile $currentProfile
     Write-Host "  currentProfile '$($currentProfile.ProfileName)' saved." -ForegroundColor Green
 
     if ($currentProfile.IgnoreSSL) {
@@ -486,12 +486,13 @@ function Invoke-ProfileManagementLoop {
     Initialize-ProfileDirectory
 
     $breadcrumbRoot = @('currentProfile Selection')
+    $selected       = $null   # initialize so StrictMode doesn't throw if a branch skips setting it
 
     while ($true) {
 
         # --- currentProfile List ---
         $selectedProfiles = @(Get-AllDriverProfiles)
-        Show-ProfileList -Profiles $selectedProfiles -Breadcrumbs $breadcrumbRoot
+        Show-ProfileList -selectedProfiles $selectedProfiles -Breadcrumbs $breadcrumbRoot
 
         if (-not $selectedProfiles -or $selectedProfiles.Count -eq 0) {
             $choice = Read-MenuChoice -Prompt '[N] New    [Q] Quit'
@@ -511,7 +512,7 @@ function Invoke-ProfileManagementLoop {
             '^N$' {
                 # --- Create new profile ---
                 $blank = New-BlankProfile -Name ''
-                $edited = Invoke-ProfileEditFlow -Profile $blank -Breadcrumbs ($breadcrumbRoot + @('New currentProfile')) -IsNew
+                $edited = Invoke-ProfileEditFlow -currentProfile $blank -Breadcrumbs ($breadcrumbRoot + @('New currentProfile')) -IsNew
                 if ($edited) { $DefaultProfileName = $edited.ProfileName }
                 continue
             }
@@ -542,10 +543,12 @@ function Invoke-ProfileManagementLoop {
         }
 
         # --- currentProfile Detail Loop ---
-        $detailCrumbs = $breadcrumbRoot + @($selected.ProfileName)
+        if (-not $selected) { continue }   # guard: switch branch skipped assignment (StrictMode safety)
+        $selectedProfileName = $selected.ProfileName
+        $detailCrumbs        = $breadcrumbRoot + @($selectedProfileName)
 
         while ($true) {
-            $selected = @(Get-AllDriverProfiles) | Where-Object { $_.ProfileName -eq $selected.ProfileName }
+            $selected = @(Get-AllDriverProfiles) | Where-Object { $_.ProfileName -eq $selectedProfileName }
             if (-not $selected) { break }   # currentProfile was deleted
 
             Show-ProfileDetail -Summary $selected -Breadcrumbs $detailCrumbs
@@ -558,7 +561,7 @@ function Invoke-ProfileManagementLoop {
                     # Continue to session — authenticate and return token
                     $selectedProfile = $selected.currentProfile
                     $selectedProfile.LastUsed = (Get-Date).ToUniversalTime().ToString('o')
-                    Save-DriverProfile -Profile $selectedProfile
+                    Save-DriverProfile -currentProfile $selectedProfile
 
                     $xmlPath = Get-ProfileTokenPath -Name $selectedProfile.AuthTokenProfile
                     $token   = $null
@@ -610,7 +613,7 @@ function Invoke-ProfileManagementLoop {
 
                 'E' {
                     # Edit profile
-                    Invoke-ProfileEditFlow -Profile $selected.currentProfile `
+                    Invoke-ProfileEditFlow -currentProfile $selected.currentProfile `
                         -Breadcrumbs ($detailCrumbs + @('Edit'))
                 }
 
@@ -637,8 +640,8 @@ function Invoke-ProfileManagementLoop {
                     $copy.Created          = (Get-Date).ToUniversalTime().ToString('o')
                     $copy.LastUsed         = $null
                     # Save draft first so edit flow can check for existing file
-                    Save-DriverProfile -Profile $copy
-                    Invoke-ProfileEditFlow -Profile $copy -Breadcrumbs ($detailCrumbs + @("Copy to $newName"))
+                    Save-DriverProfile -currentProfile $copy
+                    Invoke-ProfileEditFlow -currentProfile $copy -Breadcrumbs ($detailCrumbs + @("Copy to $newName"))
                     $DefaultProfileName = $newName
                 }
 
@@ -1178,6 +1181,9 @@ function Invoke-SessionLoop {
 #endregion
 
 #region --- Entry Point ---
+
+# Guard: skip the interactive entry point when this script is dot-sourced (e.g. in Pester tests).
+if ($MyInvocation.InvocationName -eq '.') { return }
 
 Assert-Prerequisites
 

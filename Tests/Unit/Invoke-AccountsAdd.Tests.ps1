@@ -194,15 +194,15 @@ Describe 'Invoke-AccountsAdd — successful response' {
     }
 
     It 'AA12 — account name is auto-generated as UserName@Address when Name is blank' {
-        $input = $script:ValidInput.Clone()
-        $input.Name = ''
+        $testInput = $script:ValidInput.Clone()
+        $testInput.Name = ''
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
             script:New-AccountApiResponse -Account $script:SampleAccount
         }
-        Invoke-AccountsAdd -Token $script:MockToken -InputData $input
+        Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
         $script:capturedParams.Body.name | Should -Be 'localadmin@server01.domain.com'
     }
 }
@@ -242,33 +242,33 @@ Describe 'Invoke-AccountsAdd — input validation' {
     }
 
     It 'AA16 — empty Address: Failures=1, no API call' {
-        $input = $script:ValidInput.Clone()
-        $input.Address = ''
-        $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.Address = ''
+        $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Not -Invoke Invoke-CyberArkAPI
     }
 
     It 'AA17 — empty UserName: Failures=1, no API call' {
-        $input = $script:ValidInput.Clone()
-        $input.UserName = ''
-        $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.UserName = ''
+        $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Not -Invoke Invoke-CyberArkAPI
     }
 
     It 'AA18 — empty PlatformID: Failures=1, no API call' {
-        $input = $script:ValidInput.Clone()
-        $input.PlatformID = ''
-        $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.PlatformID = ''
+        $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Not -Invoke Invoke-CyberArkAPI
     }
 
     It 'AA19 — empty SafeName: Failures=1, no API call' {
-        $input = $script:ValidInput.Clone()
-        $input.SafeName = ''
-        $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.SafeName = ''
+        $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Not -Invoke Invoke-CyberArkAPI
     }

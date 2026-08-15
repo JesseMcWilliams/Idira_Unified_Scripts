@@ -1,0 +1,278 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Unit tests for Driver.ps1 — profile management functions.
+
+.DESCRIPTION
+    Exercises the profile management loop as a user would: create a profile,
+    navigate the menu, select a profile, go back, and quit. External dependencies
+    (logging module, auth script, filesystem I/O) are mocked or redirected to a
+    temporary directory so no real CyberArk environment is required.
+#>
+
+BeforeAll {
+    # ── Stubs for module functions that are imported at runtime ──────────────
+    # These must be declared BEFORE dot-sourcing Driver.ps1 so that
+    # Assert-Prerequisites finds them (it only checks file paths, not these stubs).
+    function global:Write-CyberArkLog {
+        param([string]$Message, [string]$Level)
+    }
+    function global:Initialize-CyberArkLog {
+        param($ProfileName, $Destination, $MinLevel, $LogFolder,
+              $SystemType, $AuthMethod, $BaseURL, [switch]$WhatIfMode)
+    }
+    function global:Close-CyberArkLog { }
+    function global:Add-CyberArkLogSummaryEntry {
+        param($ModuleName, $ItemsProcessed, $Successes, $Failures)
+    }
+    function global:Invoke-CyberArkAPI {
+        param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams,
+              [switch]$WhatIf, [switch]$IgnoreSSL)
+    }
+    function global:Get-AuthToken      { param([switch]$IgnoreSSL) return $null }
+    function global:Import-AuthToken   { param($Path, [switch]$AutoRefresh, [switch]$IgnoreExpiry) return $null }
+    function global:Save-AuthToken     { param($TokenObject, $ProfileName) }
+
+    # ── Temp directory: replaces the real %APPDATA%\CyberArkPAS folder ───────
+    $script:TempDir = Join-Path $env:TEMP "DriverTests_$(Get-Random)"
+    New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
+
+    # ── Dot-source Driver.ps1 (entry point is skipped via InvocationName guard)
+    $script:DriverPath = Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'Driver.ps1'
+    . $script:DriverPath
+
+    # Redirect the profile directory to our temp location
+    $script:DefaultProfileDir = $script:TempDir
+    $script:ProfileDir        = $script:TempDir
+}
+
+AfterAll {
+    if ($script:TempDir -and (Test-Path $script:TempDir)) {
+        Remove-Item -Recurse -Force $script:TempDir -ErrorAction SilentlyContinue
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+Describe 'Driver — New-BlankProfile' {
+
+    It 'DP01 — creates a profile with the supplied name' {
+        $p = New-BlankProfile -Name 'Dev'
+        $p.ProfileName      | Should -Be 'Dev'
+        $p.AuthTokenProfile | Should -Be 'Dev'
+    }
+
+    It 'DP02 — default flags are false' {
+        $p = New-BlankProfile -Name 'X'
+        $p.IgnoreSSL     | Should -Be $false
+        $p.WhatIfDefault | Should -Be $false
+    }
+
+    It 'DP03 — folders are empty strings' {
+        $p = New-BlankProfile -Name 'X'
+        $p.LogFolder    | Should -Be ''
+        $p.InputFolder  | Should -Be ''
+        $p.OutputFolder | Should -Be ''
+    }
+
+    It 'DP04 — Created and Modified are populated' {
+        $p = New-BlankProfile -Name 'X'
+        $p.Created  | Should -Not -BeNullOrEmpty
+        $p.Modified | Should -Not -BeNullOrEmpty
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+Describe 'Driver — Profile persistence (Save / Read / GetAll)' {
+
+    BeforeEach {
+        # Clear the temp directory before each test for isolation
+        Get-ChildItem -LiteralPath $script:TempDir -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force
+    }
+
+    It 'DP05 — Save-DriverProfile writes a JSON file named after the profile to the profile directory' {
+        $p = New-BlankProfile -Name 'SaveTest'
+        Save-DriverProfile -currentProfile $p
+        $expected = Join-Path $script:TempDir 'SaveTest.json'
+        Test-Path -LiteralPath $expected | Should -Be $true
+    }
+
+    It 'DP06 — Read-DriverProfile returns the saved profile' {
+        $p = New-BlankProfile -Name 'ReadTest'
+        $p.LogFolder = 'C:\Logs'
+        Save-DriverProfile -currentProfile $p
+        $loaded = Read-DriverProfile -Name 'ReadTest'
+        $loaded.ProfileName | Should -Be 'ReadTest'
+        $loaded.LogFolder   | Should -Be 'C:\Logs'
+    }
+
+    It 'DP07 — Read-DriverProfile returns null for a non-existent profile name' {
+        Read-DriverProfile -Name 'DoesNotExist' | Should -BeNullOrEmpty
+    }
+
+    It 'DP08 — Get-AllDriverProfiles returns an empty array when no profiles exist' {
+        $list = @(Get-AllDriverProfiles)
+        $list.Count | Should -Be 0
+    }
+
+    It 'DP09 — Get-AllDriverProfiles returns one summary entry after saving a profile' {
+        $p = New-BlankProfile -Name 'ListTest'
+        Save-DriverProfile -currentProfile $p
+        $list = @(Get-AllDriverProfiles)
+        $list.Count              | Should -Be 1
+        $list[0].ProfileName     | Should -Be 'ListTest'
+        $list[0].TokenStatus     | Should -Be 'No Token'
+    }
+
+    It 'DP10 — Get-AllDriverProfiles returns entries sorted by ProfileName' {
+        foreach ($name in 'Zebra', 'Alpha', 'Mango') {
+            Save-DriverProfile -currentProfile (New-BlankProfile -Name $name)
+        }
+        $names = @(Get-AllDriverProfiles) | ForEach-Object { $_.ProfileName }
+        $names | Should -Be @('Alpha', 'Mango', 'Zebra')
+    }
+
+    It 'DP11 — Remove-DriverProfile deletes the JSON file' {
+        Save-DriverProfile -currentProfile (New-BlankProfile -Name 'ToDelete')
+        Remove-DriverProfile -Name 'ToDelete'
+        $jsonPath = Join-Path $script:TempDir 'ToDelete.json'
+        Test-Path -LiteralPath $jsonPath | Should -Be $false
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+Describe 'Driver — Invoke-ProfileManagementLoop (Q = quit immediately)' {
+
+    BeforeAll {
+        Mock Write-Host  { }
+        Mock Clear-Host  { }
+        Mock Start-Sleep { }
+        Mock Show-Header  { }
+        Mock Show-Divider { }
+        Mock Show-ProfileList { }
+        Mock Read-MenuChoice  { 'Q' }
+
+        Get-ChildItem -LiteralPath $script:TempDir -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force
+    }
+
+    It 'DP12 — returns $null when the user quits at the profile list' {
+        $result = Invoke-ProfileManagementLoop
+        $result | Should -BeNullOrEmpty
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' {
+
+    BeforeAll {
+        Mock Write-Host  { }
+        Mock Clear-Host  { }
+        Mock Start-Sleep { }
+        Mock Show-Header  { }
+        Mock Show-Divider { }
+        Mock Show-ProfileList { }
+    }
+
+    BeforeEach {
+        Get-ChildItem -LiteralPath $script:TempDir -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force
+
+        # Queued menu choices: N (new), then Q (quit after creation)
+        $script:MenuQ = [System.Collections.Generic.Queue[string]]::new()
+        Mock Read-MenuChoice {
+            if ($script:MenuQ.Count -gt 0) { $script:MenuQ.Dequeue() } else { 'Q' }
+        }
+
+        # Queued field values for Invoke-ProfileEditFlow:
+        #   ProfileName, LogFolder, InputFolder, OutputFolder, IgnoreSSL, WhatIfDefault
+        $script:FieldQ = [System.Collections.Generic.Queue[string]]::new()
+        Mock Show-FieldPrompt {
+            param($Label, $Default, $Description, [switch]$Required, [switch]$IsSecret)
+            if ($script:FieldQ.Count -gt 0) { $script:FieldQ.Dequeue() } else { $Default }
+        }
+    }
+
+    It 'DP13 — creates profile and returns null when user then quits' {
+        'N', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+        'CreatedProfile', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
+
+        $result = Invoke-ProfileManagementLoop
+        $result | Should -BeNullOrEmpty
+
+        $jsonPath = Join-Path $script:TempDir 'CreatedProfile.json'
+        Test-Path -LiteralPath $jsonPath | Should -Be $true
+    }
+
+    It 'DP14 — profile saved with correct ProfileName' {
+        'N', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+        'VerifyName', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
+
+        Invoke-ProfileManagementLoop | Out-Null
+
+        $saved = Read-DriverProfile -Name 'VerifyName'
+        $saved              | Should -Not -BeNullOrEmpty
+        $saved.ProfileName  | Should -Be 'VerifyName'
+        $saved.IgnoreSSL    | Should -Be $false
+        $saved.WhatIfDefault | Should -Be $false
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+Describe 'Driver — Invoke-ProfileManagementLoop (select profile then go back then quit)' {
+
+    BeforeAll {
+        Mock Write-Host  { }
+        Mock Clear-Host  { }
+        Mock Start-Sleep { }
+        Mock Show-Header  { }
+        Mock Show-Divider { }
+        # Show-ProfileList and Show-ProfileDetail are no-ops (UI only)
+        Mock Show-ProfileList   { }
+        Mock Show-ProfileDetail { }
+    }
+
+    BeforeEach {
+        Get-ChildItem -LiteralPath $script:TempDir -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force
+
+        $script:MenuQ = [System.Collections.Generic.Queue[string]]::new()
+        Mock Read-MenuChoice {
+            if ($script:MenuQ.Count -gt 0) { $script:MenuQ.Dequeue() } else { 'Q' }
+        }
+    }
+
+    It 'DP15 — select a profile by number then go back then quit' {
+        # Seed one profile on disk
+        Save-DriverProfile -currentProfile (New-BlankProfile -Name 'SelectMe')
+
+        # Outer loop: select '1', inner loop: press 'B' (back), outer loop: press 'Q'
+        '1', 'B', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+
+        $result = Invoke-ProfileManagementLoop
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'DP16 — selecting an out-of-range number does not crash and loops back' {
+        Save-DriverProfile -currentProfile (New-BlankProfile -Name 'OnlyOne')
+
+        # '9' is out of range for a one-item list; then 'Q' to exit
+        '9', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+
+        $result = Invoke-ProfileManagementLoop
+        $result | Should -BeNullOrEmpty
+    }
+
+    It 'DP17 — delete a profile and verify it is removed from disk' {
+        Save-DriverProfile -currentProfile (New-BlankProfile -Name 'DeleteMe')
+
+        # Select '1', press 'D' (delete), confirm 'Y', then 'Q'
+        Mock Confirm-Action { return $true }
+        '1', 'D', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
+
+        Invoke-ProfileManagementLoop | Out-Null
+
+        $jsonPath = Join-Path $script:TempDir 'DeleteMe.json'
+        Test-Path -LiteralPath $jsonPath | Should -Be $false
+    }
+}

@@ -280,9 +280,9 @@ Describe 'Invoke-AccountsUpdate — validation' {
     }
 
     It 'AU16 — empty AccountID: Failures=1 and no API call made' {
-        $input = $script:ValidInput.Clone()
-        $input.AccountID = ''
-        $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.AccountID = ''
+        $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }

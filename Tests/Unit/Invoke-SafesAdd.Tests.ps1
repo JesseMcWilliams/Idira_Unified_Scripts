@@ -223,9 +223,9 @@ Describe 'Invoke-SafesAdd — validation' {
     }
 
     It 'A15 — empty SafeName: Failures=1, no API call' {
-        $input = $script:ValidInput.Clone()
-        $input.SafeName = ''
-        $r = Invoke-SafesAdd -Token $script:MockToken -InputData $input
+        $testInput = $script:ValidInput.Clone()
+        $testInput.SafeName = ''
+        $r = Invoke-SafesAdd -Token $script:MockToken -InputData $testInput
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
