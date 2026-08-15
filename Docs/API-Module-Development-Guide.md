@@ -1,0 +1,518 @@
+# CyberArk PAS Scripts — API Module Development Guide
+
+## Overview
+
+Each API module encapsulates a single CyberArk REST API action (e.g., list accounts, add a safe
+member). Modules are discovered automatically by the driver — no changes to the driver are needed
+to add a new module. The driver handles file I/O, CSV looping, output file creation, token
+validation, and result summarization. The module's only job is to execute one API action for one
+item and return a standard result object.
+
+---
+
+## Project Structure
+
+```
+PowerShell/
+├── Driver.ps1
+├── Modules/
+│   ├── CyberArkComms.psm1          # Shared communications module (loaded by driver at startup)
+│   └── CyberArkLogging.psm1        # Logging module (loaded by driver at startup)
+├── APIModules/
+│   ├── Accounts/
+│   │   ├── Invoke-AccountsList.ps1
+│   │   ├── Invoke-AccountsGet.ps1
+│   │   └── Invoke-AccountsAdd.ps1
+│   ├── Safes/
+│   │   ├── Invoke-SafesList.ps1
+│   │   └── Invoke-SafesAdd.ps1
+│   └── SafeMembers/
+│       ├── Invoke-SafeMembersList.ps1
+│       └── Invoke-SafeMembersAdd.ps1
+├── ISPSS Scripts/
+│   └── Get-AuthToken.ps1
+└── Docs/
+    └── API-Module-Development-Guide.md
+```
+
+> **Note:** Modules assume `CyberArkComms.psm1` and `CyberArkLogging.psm1` are already imported
+> by the driver. Do not import them inside a module file.
+
+---
+
+## Naming Conventions
+
+| Item | Convention | Example |
+|---|---|---|
+| Category folder | PascalCase noun | `Accounts`, `SafeMembers` |
+| Module file | `Invoke-<Category><Action>.ps1` | `Invoke-AccountsList.ps1` |
+| Entry point function | Same as file name (no extension) | `Invoke-AccountsList` |
+| Custom input function | `Get-<Category><Action>Input` | `Get-AccountsListInput` |
+
+---
+
+## Required Components
+
+### 1. Module Metadata
+
+`$ModuleMeta` must be the **first statement** in every module file. The driver reads this block
+during discovery before executing any code.
+
+```powershell
+$ModuleMeta = @{
+    Name             = 'List Accounts'           # Display name shown in the action menu
+    Category         = 'Accounts'                # Must match the folder name exactly
+    Action           = 'List'                    # Short verb: List | Get | Add | Update | Delete
+    Description      = 'Retrieve accounts with optional search and filter criteria.'
+    SupportedSystems = @('ISPSS', 'SelfHosted')  # Limit to one system if API differs
+    SupportsWhatIf   = $false                    # $true for any write, modify, or delete operation
+    AcceptsInputFile = $false                    # $true when the module processes CSV rows
+    ProducesOutput   = $true                     # $true when results are displayed / saveable
+    HasCustomInput   = $false                    # $true when Get-<Category><Action>Input is defined
+    InputSchema      = @()                       # Populated when AcceptsInputFile = $true
+    Version          = '1.0.0'
+}
+```
+
+#### InputSchema
+
+Populate `InputSchema` whenever `AcceptsInputFile = $true`. Each entry defines one expected CSV
+column. The driver validates the file against this schema before starting and rejects files with
+missing required columns.
+
+```powershell
+InputSchema = @(
+    @{ Column = 'SafeName';    Required = $true;  Description = 'Target safe name.' }
+    @{ Column = 'MemberName';  Required = $true;  Description = 'User or group to add.' }
+    @{ Column = 'Permissions'; Required = $false; Description = 'Permission set. Defaults to Read.' }
+)
+```
+
+---
+
+### 2. Entry Point Function
+
+```powershell
+function Invoke-AccountsList {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Token,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$InputData,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$WhatIf
+    )
+
+    # ... implementation ...
+}
+```
+
+#### Parameters
+
+| Parameter | Always present | Description |
+|---|---|---|
+| `$Token` | Yes | Full token object from `Get-AuthToken`. Contains `Token`, `Headers`, `BaseURL`, `SystemType`, `Expiry`, etc. |
+| `$InputData` | When `AcceptsInputFile = $true` or interactive single-item mode | Keys match `InputSchema` column names. `$null` for list/view operations that take no input. |
+| `$WhatIf` | Yes | Forward to every `Invoke-CyberArkAPI` call. Shared comms handles blocking. |
+
+---
+
+### 3. Standard Result Object
+
+Initialize at the **top** of the entry point function. Return it at **every** exit path — including
+early returns on error.
+
+```powershell
+$result = [PSCustomObject]@{
+    ModuleName     = $ModuleMeta.Name
+    Category       = $ModuleMeta.Category
+    Action         = $ModuleMeta.Action
+    ItemsProcessed = 0
+    Successes      = 0
+    Failures       = 0
+    IsFatal        = $false
+    Results        = [System.Collections.Generic.List[PSCustomObject]]::new()
+    Errors         = [System.Collections.Generic.List[PSCustomObject]]::new()
+}
+```
+
+#### IsFatal
+
+Set `IsFatal = $true` when the error is unrecoverable for the current session — the driver will
+abort any active CSV loop and return the user to the main menu.
+
+| Condition | IsFatal |
+|---|---|
+| HTTP 401 Unauthorized | Yes |
+| HTTP 403 Forbidden | No — specific item failed, continue |
+| HTTP 404 Not Found | No — specific item failed, continue |
+| Network unreachable | Yes |
+| Token refresh failed | Yes |
+| Schema validation failed | Yes (set before starting any processing) |
+| Single item validation failed | No |
+
+#### Adding a success result
+
+```powershell
+$result.Results.Add([PSCustomObject]@{
+    AccountId   = $response.Data.id
+    AccountName = $response.Data.name
+    SafeName    = $response.Data.safeName
+    PlatformId  = $response.Data.platformId
+})
+$result.Successes++
+$result.ItemsProcessed++
+```
+
+#### Adding an error result
+
+```powershell
+$result.Errors.Add([PSCustomObject]@{
+    InputData    = $InputData
+    ErrorMessage = $response.ErrorMessage
+    ErrorDetails = $response.ErrorDetails
+})
+$result.Failures++
+$result.ItemsProcessed++
+```
+
+---
+
+## Using the Shared Communications Module
+
+### Invoke-CyberArkAPI
+
+```powershell
+$response = Invoke-CyberArkAPI `
+    -Token    $Token `
+    -Method   'GET' `
+    -Endpoint '/API/Accounts' `
+    -Query    $query `
+    -Body     $body `
+    -WhatIf   $WhatIf.IsPresent
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `Token` | PSCustomObject | Yes | Token object from `Get-AuthToken` |
+| `Method` | string | Yes | `GET` `POST` `PUT` `PATCH` `DELETE` |
+| `Endpoint` | string | Yes | API path starting with `/` (e.g., `/API/Accounts`) |
+| `Query` | hashtable | No | Query string parameters |
+| `Body` | hashtable or PSCustomObject | No | Request body — serialized to JSON automatically |
+| `WhatIf` | bool | No | When `$true`, blocks `POST`/`PUT`/`PATCH`/`DELETE` and logs the skipped call |
+
+#### Response Object
+
+```powershell
+[PSCustomObject]@{
+    IsSuccess     = $true       # $true for HTTP 200-299; $false for all others
+    StatusCode    = 200         # Actual HTTP status code
+    StatusMessage = 'OK'        # Plain-language description of the status code
+    ErrorMessage  = $null       # $null on success; human-readable summary on error
+    ErrorDetails  = $null       # $null on success; parsed CyberArk error object on error
+    Data          = [object]    # Parsed response body (PSCustomObject for JSON)
+    RawResponse   = [string]    # Raw response body
+    DataType      = 'JSON'      # JSON | Binary | File | Empty
+}
+```
+
+### Query Builder Helpers
+
+```powershell
+# Build a query hashtable for standard CyberArk parameters
+$query = New-CyberArkQuery `
+    -Search      'admin' `
+    -Filter      'safeName eq TargetSafe' `
+    -Limit       100 `
+    -Offset      0 `
+    -Sort        'name asc' `
+    -SavedFilter 'MyFilter'
+
+# Join URL segments — trims and normalizes slashes between segments
+$url = Join-CyberArkUrl $Token.BaseURL '/API/Accounts' $accountId
+# Result: 'https://pvwa.company.com/PasswordVault/API/Accounts/abc-123'
+```
+
+> **Pagination:** Handled automatically by `Invoke-CyberArkAPI`. When the API response contains
+> pagination data, the function fetches all pages and returns the combined result set. No looping
+> is needed in the module.
+
+> **Rate limiting:** Handled automatically with exponential backoff. A WARN log is written when
+> backoff occurs. After `$script:MaxRateLimitRetries` consecutive 429 responses the function
+> returns a failure response — set `IsFatal = $true` if this is returned.
+
+---
+
+## Using the Logging Module
+
+```powershell
+# Standard levels — the function name is captured automatically
+Write-CyberArkLog -Level VERBOSE -Message "Full request body: $($body | ConvertTo-Json -Depth 5)"
+Write-CyberArkLog -Level DEBUG   -Message "Calling endpoint: GET /API/Accounts"
+Write-CyberArkLog -Level INFO    -Message 'Account list retrieved successfully.'
+Write-CyberArkLog -Level WARN    -Message 'No accounts matched the search criteria.'
+Write-CyberArkLog -Level ERROR   -Message "API call failed: $($response.ErrorMessage)"
+
+# Bare mode — no prefix, used for formatted display blocks
+Write-CyberArkLog -Bare -Message '----------------------------------------'
+Write-CyberArkLog -Bare -Message "  Total accounts returned: $($result.Successes)"
+Write-CyberArkLog -Bare -Message '----------------------------------------'
+```
+
+**Log format** (standard):
+```
+12345 | 2026-01-15 14:32:01 | INFO    | Invoke-AccountsList     | Account list retrieved successfully.
+```
+
+**Sensitive data rules — never log:**
+- Authentication tokens or bearer values
+- Passwords or secrets in any form
+- Full credential objects
+
+---
+
+## WhatIf Support
+
+When `$ModuleMeta.SupportsWhatIf = $true`, simply forward `$WhatIf.IsPresent` to every
+`Invoke-CyberArkAPI` call. No conditional branching is needed in the module — the shared
+communications module logs the would-have-been call and returns a synthetic success response.
+
+```powershell
+# Correct — just pass it through
+$response = Invoke-CyberArkAPI `
+    -Token    $Token `
+    -Method   'POST' `
+    -Endpoint '/API/Accounts' `
+    -Body     $body `
+    -WhatIf   $WhatIf.IsPresent
+```
+
+The driver always passes `$WhatIf` to the entry point, even when `SupportsWhatIf = $false`.
+Declaring `SupportsWhatIf = $false` only affects the menu display — the parameter is still present.
+
+---
+
+## Custom Input Function (Optional)
+
+When `HasCustomInput = $true`, define a `Get-<Category><Action>Input` function in the same file.
+The driver calls this function instead of generating generic prompts from `InputSchema`. Use this
+when inputs require live lookups (selecting from a list of existing safes, etc.) or cross-field
+validation.
+
+```powershell
+function Get-AccountsAddInput {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Token,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Defaults    # Pre-filled values when the user copies or edits an entry
+    )
+
+    # Example: fetch available safes for the user to choose from
+    $safesResponse = Invoke-CyberArkAPI -Token $Token -Method 'GET' -Endpoint '/API/Safes'
+    $safeNames = $safesResponse.Data.Safes | Select-Object -ExpandProperty SafeName
+
+    $safeName = Show-SelectionMenu -Title 'Select target safe' -Options $safeNames `
+                    -Default $Defaults.SafeName
+
+    return @{
+        SafeName   = $safeName
+        UserName   = Read-Host -Prompt "Username$(if ($Defaults.UserName) { " [$($Defaults.UserName)]" })"
+        PlatformId = Read-Host -Prompt "Platform ID$(if ($Defaults.PlatformId) { " [$($Defaults.PlatformId)]" })"
+        Address    = Read-Host -Prompt "Address$(if ($Defaults.Address) { " [$($Defaults.Address)]" })"
+    }
+}
+```
+
+The returned hashtable **keys must match** `InputSchema` column names so the driver's CSV output
+column logic works consistently for both interactive and CSV-driven modes.
+
+---
+
+## Error Handling Patterns
+
+### Recoverable error — item fails, processing continues
+
+```powershell
+$response = Invoke-CyberArkAPI -Token $Token -Method 'POST' -Endpoint '/API/Accounts' -Body $body -WhatIf $WhatIf.IsPresent
+
+if (-not $response.IsSuccess) {
+    Write-CyberArkLog -Level ERROR -Message "Failed to add account '$($InputData.UserName)': $($response.ErrorMessage)"
+    $result.Errors.Add([PSCustomObject]@{
+        InputData    = $InputData
+        ErrorMessage = $response.ErrorMessage
+        ErrorDetails = $response.ErrorDetails
+    })
+    $result.Failures++
+    $result.ItemsProcessed++
+    return $result
+}
+```
+
+### Fatal error — abort everything
+
+```powershell
+if ($response.StatusCode -eq 401) {
+    Write-CyberArkLog -Level ERROR -Message 'Authentication failure — session is no longer valid.'
+    $result.IsFatal = $true
+    return $result
+}
+```
+
+### Input validation failure — reject before any API calls
+
+```powershell
+if ([string]::IsNullOrWhiteSpace($InputData.SafeName)) {
+    Write-CyberArkLog -Level ERROR -Message 'SafeName is required but was not provided.'
+    $result.Errors.Add([PSCustomObject]@{
+        InputData    = $InputData
+        ErrorMessage = 'SafeName is required.'
+        ErrorDetails = $null
+    })
+    $result.Failures++
+    $result.ItemsProcessed++
+    return $result
+}
+```
+
+---
+
+## Complete Example
+
+A complete, minimal module for listing accounts.
+
+```powershell
+#Requires -Version 5.1
+
+$ModuleMeta = @{
+    Name             = 'List Accounts'
+    Category         = 'Accounts'
+    Action           = 'List'
+    Description      = 'Retrieve accounts with optional keyword search.'
+    SupportedSystems = @('ISPSS', 'SelfHosted')
+    SupportsWhatIf   = $false
+    AcceptsInputFile = $false
+    ProducesOutput   = $true
+    HasCustomInput   = $false
+    InputSchema      = @()
+    Version          = '1.0.0'
+}
+
+function Invoke-AccountsList {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Token,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$InputData,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$WhatIf
+    )
+
+    $result = [PSCustomObject]@{
+        ModuleName     = $ModuleMeta.Name
+        Category       = $ModuleMeta.Category
+        Action         = $ModuleMeta.Action
+        ItemsProcessed = 0
+        Successes      = 0
+        Failures       = 0
+        IsFatal        = $false
+        Results        = [System.Collections.Generic.List[PSCustomObject]]::new()
+        Errors         = [System.Collections.Generic.List[PSCustomObject]]::new()
+    }
+
+    Write-CyberArkLog -Level INFO -Message 'Starting account list retrieval.'
+
+    $query = New-CyberArkQuery -Search $InputData.Search -Limit 100
+
+    Write-CyberArkLog -Level DEBUG -Message "Endpoint: GET /API/Accounts | Search: '$($InputData.Search)'"
+
+    $response = Invoke-CyberArkAPI `
+        -Token    $Token `
+        -Method   'GET' `
+        -Endpoint '/API/Accounts' `
+        -Query    $query `
+        -WhatIf   $WhatIf.IsPresent
+
+    if (-not $response.IsSuccess) {
+        Write-CyberArkLog -Level ERROR -Message "Account list failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = $response.ErrorMessage
+            ErrorDetails = $response.ErrorDetails
+        })
+        $result.Failures++
+        $result.IsFatal = ($response.StatusCode -eq 401)
+        return $result
+    }
+
+    foreach ($account in $response.Data.value) {
+        $result.Results.Add([PSCustomObject]@{
+            AccountId   = $account.id
+            AccountName = $account.name
+            SafeName    = $account.safeName
+            PlatformId  = $account.platformId
+            Address     = $account.address
+            UserName    = $account.userName
+        })
+        $result.Successes++
+        $result.ItemsProcessed++
+    }
+
+    Write-CyberArkLog -Level INFO -Message "Completed. Accounts retrieved: $($result.Successes)."
+    return $result
+}
+```
+
+---
+
+## New Module Checklist
+
+Use this checklist before considering a module complete.
+
+### File and naming
+- [ ] File is in `APIModules\<Category>\`
+- [ ] File is named `Invoke-<Category><Action>.ps1`
+- [ ] Entry point function name matches the file name exactly
+- [ ] `#Requires -Version 5.1` is the first line
+
+### Metadata
+- [ ] `$ModuleMeta` is the first statement after `#Requires`
+- [ ] All required fields are present and accurate
+- [ ] `SupportedSystems` is restricted to systems that actually support this API call
+- [ ] `SupportsWhatIf = $true` for all write, modify, or delete operations
+- [ ] `AcceptsInputFile = $true` and `InputSchema` fully populated for input-driven modules
+- [ ] `HasCustomInput = $true` if `Get-<Category><Action>Input` is defined
+- [ ] `Version` is `'1.0.0'` for new modules
+
+### Result object
+- [ ] `$result` initialized at the top using the standard shape
+- [ ] Every code path returns `$result`
+- [ ] `ItemsProcessed`, `Successes`, `Failures` incremented correctly at every path
+- [ ] `IsFatal = $true` set for 401 and other unrecoverable conditions
+- [ ] Errors added to `$result.Errors` with `InputData`, `ErrorMessage`, `ErrorDetails`
+
+### API calls
+- [ ] `$WhatIf.IsPresent` forwarded to every `Invoke-CyberArkAPI` call
+- [ ] `IsSuccess` checked on every response before accessing `Data`
+- [ ] Fatal vs. recoverable error distinction is correct
+
+### Logging
+- [ ] INFO at start and end of operation
+- [ ] DEBUG for endpoint and query details
+- [ ] VERBOSE for full request/response bodies (when needed for troubleshooting)
+- [ ] ERROR logged before every error added to `$result.Errors`
+- [ ] No sensitive data (tokens, passwords, secrets) in any log message
+
+### Custom input (when HasCustomInput = $true)
+- [ ] Function named `Get-<Category><Action>Input`
+- [ ] Accepts `$Token` and `$Defaults` parameters
+- [ ] Returns hashtable with keys matching `InputSchema` column names
+- [ ] Handles `$null` `$Defaults` gracefully

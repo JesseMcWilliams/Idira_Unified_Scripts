@@ -1,0 +1,12 @@
+# Log files produced by CyberArkLogging.psm1
+*.log
+
+# JUnit test result output
+TestResults.xml
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
