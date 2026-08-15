@@ -165,6 +165,17 @@ function Get-AllDriverProfiles {
     $selectedProfiles  = foreach ($f in $jsonFiles) {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
+            # Normalize: add any fields introduced after this profile was saved
+            foreach ($field in @('BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
+                if (-not $p.PSObject.Properties[$field]) {
+                    $p | Add-Member -NotePropertyName $field -NotePropertyValue '' -Force
+                }
+            }
+            foreach ($field in @('IgnoreSSL', 'WhatIfDefault')) {
+                if (-not $p.PSObject.Properties[$field]) {
+                    $p | Add-Member -NotePropertyName $field -NotePropertyValue $false -Force
+                }
+            }
             $xmlPath  = Get-ProfileTokenPath -Name $p.AuthTokenProfile
             $hasToken = Test-Path -LiteralPath $xmlPath
 
@@ -226,6 +237,7 @@ function New-BlankProfile {
     return [PSCustomObject]@{
         ProfileName      = $Name
         AuthTokenProfile = $Name
+        BaseURL          = ''
         LogFolder        = ''
         InputFolder      = ''
         OutputFolder     = ''
@@ -312,11 +324,12 @@ function Show-ProfileDetail {
     Show-Divider
     Field 'currentProfile Name'    $p.ProfileName    'Cyan'
     Field 'Auth currentProfile'    $p.AuthTokenProfile
-    Field 'Log Folder'      (if ($p.LogFolder)    { $p.LogFolder    } else { '(launch directory)' })
-    Field 'Input Folder'    (if ($p.InputFolder)  { $p.InputFolder  } else { '(launch directory)' })
-    Field 'Output Folder'   (if ($p.OutputFolder) { $p.OutputFolder } else { '(launch directory)' })
-    Field 'Ignore SSL'      $p.IgnoreSSL     (if ($p.IgnoreSSL)     { 'Yellow' } else { 'Gray' })
-    Field 'WhatIf Default'  $p.WhatIfDefault (if ($p.WhatIfDefault) { 'Yellow' } else { 'Gray' })
+    Field 'Base URL'        $(if ($p.BaseURL)      {$p.BaseURL} else { '(Not Set)' })
+    Field 'Log Folder'      $(if ($p.LogFolder)    { $p.LogFolder    } else { '(launch directory)' })
+    Field 'Input Folder'    $(if ($p.InputFolder)  { $p.InputFolder  } else { '(launch directory)' })
+    Field 'Output Folder'   $(if ($p.OutputFolder) { $p.OutputFolder } else { '(launch directory)' })
+    Field 'Ignore SSL'      $p.IgnoreSSL     $(if ($p.IgnoreSSL)     { 'Yellow' } else { 'Gray' })
+    Field 'WhatIf Default'  $p.WhatIfDefault $(if ($p.WhatIfDefault) { 'Yellow' } else { 'Gray' })
     $created  = try { ([datetime]$p.Created).ToLocalTime().ToString('yyyy-MM-dd HH:mm') }  catch { $p.Created }
     $modified = try { ([datetime]$p.Modified).ToLocalTime().ToString('yyyy-MM-dd HH:mm') } catch { $p.Modified }
     Field 'Created'         $created
@@ -391,6 +404,9 @@ function Invoke-ProfileEditFlow {
     }
 
     Write-Host ''
+    $currentProfile.BaseURL = Show-FieldPrompt -Label 'Base URL' -Default $currentProfile.BaseURL `
+        -Description 'Base URL for API calls. https://pvwa.company.com or https://tenantID.privilegecloud.cyberark.com'
+
     $currentProfile.LogFolder = Show-FieldPrompt -Label 'Log Folder' -Default $currentProfile.LogFolder `
         -Description 'Absolute path for log files. Leave blank to use the script launch directory.'
 
@@ -553,11 +569,23 @@ function Invoke-ProfileManagementLoop {
 
             Show-ProfileDetail -Summary $selected -Breadcrumbs $detailCrumbs
 
-            $action = Read-MenuChoice -Prompt 'C / E / P / D / T / B'
+            $isIncomplete = [string]::IsNullOrWhiteSpace($selected.currentProfile.BaseURL)
+            if ($isIncomplete) {
+                Write-Host ''
+                Write-Host '  WARNING: This profile is incomplete — Base URL is required to connect.' -ForegroundColor Yellow
+                Write-Host '  Choose E to edit it or D to delete this profile.' -ForegroundColor Yellow
+            }
+
+            $action = Read-MenuChoice -Prompt 'C / E / P / D / T / B / Q'
 
             switch ($action.ToUpper()) {
 
                 'C' {
+                    if ($isIncomplete) {
+                        Write-Host '  Cannot connect: Base URL is required. Use [E]dit to add it first.' -ForegroundColor Red
+                        Start-Sleep -Seconds 2
+                        break
+                    }
                     # Continue to session — authenticate and return token
                     $selectedProfile = $selected.currentProfile
                     $selectedProfile.LastUsed = (Get-Date).ToUniversalTime().ToString('o')
@@ -666,6 +694,19 @@ function Invoke-ProfileManagementLoop {
                     # B# navigation — B = back 1, B2 = back 2, etc.
                     $levels = if ($_ -eq 'B') { 1 } else { [int]($_ -replace '^B', '') }
                     if ($levels -ge 1) { break }   # Back to profile list
+                }
+
+                'Q' {
+                    if ($selected.TokenStatus -eq 'Valid') {
+                        if (Confirm-Action "Valid saved token for '$($selected.ProfileName)' exists. Clear it before quitting?") {
+                            $tokenPath = Get-ProfileTokenPath -Name $selected.currentProfile.AuthTokenProfile
+                            Remove-Item -LiteralPath $tokenPath -Force -ErrorAction SilentlyContinue
+                            Write-CyberArkLog -Message "Token cleared for '$($selected.ProfileName)' on quit." -Level 'INFO'
+                            Write-Host '  Token cleared.' -ForegroundColor Green
+                            Start-Sleep -Seconds 1
+                        }
+                    }
+                    return $null
                 }
 
                 default {
@@ -1185,6 +1226,8 @@ function Invoke-SessionLoop {
 # Guard: skip the interactive entry point when this script is dot-sourced (e.g. in Pester tests).
 if ($MyInvocation.InvocationName -eq '.') { return }
 
+try {
+
 Assert-Prerequisites
 
 Initialize-CyberArkLog -ProfileName 'Startup' -Destination 'Console' -MinLevel 'INFO'
@@ -1241,6 +1284,14 @@ while ($true) {
 
     # Exit
     break
+}
+
+} catch {
+    Write-Host "`n[FATAL] Unhandled error at Driver.ps1:$($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
+    Write-Host "  $($_.Exception.GetType().Name): $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  Stack trace:" -ForegroundColor DarkGray
+    $_.ScriptStackTrace -split "`n" | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+    exit 1
 }
 
 exit 0
