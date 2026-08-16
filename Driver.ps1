@@ -563,18 +563,49 @@ function Invoke-ProfileTestConnection {
     Write-Host '  Test Connection' -ForegroundColor White
     Write-Host ''
 
-    $xmlPath = Get-ProfileTokenPath -Name $Summary.currentProfile.AuthTokenProfile
-    if (-not (Test-Path -LiteralPath $xmlPath)) {
+    $tokenPath = Get-ProfileTokenPath -Name $Summary.currentProfile.AuthTokenProfile
+
+    # If a saved token exists, show its status first
+    if (Test-Path -LiteralPath $tokenPath) {
+        try {
+            $existing = Import-AuthToken -Path $tokenPath -IgnoreExpiry
+            if ($existing -and $existing.Token) {
+                $isExpired = $existing.Expiry -lt [DateTime]::UtcNow
+                $statusLabel = if ($isExpired) { 'Expired' } else { 'Valid' }
+                $statusColor = if ($isExpired) { 'Yellow'  } else { 'Green'  }
+                Write-Host "  Saved token: $statusLabel" -ForegroundColor $statusColor
+                Write-Host "    System  : $($existing.SystemType)"  -ForegroundColor Gray
+                Write-Host "    Method  : $($existing.AuthMethod)"  -ForegroundColor Gray
+                Write-Host "    Base URL: $($existing.BaseURL)"     -ForegroundColor Gray
+                Write-Host "    Expires : $($existing.Expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm'))" -ForegroundColor Gray
+                Write-Host ''
+                if (-not $isExpired) {
+                    Write-Host '  Token is valid — no re-authentication needed.' -ForegroundColor Green
+                    Write-Host ''
+                    Write-Host '  Press Enter to return.' -ForegroundColor DarkGray
+                    Read-Host | Out-Null
+                    return
+                }
+                Write-Host '  Token is expired. Re-authenticating...' -ForegroundColor Yellow
+                Write-Host ''
+            }
+        } catch {
+            Write-Host '  Saved token could not be read. Re-authenticating...' -ForegroundColor Yellow
+            Write-Host ''
+        }
+    } else {
         Write-Host '  No saved token found. A new authentication is required.' -ForegroundColor Yellow
+        Write-Host ''
     }
 
+    # Token missing or expired — authenticate
     Write-Host '  Calling Get-AuthToken...' -ForegroundColor DarkGray
     Write-Host ''
 
     try {
         $params = @{ IgnoreSSL = $Summary.currentProfile.IgnoreSSL }
-        if (Test-Path -LiteralPath $xmlPath) {
-            $saved = Import-AuthToken -Path $xmlPath -IgnoreExpiry
+        if (Test-Path -LiteralPath $tokenPath) {
+            $saved = Import-AuthToken -Path $tokenPath -IgnoreExpiry
             if ($saved) {
                 $params['SystemType']  = $saved.SystemType
                 $params['AuthMethod']  = $saved.AuthMethod
@@ -593,7 +624,7 @@ function Invoke-ProfileTestConnection {
             Write-Host "    Expires : $($token.Expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm'))" -ForegroundColor Gray
 
             if (Confirm-Action 'Save this token to the profile?') {
-                Save-AuthToken -TokenObject $token -ProfileName $Summary.currentProfile.AuthTokenProfile
+                $null = Save-AuthToken -TokenObject $token -ProfileName $Summary.currentProfile.AuthTokenProfile
                 Write-Host '  Token saved.' -ForegroundColor Green
             }
         } else {
@@ -601,7 +632,7 @@ function Invoke-ProfileTestConnection {
         }
     } catch {
         Write-Host "  Authentication failed: $_" -ForegroundColor Red
-        Write-CyberArkLog -Message "Test connection failed for profile '$($Summary.ProfileName)': $_" -Level 'WARN'
+        Write-CyberArkLog -Message "Test connection failed for profile '$($Summary.currentProfile.ProfileName)': $_" -Level 'WARN'
     }
 
     Write-Host ''
@@ -789,7 +820,7 @@ function Invoke-ProfileManagementLoop {
                     if ($token -and $token.Token) {
                         # Persist the (possibly refreshed) token
                         try {
-                            Save-AuthToken -TokenObject $token -ProfileName $selectedProfile.AuthTokenProfile
+                            $null = Save-AuthToken -TokenObject $token -ProfileName $selectedProfile.AuthTokenProfile
                         } catch {
                             Write-CyberArkLog -Message "Could not save refreshed token: $_" -Level 'WARN'
                         }
@@ -962,7 +993,7 @@ function Invoke-TokenRefresh {
                 -IgnoreSSL:$script:ActiveProfile.IgnoreSSL
             if ($refreshed -and $refreshed.Token) {
                 $script:SessionToken = $refreshed
-                Save-AuthToken -TokenObject $refreshed -ProfileName $script:ActiveProfile.AuthTokenProfile
+                $null = Save-AuthToken -TokenObject $refreshed -ProfileName $script:ActiveProfile.AuthTokenProfile
                 Write-CyberArkLog -Message 'Token refreshed successfully.' -Level 'INFO'
                 return $true
             }
@@ -983,7 +1014,7 @@ function Invoke-TokenRefresh {
         $newToken = Get-AuthToken -IgnoreSSL:$script:ActiveProfile.IgnoreSSL
         if ($newToken -and $newToken.Token) {
             $script:SessionToken = $newToken
-            Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
+            $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
             Write-CyberArkLog -Message 'Re-authentication successful.' -Level 'INFO'
             return $true
         }
