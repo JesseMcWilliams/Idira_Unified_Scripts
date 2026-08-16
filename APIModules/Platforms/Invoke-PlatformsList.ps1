@@ -125,11 +125,11 @@ function Invoke-PlatformsList {
     foreach ($platform in $platforms) {
         try {
             $result.Results.Add([PSCustomObject]@{
-                PlatformID   = $platform.id
-                Name         = $platform.name
-                Description  = $platform.description
-                Active       = $platform.active
-                PlatformType = $platform.platformType
+                PlatformID   = if ($platform.PSObject.Properties['id'])           { $platform.id           } else { '' }
+                Name         = if ($platform.PSObject.Properties['name'])         { $platform.name         } else { '' }
+                Description  = if ($platform.PSObject.Properties['description'])  { $platform.description  } else { '' }
+                Active       = if ($platform.PSObject.Properties['active'])       { $platform.active       } else { $false }
+                PlatformType = if ($platform.PSObject.Properties['platformType']) { $platform.platformType } else { '' }
             })
             $result.Successes++
             $result.ItemsProcessed++

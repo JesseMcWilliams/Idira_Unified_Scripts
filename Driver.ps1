@@ -173,6 +173,78 @@ function Get-CsvSavePath {
     }
 }
 
+function Invoke-EntitySearch {
+    # Searches a list endpoint and lets the user pick from numbered results.
+    # Returns the selected entity ID string, or $null if cancelled or nothing found.
+    param(
+        [Parameter(Mandatory = $true)]  [PSCustomObject]$Token,
+        [Parameter(Mandatory = $true)]  [string]$Endpoint,
+        [Parameter(Mandatory = $true)]  [string]$SearchTerm,
+        [Parameter(Mandatory = $false)] [string]$SearchParam        = 'search',
+        [Parameter(Mandatory = $false)] [string]$ResponseProperty   = 'value',
+        [Parameter(Mandatory = $false)] [string]$IdProperty         = 'id',
+        [Parameter(Mandatory = $false)] [string[]]$DisplayProperties = @('id', 'name'),
+        [Parameter(Mandatory = $false)] [string]$EntityLabel        = 'item',
+        [Parameter(Mandatory = $false)] [bool]$IgnoreSSL            = $false
+    )
+
+    $response = $null
+    try {
+        $response = Invoke-CyberArkAPI -Token $Token -Method 'GET' `
+            -Endpoint $Endpoint `
+            -QueryParams @{ $SearchParam = $SearchTerm; limit = '25' } `
+            -IgnoreSSL:$IgnoreSSL
+    } catch {
+        Write-Host "    Search error: $_" -ForegroundColor Red
+        return $null
+    }
+
+    if (-not $response -or -not $response.IsSuccess) {
+        $errMsg = if ($response) { $response.ErrorMessage } else { '(no response)' }
+        Write-Host "    Search failed: $errMsg" -ForegroundColor Red
+        return $null
+    }
+
+    $items = @()
+    if ($response.Data -and $response.Data.PSObject.Properties[$ResponseProperty]) {
+        $items = @($response.Data.$ResponseProperty)
+    }
+
+    if ($items.Count -eq 0) {
+        Write-Host "    No ${EntityLabel}s found matching '$SearchTerm'." -ForegroundColor Yellow
+        return $null
+    }
+
+    $displayCount = [Math]::Min($items.Count, 25)
+    Write-Host ''
+    Write-Host "    Found $($items.Count) ${EntityLabel}$(if ($items.Count -ne 1) { 's' }):" -ForegroundColor Cyan
+    Write-Host ''
+
+    for ($i = 0; $i -lt $displayCount; $i++) {
+        $item = $items[$i]
+        $parts = @(foreach ($prop in $DisplayProperties) {
+            if ($item.PSObject.Properties[$prop] -and ($null -ne $item.$prop) -and ("$($item.$prop)" -ne '')) {
+                "$($item.$prop)"
+            }
+        })
+        Write-Host "    [$($i + 1)]  $($parts -join '  |  ')" -ForegroundColor White
+    }
+
+    Write-Host ''
+    $sel = Read-MenuChoice -Prompt "Select $EntityLabel [1-$displayCount] or B to cancel"
+
+    if ($sel -match '^\d+$') {
+        $idx = [int]$sel - 1
+        if ($idx -ge 0 -and $idx -lt $displayCount) {
+            $item = $items[$idx]
+            if ($item.PSObject.Properties[$IdProperty] -and ($null -ne $item.$IdProperty)) {
+                return "$($item.$IdProperty)"
+            }
+        }
+    }
+    return $null
+}
+
 #endregion
 
 #region --- currentProfile Directory ---
@@ -1419,7 +1491,7 @@ function Invoke-ActionModule {
     }
 
     if ($meta.ProducesOutput -and $result.Results.Count -gt 0) {
-        $saveCsv = Read-MenuChoice -Prompt 'Save results to CSV? [Y/N]'
+        $saveCsv = Read-MenuChoice -Prompt 'Save results to CSV? [y/N]'
         if ($saveCsv -match '^[Yy]') {
             $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name
             if ($csvPath) {

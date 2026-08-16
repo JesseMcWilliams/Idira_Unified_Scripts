@@ -1,26 +1,27 @@
 #Requires -Version 5.1
 
 $ModuleMeta = @{
-    Name             = 'Delete Account'
+    Name             = 'Change Credentials In Vault'
     Category         = 'Accounts'
-    Action           = 'Delete'
-    Description      = 'Permanently delete an account from CyberArk.'
+    Action           = 'ChangeInVault'
+    Description      = 'Set a new password for the account in the vault only (does not change on the target system).'
     SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $true
     AcceptsInputFile = $true
     ProducesOutput   = $false
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'AccountID'; Required = $true; Description = 'Account ID to delete.' }
+        @{ Column = 'AccountID'; Required = $true; Description = 'Account ID, or leave blank to search.' }
+        @{ Column = 'NewCredentials'; Required = $true; Description = 'New password to store in the vault.' }
     )
-    Priority         = 34
+    Priority         = 44
     Version          = '1.0.0'
 }
 
-function Get-AccountsDeleteInput {
+function Get-AccountsChangeInVaultInput {
     <#
         Called by the driver when HasCustomInput = $true.
-        Show-FieldPrompt is available because this module is dot-sourced into the driver scope.
+        Show-FieldPrompt and Invoke-EntitySearch are available because this module is dot-sourced into the driver scope.
     #>
     [CmdletBinding()]
     param(
@@ -30,21 +31,19 @@ function Get-AccountsDeleteInput {
 
     if (-not $Defaults) { $Defaults = @{} }
 
-    Write-Host '  Account to Delete' -ForegroundColor DarkGray
-    Write-Host ''
-    Write-Host '  WARNING: This operation permanently deletes the account and cannot be undone.' -ForegroundColor Red
+    Write-Host '  Change Credentials In Vault  (press Enter to skip optional fields)' -ForegroundColor DarkGray
     Write-Host ''
 
-    $accountId = Show-FieldPrompt -Label 'Account ID' `
+    $accountID = Show-FieldPrompt -Label 'Account ID' `
         -Default $(if ($Defaults['AccountID']) { $Defaults['AccountID'] } else { '' }) `
-        -Description 'Account ID to delete, or leave blank to search by name/username/address.'
+        -Description 'Account ID, or leave blank to search by name/username/address.'
 
-    if (-not $accountId) {
+    if (-not $accountID) {
         $searchTerm = Show-FieldPrompt -Label 'Search' `
             -Description 'Name, username, or address to find the account.'
         if ($searchTerm) {
             $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
-            $accountId = Invoke-EntitySearch -Token $Token `
+            $accountID = Invoke-EntitySearch -Token $Token `
                 -Endpoint '/API/Accounts' `
                 -SearchTerm $searchTerm `
                 -ResponseProperty 'value' `
@@ -53,15 +52,21 @@ function Get-AccountsDeleteInput {
                 -EntityLabel 'account' `
                 -IgnoreSSL $ignoreSSL
         }
-        if (-not $accountId) { return $null }
+        if (-not $accountID) { return $null }
     }
 
+    $newCredentials = Show-FieldPrompt -Label 'New Credentials' `
+        -Default $(if ($Defaults['NewCredentials']) { $Defaults['NewCredentials'] } else { '' }) `
+        -Required $true `
+        -Description 'New password to store in the vault.'
+
     return @{
-        AccountID = $accountId
+        AccountID = $accountID
+        NewCredentials = $newCredentials
     }
 }
 
-function Invoke-AccountsDelete {
+function Invoke-AccountsChangeInVault {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -86,57 +91,58 @@ function Invoke-AccountsDelete {
         Errors         = [System.Collections.Generic.List[PSCustomObject]]::new()
     }
 
-    # Validate InputData presence
-    if (-not $InputData) {
-        $msg = 'InputData is null or missing. AccountID is required.'
-        Write-CyberArkLog -Level 'ERROR' -Message $msg
-        $result.Errors.Add([PSCustomObject]@{
-            InputData    = $InputData
-            ErrorMessage = $msg
-            ErrorDetails = $null
-        })
-        $result.Failures++
-        $result.ItemsProcessed++
-        return $result
-    }
+    if (-not $InputData) { $InputData = @{} }
 
-    # Validate AccountID
-    $accountId = if ($InputData.AccountID) { "$($InputData.AccountID)".Trim() } else { '' }
+    $accountId = if ($InputData['AccountID']) { "$($InputData['AccountID'])".Trim() } else { '' }
 
     if (-not $accountId) {
-        $msg = 'AccountID is required and must not be empty.'
-        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-AccountsChangeInVault: AccountID is required.'
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
-            ErrorMessage = $msg
+            ErrorMessage = 'AccountID is required.'
             ErrorDetails = $null
         })
         $result.Failures++
-        $result.ItemsProcessed++
+        $result.IsFatal = $false
         return $result
     }
 
     $encodedId = [Uri]::EscapeDataString($accountId)
-    $endpoint  = "/API/Accounts/$encodedId"
+    $newCredentials = if ($InputData['NewCredentials']) { "$($InputData['NewCredentials'])".Trim() } else { '' }
+    if (-not $newCredentials) {
+        Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-AccountsChangeInVault: NewCredentials is required.'
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = 'NewCredentials is required.'
+            ErrorDetails = $null
+        })
+        $result.Failures++
+        return $result
+    }
 
-    Write-CyberArkLog -Level 'INFO'  -Message "Starting account delete. AccountID='$accountId'."
-    Write-CyberArkLog -Level 'DEBUG' -Message "DELETE $endpoint"
+    Write-CyberArkLog -Level 'INFO'  -Message "Starting change credentials in vault for account ID: $accountId"
+    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Accounts/$accountId/SetNextPassword"
 
     if ($WhatIf.IsPresent) {
-        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: DELETE $endpoint would be performed."
+        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: POST /API/Accounts/$accountId/SetNextPassword would be performed."
         $result.Successes++
         $result.ItemsProcessed++
         Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
+    $body = @{}
+    $body['NewCredentials'] = $newCredentials
+
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
-        -Method   'DELETE' `
-        -Endpoint $endpoint
+        -Method   'POST' `
+        -Endpoint "/API/Accounts/$encodedId/SetNextPassword" `
+        -Body     $body `
+        -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
-        $msg = "Account delete failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+        $msg = "Change Credentials In Vault failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -149,21 +155,16 @@ function Invoke-AccountsDelete {
         return $result
     }
 
-    # Success — 204 No Content
     $result.Results.Add([PSCustomObject]@{
         AccountID = $accountId
-        Deleted   = $true
+        Status    = 'Success'
     })
     $result.Successes++
     $result.ItemsProcessed++
 
-    Write-CyberArkLog -Level 'INFO' -Message "Account delete complete. AccountID='$accountId'."
+    Write-CyberArkLog -Level 'INFO' -Message "Change Credentials In Vault complete for account ID: $accountId."
 
-    Add-CyberArkLogSummaryEntry `
-        -ModuleName     $ModuleMeta.Name `
-        -ItemsProcessed $result.ItemsProcessed `
-        -Successes      $result.Successes `
-        -Failures       $result.Failures
+    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
 
     return $result
 }

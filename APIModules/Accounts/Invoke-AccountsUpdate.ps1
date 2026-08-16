@@ -39,9 +39,26 @@ function Get-AccountsUpdateInput {
     Write-Host '  Account Update  (press Enter to skip optional fields)' -ForegroundColor DarkGray
     Write-Host ''
 
-    $accountID = Show-FieldPrompt -Label 'AccountID' `
+    $accountID = Show-FieldPrompt -Label 'Account ID' `
         -Default $(if ($Defaults['AccountID']) { $Defaults['AccountID'] } else { '' }) `
-        -Description 'Account ID to update. (Required)'
+        -Description 'Account ID to update, or leave blank to search by name/username/address.'
+
+    if (-not $accountID) {
+        $searchTerm = Show-FieldPrompt -Label 'Search' `
+            -Description 'Name, username, or address to find the account.'
+        if ($searchTerm) {
+            $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
+            $accountID = Invoke-EntitySearch -Token $Token `
+                -Endpoint '/API/Accounts' `
+                -SearchTerm $searchTerm `
+                -ResponseProperty 'value' `
+                -IdProperty 'id' `
+                -DisplayProperties @('name', 'userName', 'address', 'safeName') `
+                -EntityLabel 'account' `
+                -IgnoreSSL $ignoreSSL
+        }
+        if (-not $accountID) { return $null }
+    }
 
     $name = Show-FieldPrompt -Label 'Name' `
         -Default $(if ($Defaults['Name']) { $Defaults['Name'] } else { '' }) `
@@ -275,8 +292,12 @@ function Invoke-AccountsUpdate {
         PlatformID  = $acct.platformId
         SafeName    = $acct.safeName
         SecretType  = $acct.secretType
-        AutoManaged = if ($acct.secretManagement) { $acct.secretManagement.automaticManagementEnabled } else { $false }
-        CPMStatus   = if ($acct.secretManagement) { $acct.secretManagement.status } else { '' }
+        AutoManaged = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
+                          $acct.secretManagement.PSObject.Properties['automaticManagementEnabled']) {
+                            $acct.secretManagement.automaticManagementEnabled } else { $false }
+        CPMStatus   = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
+                          $acct.secretManagement.PSObject.Properties['status']) {
+                            $acct.secretManagement.status } else { '' }
         Created     = $createdDate
     })
     $result.Successes++

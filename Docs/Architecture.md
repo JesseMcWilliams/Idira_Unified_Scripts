@@ -38,7 +38,7 @@ the driver.
   ┌───────────────────┐  ┌─────────────────┐  ┌─────────────────────┐
   │   Profile Files   │  │ Get-AuthToken   │  │    API Modules      │
   │  <Name>.json      │  │     .ps1        │  │  APIModules\<Cat>\  │
-  │  <Name>.xml       │  │                 │  │  Invoke-<Cat><Act>  │
+  │  <Name>.cred      │  │                 │  │  Invoke-<Cat><Act>  │
   └───────────────────┘  └─────────────────┘  └──────────┬──────────┘
                                                            │
                     ┌──────────────────────────────────────┘
@@ -77,7 +77,18 @@ PowerShell\
 │   │   ├── Invoke-AccountsAdd.ps1
 │   │   ├── Invoke-AccountsUpdate.ps1
 │   │   ├── Invoke-AccountsDelete.ps1
-│   │   └── Invoke-AccountsGetCredential.ps1
+│   │   ├── Invoke-AccountsGetCredential.ps1
+│   │   ├── Invoke-AccountsGetActivity.ps1
+│   │   ├── Invoke-AccountsLinkAccount.ps1
+│   │   ├── Invoke-AccountsUnlinkAccount.ps1
+│   │   ├── Invoke-AccountsUnlock.ps1
+│   │   ├── Invoke-AccountsCheckIn.ps1
+│   │   ├── Invoke-AccountsResumeAutoManagement.ps1
+│   │   ├── Invoke-AccountsCancelCpmTask.ps1
+│   │   ├── Invoke-AccountsVerify.ps1
+│   │   ├── Invoke-AccountsChangeInVault.ps1
+│   │   ├── Invoke-AccountsChangeImmediate.ps1
+│   │   └── Invoke-AccountsReconcile.ps1
 │   ├── Safes\
 │   │   ├── Invoke-SafesList.ps1
 │   │   ├── Invoke-SafesGet.ps1
@@ -107,9 +118,9 @@ PowerShell\
 │       └── Invoke-ReportsList.ps1          # SelfHosted only (GET /API/Reports)
 ├── Profiles\                           # Created at runtime (default: %APPDATA%\CyberArkPAS\)
 │   ├── Production.json
-│   ├── Production.xml
+│   ├── Production.cred          # DPAPI-encrypted token (was .xml)
 │   ├── Development.json
-│   └── Development.xml
+│   └── Development.cred
 └── Docs\
     ├── Architecture.md                 # This document
     ├── Interfaces.md
@@ -167,11 +178,12 @@ User enters choice (number) or navigation (B / B2 / B3)
        └─ Collect input
             ├─ Interactive  → driver prompts from InputSchema
             │                  or calls Get-<Category><Action>Input if HasCustomInput
+            │                  ID-based modules: blank ID → search by name via Invoke-EntitySearch
             └─ CSV file(s)  → user selects via open-file dialog
                               driver validates schema against InputSchema
        └─ Invoke-<Category><Action> -Token $token -InputData $row -WhatIf:$mode
        └─ Display results (table)
-       └─ Offer save to file (default: No)
+       └─ Offer save to file (prompt defaults to N)
             └─ Yes → save-file dialog → output folder default → write CSV
        └─ Return to menu
 ```

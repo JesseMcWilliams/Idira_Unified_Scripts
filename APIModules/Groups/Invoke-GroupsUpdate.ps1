@@ -36,10 +36,26 @@ function Get-GroupsUpdateInput {
     Write-Host '  Group Update  (press Enter to skip optional fields)' -ForegroundColor DarkGray
     Write-Host ''
 
-    $groupId = Show-FieldPrompt -Label 'GroupID' `
+    $groupId = Show-FieldPrompt -Label 'Group ID' `
         -Default $(if ($Defaults['GroupID']) { $Defaults['GroupID'] } else { '' }) `
-        -Required $true `
-        -Description 'Numeric ID of the group to update. (Required)'
+        -Description 'Numeric group ID to update, or leave blank to search by name.'
+
+    if (-not $groupId) {
+        $searchTerm = Show-FieldPrompt -Label 'Search' `
+            -Description 'Group name to search for.'
+        if ($searchTerm) {
+            $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
+            $groupId = Invoke-EntitySearch -Token $Token `
+                -Endpoint '/API/UserGroups' `
+                -SearchTerm $searchTerm `
+                -ResponseProperty 'value' `
+                -IdProperty 'id' `
+                -DisplayProperties @('groupName', 'groupType', 'description') `
+                -EntityLabel 'group' `
+                -IgnoreSSL $ignoreSSL
+        }
+        if (-not $groupId) { return $null }
+    }
 
     $groupName = Show-FieldPrompt -Label 'GroupName' `
         -Default $(if ($Defaults['GroupName']) { $Defaults['GroupName'] } else { '' }) `

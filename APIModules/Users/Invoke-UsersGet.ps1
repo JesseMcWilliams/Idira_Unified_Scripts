@@ -32,8 +32,24 @@ function Get-UsersGetInput {
 
     $userID = Show-FieldPrompt -Label 'User ID' `
         -Default $(if ($Defaults['UserID']) { $Defaults['UserID'] } else { '' }) `
-        -Required $true `
-        -Description 'Numeric user ID (from List Users).'
+        -Description 'Numeric user ID from List Users, or leave blank to search by username.'
+
+    if (-not $userID) {
+        $searchTerm = Show-FieldPrompt -Label 'Search' `
+            -Description 'Username or name to search for.'
+        if ($searchTerm) {
+            $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
+            $userID = Invoke-EntitySearch -Token $Token `
+                -Endpoint '/API/Users' `
+                -SearchTerm $searchTerm `
+                -ResponseProperty 'Users' `
+                -IdProperty 'id' `
+                -DisplayProperties @('username', 'userType', 'source') `
+                -EntityLabel 'user' `
+                -IgnoreSSL $ignoreSSL
+        }
+        if (-not $userID) { return $null }
+    }
 
     return @{
         UserID = $userID
@@ -114,9 +130,9 @@ function Invoke-UsersGet {
         UserType      = $user.userType
         Source        = $user.source
         ComponentUser = $user.componentUser
-        Email         = if ($user.personalDetails) { $user.personalDetails.email     } else { '' }
-        FirstName     = if ($user.personalDetails) { $user.personalDetails.firstName } else { '' }
-        LastName      = if ($user.personalDetails) { $user.personalDetails.lastName  } else { '' }
+        Email         = if ($user.personalDetails -and $user.personalDetails.PSObject.Properties['email'])     { $user.personalDetails.email     } else { '' }
+        FirstName     = if ($user.personalDetails -and $user.personalDetails.PSObject.Properties['firstName']) { $user.personalDetails.firstName } else { '' }
+        LastName      = if ($user.personalDetails -and $user.personalDetails.PSObject.Properties['lastName'])  { $user.personalDetails.lastName  } else { '' }
     })
     $result.Successes++
     $result.ItemsProcessed++

@@ -628,3 +628,74 @@ runs within `Invoke-SessionLoop`'s lifetime, including child calls like `Invoke-
 **Rule:** If a function is called by name (via `& "FunctionName"`) from a scope that was
 **not** the scope where the dot-source occurred, the function will not be found. Dot-source
 at the scope level of the long-lived caller, not inside a helper that immediately returns.
+
+---
+
+## 7. Custom Input Functions and Cancellation
+
+### 7.1 Return `$null` from a custom input function to signal cancellation
+
+**Root cause:** Custom input functions (`Get-<Category><Action>Input`) are called from
+`Invoke-ActionModule` in the driver. When the user searches for an entity and cancels (no selection
+made, empty search, or nothing found), the module has no way to throw or set a flag — it must
+communicate cancellation through its return value.
+
+`Invoke-ActionModule` already checks:
+```powershell
+if ($null -eq $inputData) { return }   # User cancelled in custom input function
+```
+
+**Pattern:** If an ID search produces no result or the user explicitly cancels, return `$null` from the
+input function to return to the action menu without running the module:
+
+```powershell
+function Get-AccountsGetInput {
+    param([PSCustomObject]$Token, [hashtable]$Defaults)
+    if (-not $Defaults) { $Defaults = @{} }
+
+    $id = Show-FieldPrompt -Label 'Account ID' -Description 'ID or blank to search.'
+    if (-not $id) {
+        $id = Invoke-EntitySearch -Token $Token -Endpoint '/API/Accounts' `
+            -SearchTerm (Show-FieldPrompt -Label 'Search') `
+            -ResponseProperty 'value' -IdProperty 'id' `
+            -DisplayProperties @('name','userName','address') -EntityLabel 'account'
+        if (-not $id) { return $null }   # <-- cancellation signal
+    }
+    return @{ AccountID = $id }
+}
+```
+
+**Rule:** Whenever a required field cannot be resolved (empty input + failed search), return
+`$null` from the custom input function. Never call `exit` or `throw` — let the driver decide how
+to handle the return.
+
+---
+
+### 7.2 Nested `PSObject.Properties` guard required for optional sub-fields
+
+**Root cause:** The guard `if ($obj.PSObject.Properties['parent'])` confirms `parent` exists on
+`$obj`, but does **not** confirm that sub-fields exist on `$obj.parent`. Under
+`Set-StrictMode -Version Latest`, accessing `$obj.parent.child` when `child` is absent on the
+nested PSCustomObject throws `PropertyNotFoundException`.
+
+**Symptom:** `PropertyNotFoundException: The property 'email' cannot be found on this object.`
+even though the outer guard `if ($user.personalDetails)` passed.
+
+**Wrong:**
+```powershell
+Email = if ($user.personalDetails) { $user.personalDetails.email } else { '' }
+```
+
+**Correct — guard both levels:**
+```powershell
+Email = if ($user.personalDetails -and $user.personalDetails.PSObject.Properties['email']) {
+    $user.personalDetails.email
+} else { '' }
+```
+
+**Rule:** For any API response property accessed as `$obj.parent.child`, guard both levels:
+1. `$obj.PSObject.Properties['parent']` (or simply `-and $obj.parent` as a truthiness check)
+2. `$obj.parent.PSObject.Properties['child']`
+
+This applies to all nested optional fields: `personalDetails.email`, `secretManagement.status`,
+`directory.directoryType`, etc.

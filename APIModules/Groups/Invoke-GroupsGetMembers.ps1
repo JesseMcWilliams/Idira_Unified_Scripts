@@ -33,10 +33,26 @@ function Get-GroupsGetMembersInput {
     Write-Host '  Get Group Members Criteria' -ForegroundColor DarkGray
     Write-Host ''
 
-    $groupId = Show-FieldPrompt -Label 'GroupID' `
+    $groupId = Show-FieldPrompt -Label 'Group ID' `
         -Default $(if ($Defaults['GroupID']) { $Defaults['GroupID'] } else { '' }) `
-        -Description 'Numeric ID of the group to retrieve members for. (Required)' `
-        -Required $true
+        -Description 'Numeric group ID, or leave blank to search by name.'
+
+    if (-not $groupId) {
+        $searchTerm = Show-FieldPrompt -Label 'Search' `
+            -Description 'Group name to search for.'
+        if ($searchTerm) {
+            $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
+            $groupId = Invoke-EntitySearch -Token $Token `
+                -Endpoint '/API/UserGroups' `
+                -SearchTerm $searchTerm `
+                -ResponseProperty 'value' `
+                -IdProperty 'id' `
+                -DisplayProperties @('groupName', 'groupType', 'description') `
+                -EntityLabel 'group' `
+                -IgnoreSSL $ignoreSSL
+        }
+        if (-not $groupId) { return $null }
+    }
 
     return @{
         GroupID = $groupId

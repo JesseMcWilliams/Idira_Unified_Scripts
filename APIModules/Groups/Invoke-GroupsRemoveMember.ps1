@@ -36,15 +36,47 @@ function Get-GroupsRemoveMemberInput {
     Write-Host '  WARNING: This removes the specified member from the group.' -ForegroundColor Yellow
     Write-Host ''
 
-    $groupId = Show-FieldPrompt -Label 'GroupID' `
+    $groupId = Show-FieldPrompt -Label 'Group ID' `
         -Default $(if ($Defaults['GroupID']) { $Defaults['GroupID'] } else { '' }) `
-        -Required $true `
-        -Description 'Numeric ID of the group.'
+        -Description 'Numeric group ID, or leave blank to search by name.'
 
-    $memberId = Show-FieldPrompt -Label 'MemberID' `
+    if (-not $groupId) {
+        $searchTerm = Show-FieldPrompt -Label 'Search Group' `
+            -Description 'Group name to search for.'
+        if ($searchTerm) {
+            $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
+            $groupId = Invoke-EntitySearch -Token $Token `
+                -Endpoint '/API/UserGroups' `
+                -SearchTerm $searchTerm `
+                -ResponseProperty 'value' `
+                -IdProperty 'id' `
+                -DisplayProperties @('groupName', 'groupType', 'description') `
+                -EntityLabel 'group' `
+                -IgnoreSSL $ignoreSSL
+        }
+        if (-not $groupId) { return $null }
+    }
+
+    $memberId = Show-FieldPrompt -Label 'Member ID' `
         -Default $(if ($Defaults['MemberID']) { $Defaults['MemberID'] } else { '' }) `
-        -Required $true `
-        -Description 'Numeric ID of the member to remove.'
+        -Description 'Numeric member user ID to remove, or leave blank to search by username.'
+
+    if (-not $memberId) {
+        $searchTerm = Show-FieldPrompt -Label 'Search User' `
+            -Description 'Username to search for.'
+        if ($searchTerm) {
+            $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
+            $memberId = Invoke-EntitySearch -Token $Token `
+                -Endpoint '/API/Users' `
+                -SearchTerm $searchTerm `
+                -ResponseProperty 'Users' `
+                -IdProperty 'id' `
+                -DisplayProperties @('username', 'userType') `
+                -EntityLabel 'user' `
+                -IgnoreSSL $ignoreSSL
+        }
+        if (-not $memberId) { return $null }
+    }
 
     return @{
         GroupID  = $groupId

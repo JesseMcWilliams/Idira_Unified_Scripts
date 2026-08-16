@@ -109,3 +109,13 @@ Build documents in this sequence to support the implementation phases:
 | 2026-08-15 | Driver.ps1 | Changed Get-ProfileTokenPath: token file extension .xml → .cred |
 | 2026-08-15 | Get-AuthToken.ps1 | Changed Resolve-ProfilePath (2 paths) and Get-AuthTokenProfiles filter: .xml → .cred |
 | 2026-08-15 | Interfaces.md | Updated Auth Token File section and Driver Profile field reference: .xml → .cred |
+| 2026-08-16 | Driver.ps1 | Added Invoke-EntitySearch helper; updated 10 Get-*Input functions (Accounts, Users, Platforms, Groups) to allow ID or name/search with numbered pick list |
+| 2026-08-16 | Driver.ps1 | Changed CSV save prompt to default N ([y/N]) |
+| 2026-08-16 | Invoke-PlatformsList.ps1 | Fixed PropertyNotFoundException: added PSObject.Properties guards for id/name/description/active/platformType |
+| 2026-08-16 | Invoke-UsersGet.ps1 | Fixed PropertyNotFoundException: added nested PSObject.Properties guards for personalDetails.email/firstName/lastName |
+| 2026-08-16 | Invoke-AccountsGet.ps1 | Fixed PropertyNotFoundException: added nested PSObject.Properties guards for secretManagement sub-fields |
+| 2026-08-16 | Invoke-AccountsUpdate.ps1 | Fixed PropertyNotFoundException: added nested PSObject.Properties guards for secretManagement sub-fields in result mapping |
+| 2026-08-16 | Invoke-PlatformsGet.ps1 | Fixed PropertyNotFoundException: added PSObject.Properties guards for all platform result fields |
+| 2026-08-16 | Accounts modules (11 new) | Added Invoke-AccountsGetActivity, LinkAccount, UnlinkAccount, Unlock, CheckIn, ResumeAutoManagement, CancelCpmTask, Verify, ChangeInVault, ChangeImmediate, Reconcile — each with AcceptsInputFile=true, SupportsWhatIf=true, entity search input, Pester test file |
+| 2026-08-16 | Lessons-Learned-PowerShell-Pester.md | Added Section 7 — custom input function cancellation ($null return) and nested PSObject.Properties guard pattern |
+| 2026-08-16 | Architecture.md | Added 11 new Account modules to folder structure; updated .xml → .cred in profile files; updated Data Flow to mention ID-to-name lookup |

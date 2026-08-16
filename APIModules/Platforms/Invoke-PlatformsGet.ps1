@@ -32,8 +32,25 @@ function Get-PlatformsGetInput {
 
     $platformID = Show-FieldPrompt -Label 'Platform ID' `
         -Default $(if ($Defaults['PlatformID']) { $Defaults['PlatformID'] } else { '' }) `
-        -Required $true `
-        -Description 'Platform ID (e.g. WinServerLocal).'
+        -Description 'Platform ID (e.g. WinServerLocal), or leave blank to search by name.'
+
+    if (-not $platformID) {
+        $searchTerm = Show-FieldPrompt -Label 'Search' `
+            -Description 'Platform name to search for.'
+        if ($searchTerm) {
+            $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
+            $platformID = Invoke-EntitySearch -Token $Token `
+                -Endpoint '/API/Platforms' `
+                -SearchTerm $searchTerm `
+                -SearchParam 'Search' `
+                -ResponseProperty 'Platforms' `
+                -IdProperty 'id' `
+                -DisplayProperties @('id', 'name', 'description') `
+                -EntityLabel 'platform' `
+                -IgnoreSSL $ignoreSSL
+        }
+        if (-not $platformID) { return $null }
+    }
 
     return @{
         PlatformID = $platformID
@@ -109,11 +126,11 @@ function Invoke-PlatformsGet {
     $platform = $response.Data
 
     $result.Results.Add([PSCustomObject]@{
-        PlatformID   = $platform.id
-        Name         = $platform.name
-        Description  = $platform.description
-        Active       = $platform.active
-        PlatformType = $platform.platformType
+        PlatformID   = if ($platform.PSObject.Properties['id'])           { $platform.id           } else { '' }
+        Name         = if ($platform.PSObject.Properties['name'])         { $platform.name         } else { '' }
+        Description  = if ($platform.PSObject.Properties['description'])  { $platform.description  } else { '' }
+        Active       = if ($platform.PSObject.Properties['active'])       { $platform.active       } else { $false }
+        PlatformType = if ($platform.PSObject.Properties['platformType']) { $platform.platformType } else { '' }
     })
     $result.Successes++
     $result.ItemsProcessed++

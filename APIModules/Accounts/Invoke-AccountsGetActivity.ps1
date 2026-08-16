@@ -1,26 +1,26 @@
 #Requires -Version 5.1
 
 $ModuleMeta = @{
-    Name             = 'Get Account'
+    Name             = 'Get Account Activity'
     Category         = 'Accounts'
-    Action           = 'Get'
-    Description      = 'Retrieve full details of a single account by ID.'
+    Action           = 'GetActivity'
+    Description      = 'Retrieve the activity log for an account.'
     SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $false
     AcceptsInputFile = $true
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'AccountID'; Required = $true; Description = 'Account ID (from List Accounts).' }
+        @{ Column = 'AccountID'; Required = $true; Description = 'Account ID, or leave blank to search.' }
     )
-    Priority         = 31
+    Priority         = 38
     Version          = '1.0.0'
 }
 
-function Get-AccountsGetInput {
+function Get-AccountsGetActivityInput {
     <#
         Called by the driver when HasCustomInput = $true.
-        Show-FieldPrompt is available because this module is dot-sourced into the driver scope.
+        Show-FieldPrompt and Invoke-EntitySearch are available because this module is dot-sourced into the driver scope.
     #>
     [CmdletBinding()]
     param(
@@ -30,16 +30,16 @@ function Get-AccountsGetInput {
 
     if (-not $Defaults) { $Defaults = @{} }
 
-    $id = Show-FieldPrompt -Label 'Account ID' `
+    $accountID = Show-FieldPrompt -Label 'Account ID' `
         -Default $(if ($Defaults['AccountID']) { $Defaults['AccountID'] } else { '' }) `
-        -Description 'Account ID from List Accounts, or leave blank to search by name/username/address.'
+        -Description 'Account ID, or leave blank to search by name/username/address.'
 
-    if (-not $id) {
+    if (-not $accountID) {
         $searchTerm = Show-FieldPrompt -Label 'Search' `
             -Description 'Name, username, or address to find the account.'
         if ($searchTerm) {
             $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
-            $id = Invoke-EntitySearch -Token $Token `
+            $accountID = Invoke-EntitySearch -Token $Token `
                 -Endpoint '/API/Accounts' `
                 -SearchTerm $searchTerm `
                 -ResponseProperty 'value' `
@@ -48,15 +48,15 @@ function Get-AccountsGetInput {
                 -EntityLabel 'account' `
                 -IgnoreSSL $ignoreSSL
         }
-        if (-not $id) { return $null }
+        if (-not $accountID) { return $null }
     }
 
     return @{
-        AccountID = $id
+        AccountID = $accountID
     }
 }
 
-function Invoke-AccountsGet {
+function Invoke-AccountsGetActivity {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -86,7 +86,7 @@ function Invoke-AccountsGet {
     $accountId = if ($InputData['AccountID']) { "$($InputData['AccountID'])".Trim() } else { '' }
 
     if (-not $accountId) {
-        Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-AccountsGet: AccountID is required but was not provided.'
+        Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-AccountsGetActivity: AccountID is required.'
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
             ErrorMessage = 'AccountID is required.'
@@ -99,17 +99,17 @@ function Invoke-AccountsGet {
 
     $encodedId = [Uri]::EscapeDataString($accountId)
 
-    Write-CyberArkLog -Level 'INFO'  -Message "Starting account retrieval for ID: $accountId"
-    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/Accounts/$encodedId"
+    Write-CyberArkLog -Level 'INFO'  -Message "Starting get account activity for account ID: $accountId"
+    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/Accounts/$accountId/Activities"
 
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'GET' `
-        -Endpoint "/API/Accounts/$encodedId" `
+        -Endpoint "/API/Accounts/$encodedId/Activities" `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
-        $msg = "Account get failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+        $msg = "Get Account Activity failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -122,35 +122,37 @@ function Invoke-AccountsGet {
         return $result
     }
 
-    $acct = $response.Data
+    $activities = if ($response.Data -and $response.Data.PSObject.Properties['Activities']) {
+        @($response.Data.Activities)
+    } elseif ($response.Data -and $response.Data.PSObject.Properties['value']) {
+        @($response.Data.value)
+    } else { @() }
 
-    $createdDate = if ($acct.PSObject.Properties['createdTime'] -and $acct.createdTime) {
-        try { [DateTimeOffset]::FromUnixTimeSeconds($acct.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
-        catch { '' }
-    } else { '' }
+    foreach ($a in $activities) {
+        try {
+            $result.Results.Add([PSCustomObject]@{
+                AccountID = $accountId
+                Time      = if ($a.PSObject.Properties['time'])        { $a.time        } else { '' }
+                Action    = if ($a.PSObject.Properties['action'])      { $a.action      } else { '' }
+                Reason    = if ($a.PSObject.Properties['reason'])      { $a.reason      } else { '' }
+                User      = if ($a.PSObject.Properties['User'])        { $a.User        } else { '' }
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $msg = "Unexpected error mapping activity: $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = $InputData
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
+    }
 
-    $result.Results.Add([PSCustomObject]@{
-        AccountID   = $acct.id
-        AccountName = $acct.name
-        Address     = $acct.address
-        UserName    = $acct.userName
-        PlatformID  = $acct.platformId
-        SafeName    = $acct.safeName
-        SecretType  = $acct.secretType
-        AutoManaged  = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
-                          $acct.secretManagement.PSObject.Properties['automaticManagementEnabled']) {
-                            $acct.secretManagement.automaticManagementEnabled } else { $false }
-        CPMStatus    = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
-                          $acct.secretManagement.PSObject.Properties['status']) {
-                            $acct.secretManagement.status } else { '' }
-        ManualReason = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
-                          $acct.secretManagement.PSObject.Properties['manualManagementReason']) {
-                            $acct.secretManagement.manualManagementReason } else { '' }
-        Created     = $createdDate
-    })
-    $result.Successes++
-    $result.ItemsProcessed++
+    Write-CyberArkLog -Level 'INFO' -Message "Get Account Activity complete for account ID: $accountId."
 
-    Write-CyberArkLog -Level 'INFO' -Message "Account get complete. Account retrieved: $accountId."
     return $result
 }
