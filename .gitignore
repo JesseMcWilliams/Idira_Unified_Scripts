@@ -1,6 +1,9 @@
 # Log files produced by CyberArkLogging.psm1
 *.log
 
+# CSV output files (generated at runtime by Export modules)
+*.csv
+
 # JUnit test result output
 TestResults.xml
 
