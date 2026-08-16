@@ -32,7 +32,7 @@ function Get-ReportsListInput {
     Write-Host ''
 
     $search = Show-FieldPrompt -Label 'Search' `
-        -Default $(if ($Defaults.Search) { $Defaults.Search } else { '' }) `
+        -Default $(if ($Defaults['Search']) { $Defaults['Search'] } else { '' }) `
         -Description 'Free-text search across report name. Leave blank for all reports.'
 
     return @{

@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Update Account'
@@ -40,31 +40,31 @@ function Get-AccountsUpdateInput {
     Write-Host ''
 
     $accountID = Show-FieldPrompt -Label 'AccountID' `
-        -Default $(if ($Defaults.AccountID) { $Defaults.AccountID } else { '' }) `
+        -Default $(if ($Defaults['AccountID']) { $Defaults['AccountID'] } else { '' }) `
         -Description 'Account ID to update. (Required)'
 
     $name = Show-FieldPrompt -Label 'Name' `
-        -Default $(if ($Defaults.Name) { $Defaults.Name } else { '' }) `
+        -Default $(if ($Defaults['Name']) { $Defaults['Name'] } else { '' }) `
         -Description 'New account name. Leave blank to keep the current value.'
 
     $address = Show-FieldPrompt -Label 'Address' `
-        -Default $(if ($Defaults.Address) { $Defaults.Address } else { '' }) `
+        -Default $(if ($Defaults['Address']) { $Defaults['Address'] } else { '' }) `
         -Description 'New target address. Leave blank to keep the current value.'
 
     $userName = Show-FieldPrompt -Label 'UserName' `
-        -Default $(if ($Defaults.UserName) { $Defaults.UserName } else { '' }) `
+        -Default $(if ($Defaults['UserName']) { $Defaults['UserName'] } else { '' }) `
         -Description 'New username. Leave blank to keep the current value.'
 
     $platformID = Show-FieldPrompt -Label 'PlatformID' `
-        -Default $(if ($Defaults.PlatformID) { $Defaults.PlatformID } else { '' }) `
+        -Default $(if ($Defaults['PlatformID']) { $Defaults['PlatformID'] } else { '' }) `
         -Description 'New platform ID. Leave blank to keep the current value.'
 
     $safeName = Show-FieldPrompt -Label 'SafeName' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
+        -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' }) `
         -Description 'New safe name (moves account). Leave blank to keep the current value.'
 
     $autoManaged = Show-FieldPrompt -Label 'AutoManaged' `
-        -Default $(if ($Defaults.AutoManaged) { $Defaults.AutoManaged } else { '' }) `
+        -Default $(if ($Defaults['AutoManaged']) { $Defaults['AutoManaged'] } else { '' }) `
         -Description 'Enable automatic management: true/false. Leave blank to keep the current value.'
 
     return @{

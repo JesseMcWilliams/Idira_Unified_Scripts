@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Update Safe'
@@ -40,31 +40,31 @@ function Get-SafesUpdateInput {
     Write-Host ''
 
     $safeName = Show-FieldPrompt -Label 'SafeName' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
+        -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' }) `
         -Description 'Name of the safe to update. (Required)'
 
     $description = Show-FieldPrompt -Label 'Description' `
-        -Default $(if ($Defaults.Description) { $Defaults.Description } else { '' }) `
+        -Default $(if ($Defaults['Description']) { $Defaults['Description'] } else { '' }) `
         -Description 'New description for the safe. Leave blank to keep the current value.'
 
     $managingCPM = Show-FieldPrompt -Label 'ManagingCPM' `
-        -Default $(if ($Defaults.ManagingCPM) { $Defaults.ManagingCPM } else { '' }) `
+        -Default $(if ($Defaults['ManagingCPM']) { $Defaults['ManagingCPM'] } else { '' }) `
         -Description 'CPM user to manage the safe. Leave blank to keep the current value.'
 
     $versionsRetention = Show-FieldPrompt -Label 'NumberOfVersionsRetention' `
-        -Default $(if ($Defaults.NumberOfVersionsRetention) { $Defaults.NumberOfVersionsRetention } else { '' }) `
+        -Default $(if ($Defaults['NumberOfVersionsRetention']) { $Defaults['NumberOfVersionsRetention'] } else { '' }) `
         -Description 'Number of password versions to retain. Leave blank to keep the current value.'
 
     $daysRetention = Show-FieldPrompt -Label 'NumberOfDaysRetention' `
-        -Default $(if ($Defaults.NumberOfDaysRetention) { $Defaults.NumberOfDaysRetention } else { '' }) `
+        -Default $(if ($Defaults['NumberOfDaysRetention']) { $Defaults['NumberOfDaysRetention'] } else { '' }) `
         -Description 'Number of days to retain password versions. Leave blank to keep the current value.'
 
     $autoPurge = Show-FieldPrompt -Label 'AutoPurgeEnabled' `
-        -Default $(if ($Defaults.AutoPurgeEnabled) { $Defaults.AutoPurgeEnabled } else { '' }) `
+        -Default $(if ($Defaults['AutoPurgeEnabled']) { $Defaults['AutoPurgeEnabled'] } else { '' }) `
         -Description 'Enable auto-purge of expired passwords: true/false. Leave blank to keep the current value.'
 
     $olac = Show-FieldPrompt -Label 'OLACEnabled' `
-        -Default $(if ($Defaults.OLACEnabled) { $Defaults.OLACEnabled } else { '' }) `
+        -Default $(if ($Defaults['OLACEnabled']) { $Defaults['OLACEnabled'] } else { '' }) `
         -Description 'Enable Object Level Access Control (OLAC): true/false. Leave blank to keep the current value.'
 
     return @{

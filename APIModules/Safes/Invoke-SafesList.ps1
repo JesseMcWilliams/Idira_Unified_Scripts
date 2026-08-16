@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'List Safes'
@@ -32,15 +32,15 @@ function Get-SafesListInput {
     Write-Host ''
 
     $search = Show-FieldPrompt -Label 'Search' `
-        -Default $(if ($Defaults.Search)  { $Defaults.Search  } else { '' }) `
+        -Default $(if ($Defaults['Search'])  { $Defaults['Search']  } else { '' }) `
         -Description 'Free-text search across safe name and description. Leave blank for all safes.'
 
     $filter = Show-FieldPrompt -Label 'Filter' `
-        -Default $(if ($Defaults.Filter)  { $Defaults.Filter  } else { '' }) `
+        -Default $(if ($Defaults['Filter'])  { $Defaults['Filter']  } else { '' }) `
         -Description 'OData filter expression (e.g. "safeName eq MySafe"). Leave blank for no filter.'
 
     $extStr = Show-FieldPrompt -Label 'Extended Details' `
-        -Default $(if ($Defaults.ExtendedDetails) { 'Y' } else { 'N' }) `
+        -Default $(if ($Defaults['ExtendedDetails']) { 'Y' } else { 'N' }) `
         -Description 'Include extended safe details such as creator and retention settings? (Y/N)'
 
     return @{

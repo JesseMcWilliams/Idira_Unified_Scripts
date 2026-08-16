@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Update Safe Member'
@@ -135,12 +135,12 @@ function Get-SafeMembersUpdateInput {
     Write-Host ''
 
     $safeName = Show-FieldPrompt -Label 'SafeName' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
+        -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' }) `
         -Required $true `
         -Description 'Name of the safe containing the member to update. (Required)'
 
     $memberName = Show-FieldPrompt -Label 'MemberName' `
-        -Default $(if ($Defaults.MemberName) { $Defaults.MemberName } else { '' }) `
+        -Default $(if ($Defaults['MemberName']) { $Defaults['MemberName'] } else { '' }) `
         -Required $true `
         -Description 'Username, group name, or role to update. (Required)'
 
@@ -154,7 +154,7 @@ function Get-SafeMembersUpdateInput {
     Write-Host ''
 
     $roleChoice = Show-FieldPrompt -Label 'PermissionRole' `
-        -Default $(if ($Defaults.PermissionRole) { $Defaults.PermissionRole } else { '1' }) `
+        -Default $(if ($Defaults['PermissionRole']) { $Defaults['PermissionRole'] } else { '1' }) `
         -Description 'Enter role number (1-5) or role name (ReadOnly/EndUser/PowerUser/SafeManager/Custom).'
 
     $permissionRole = switch ($roleChoice.Trim()) {
@@ -172,7 +172,7 @@ function Get-SafeMembersUpdateInput {
     }
 
     $expirationDate = Show-FieldPrompt -Label 'ExpirationDate' `
-        -Default $(if ($Defaults.ExpirationDate) { $Defaults.ExpirationDate } else { '' }) `
+        -Default $(if ($Defaults['ExpirationDate']) { $Defaults['ExpirationDate'] } else { '' }) `
         -Description 'Membership expiration date (yyyy-MM-dd). Leave blank for no expiration.'
 
     return @{

@@ -34,7 +34,7 @@ function Get-GroupsGetMembersInput {
     Write-Host ''
 
     $groupId = Show-FieldPrompt -Label 'GroupID' `
-        -Default $(if ($Defaults.GroupID) { $Defaults.GroupID } else { '' }) `
+        -Default $(if ($Defaults['GroupID']) { $Defaults['GroupID'] } else { '' }) `
         -Description 'Numeric ID of the group to retrieve members for. (Required)' `
         -Required $true
 

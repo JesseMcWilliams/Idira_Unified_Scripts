@@ -448,6 +448,38 @@ Treat all test failures as genuine bugs, not test-environment artifacts.
 
 ---
 
+### 4.5 `$Defaults` hashtable in custom input functions also requires bracket notation
+
+**Root cause:** The `$Defaults` parameter in `Get-<Category><Action>Input` functions is a
+`[hashtable]`. When the driver calls a custom input function for the first time (no prior entry to
+copy), it passes `$null`, which the function body converts to `@{}`. Under
+`Set-StrictMode -Version Latest`, dot notation on that empty hashtable throws
+`PropertyNotFoundException` for every key that doesn't exist — which is all of them on a fresh
+interactive run.
+
+**Symptom:** `PropertyNotFoundException: The property 'SafeName' cannot be found on this object.`
+at the first `Show-FieldPrompt -Default $(if ($Defaults.SafeName) …)` call, even though the
+guard `if (-not $Defaults) { $Defaults = @{} }` ran correctly.
+
+**Wrong:**
+```powershell
+if (-not $Defaults) { $Defaults = @{} }
+$safeName = Show-FieldPrompt -Label 'Safe Name' `
+    -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' })
+```
+
+**Correct:**
+```powershell
+if (-not $Defaults) { $Defaults = @{} }
+$safeName = Show-FieldPrompt -Label 'Safe Name' `
+    -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' })
+```
+
+This applies to **every** `$Defaults` key access — not just `SafeName`. The same
+`$InputData['Key']` rule from 4.1 applies identically to `$Defaults`.
+
+---
+
 ## 5. PowerShell Reserved and Automatic Variable Names
 
 PowerShell maintains a set of automatic variables that the runtime owns. Assigning to them
@@ -522,3 +554,77 @@ It 'validates input' {
 **Rule:** Run PSScriptAnalyzer with the `PSAvoidAssignmentToAutomaticVariable` rule enabled
 on all `.ps1` and `.psm1` files. Any warning from this rule must be treated as an error and
 resolved before merging.
+
+---
+
+## 6. Driver Scope and Module Loading
+
+### 6.1 Functions dot-sourced inside a called function are lost when it returns
+
+**Root cause:** In PowerShell, dot-sourcing a script (`. $path`) brings the definitions from
+that script into the **current scope** — which, when called from inside a function, is that
+function's **local scope**. When the function returns, its local scope is destroyed, taking all
+dot-sourced definitions with it. Any other function that runs later cannot see them.
+
+In `Driver.ps1`, `Import-APIModules` dot-sources every module file to read its `$ModuleMeta`.
+This creates both `$ModuleMeta` and the module functions (`Invoke-SafeMembersList`,
+`Get-SafeMembersListInput`, etc.) in `Import-APIModules`'s local scope. When
+`Import-APIModules` returns to `Invoke-SessionLoop`, those function definitions vanish.
+
+Later, `Invoke-ActionModule` (called from `Invoke-SessionLoop`) tries to call
+`Get-SafeMembersListInput` by name. PowerShell searches the scope chain:
+1. `Invoke-ActionModule`'s local scope
+2. `Invoke-SessionLoop`'s local scope (the caller)
+3. Script scope
+4. Global scope
+
+`Import-APIModules`'s scope is **not** in this chain — it returned before `Invoke-ActionModule`
+was called. The function is not found.
+
+**Symptom:** `CommandNotFoundException: The term 'Get-SafeMembersListInput' is not recognized`
+at the driver's `& "Get-$($meta.Category)$($meta.Action)Input"` call. Modules without
+`HasCustomInput = $true` are unaffected because they never invoke the custom input function
+by name.
+
+**Wrong — dot-source inside the discovery function (functions lost on return):**
+```powershell
+function Import-APIModules {
+    foreach ($file in $files) {
+        . $file.FullName           # functions go into Import-APIModules's local scope
+        $script:LoadedModules += ...
+    }
+}
+
+function Invoke-SessionLoop {
+    Import-APIModules              # discovery runs, then returns — functions gone
+    ...
+    Invoke-ActionModule ...        # tries to call Get-SafeMembersListInput — not found
+}
+```
+
+**Correct — re-dot-source in the scope that calls Invoke-ActionModule:**
+```powershell
+function Import-APIModules {
+    foreach ($file in $files) {
+        . $file.FullName           # still needed to read $ModuleMeta
+        $script:LoadedModules += ...
+    }
+}
+
+function Invoke-SessionLoop {
+    Import-APIModules
+    # Re-dot-source each file into Invoke-SessionLoop's scope so that child
+    # callers (Invoke-ActionModule) can resolve module functions by name.
+    foreach ($m in $script:LoadedModules) { . $m.FilePath }
+    ...
+    Invoke-ActionModule ...        # Get-SafeMembersListInput now in scope chain ✓
+}
+```
+
+The double dot-source is intentional. `Import-APIModules` reads `$ModuleMeta` (data).
+The second pass in `Invoke-SessionLoop` makes the **functions** available to all code that
+runs within `Invoke-SessionLoop`'s lifetime, including child calls like `Invoke-ActionModule`.
+
+**Rule:** If a function is called by name (via `& "FunctionName"`) from a scope that was
+**not** the scope where the dot-source occurred, the function will not be found. Dot-source
+at the scope level of the long-lived caller, not inside a helper that immediately returns.

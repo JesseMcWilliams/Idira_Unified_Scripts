@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Add Safe Member'
@@ -121,25 +121,25 @@ function Get-SafeMembersAddInput {
     Write-Host ''
 
     $safeName = Show-FieldPrompt -Label 'SafeName' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
+        -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' }) `
         -Required $true `
         -Description 'Name of the safe.'
 
     $memberName = Show-FieldPrompt -Label 'MemberName' `
-        -Default $(if ($Defaults.MemberName) { $Defaults.MemberName } else { '' }) `
+        -Default $(if ($Defaults['MemberName']) { $Defaults['MemberName'] } else { '' }) `
         -Required $true `
         -Description 'Username, group name, or role name to add.'
 
     $searchIn = Show-FieldPrompt -Label 'SearchIn' `
-        -Default $(if ($Defaults.SearchIn) { $Defaults.SearchIn } else { 'Vault' }) `
+        -Default $(if ($Defaults['SearchIn']) { $Defaults['SearchIn'] } else { 'Vault' }) `
         -Description 'Vault for local users; domain FQDN for AD users (e.g. domain.com).'
 
     $memberType = Show-FieldPrompt -Label 'MemberType' `
-        -Default $(if ($Defaults.MemberType) { $Defaults.MemberType } else { 'User' }) `
+        -Default $(if ($Defaults['MemberType']) { $Defaults['MemberType'] } else { 'User' }) `
         -Description 'User / Group / Role'
 
     $expirationDate = Show-FieldPrompt -Label 'ExpirationDate' `
-        -Default $(if ($Defaults.ExpirationDate) { $Defaults.ExpirationDate } else { '' }) `
+        -Default $(if ($Defaults['ExpirationDate']) { $Defaults['ExpirationDate'] } else { '' }) `
         -Description 'Membership expiration date (yyyy-MM-dd), or leave blank for no expiry.'
 
     Write-Host ''

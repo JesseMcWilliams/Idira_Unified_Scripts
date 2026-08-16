@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Get Account Credential'
@@ -35,11 +35,11 @@ function Get-AccountsGetCredentialInput {
     Write-Host ''
 
     $accountID = Show-FieldPrompt -Label 'AccountID' `
-        -Default $(if ($Defaults.AccountID) { $Defaults.AccountID } else { '' }) `
+        -Default $(if ($Defaults['AccountID']) { $Defaults['AccountID'] } else { '' }) `
         -Description 'The CyberArk Account ID to retrieve the credential for. (Required)'
 
     $reason = Show-FieldPrompt -Label 'Reason' `
-        -Default $(if ($Defaults.Reason) { $Defaults.Reason } else { '' }) `
+        -Default $(if ($Defaults['Reason']) { $Defaults['Reason'] } else { '' }) `
         -Description 'Reason for credential retrieval. Required by some platforms. Leave blank if not needed.'
 
     return @{

@@ -32,11 +32,11 @@ function Get-GroupsListInput {
     Write-Host ''
 
     $search = Show-FieldPrompt -Label 'Search' `
-        -Default $(if ($Defaults.Search) { $Defaults.Search } else { '' }) `
+        -Default $(if ($Defaults['Search']) { $Defaults['Search'] } else { '' }) `
         -Description 'Free-text search across group name and details. Leave blank for all groups.'
 
     $groupType = Show-FieldPrompt -Label 'GroupType' `
-        -Default $(if ($Defaults.GroupType) { $Defaults.GroupType } else { '' }) `
+        -Default $(if ($Defaults['GroupType']) { $Defaults['GroupType'] } else { '' }) `
         -Description 'Filter by group type (e.g. EPVGroup, LDAP). Leave blank for all types.'
 
     return @{

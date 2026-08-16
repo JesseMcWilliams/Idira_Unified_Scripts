@@ -318,13 +318,13 @@ function Get-AccountsAddInput {
     $safeNames = $safesResponse.Data.Safes | Select-Object -ExpandProperty SafeName
 
     $safeName = Show-SelectionMenu -Title 'Select target safe' -Options $safeNames `
-                    -Default $Defaults.SafeName
+                    -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' })
 
     return @{
         SafeName   = $safeName
-        UserName   = Read-Host -Prompt "Username$(if ($Defaults.UserName) { " [$($Defaults.UserName)]" })"
-        PlatformId = Read-Host -Prompt "Platform ID$(if ($Defaults.PlatformId) { " [$($Defaults.PlatformId)]" })"
-        Address    = Read-Host -Prompt "Address$(if ($Defaults.Address) { " [$($Defaults.Address)]" })"
+        UserName   = Read-Host -Prompt "Username$(if ($Defaults['UserName']) { " [$($Defaults['UserName'])]" })"
+        PlatformId = Read-Host -Prompt "Platform ID$(if ($Defaults['PlatformId']) { " [$($Defaults['PlatformId'])]" })"
+        Address    = Read-Host -Prompt "Address$(if ($Defaults['Address']) { " [$($Defaults['Address'])]" })"
     }
 }
 ```
@@ -528,4 +528,5 @@ Use this checklist before considering a module complete.
 - [ ] Function named `Get-<Category><Action>Input`
 - [ ] Accepts `$Token` and `$Defaults` parameters
 - [ ] Returns hashtable with keys matching `InputSchema` column names
-- [ ] Handles `$null` `$Defaults` gracefully
+- [ ] Handles `$null` `$Defaults` gracefully: `if (-not $Defaults) { $Defaults = @{} }`
+- [ ] All `$Defaults` access uses bracket notation: `$Defaults['Key']` (never `$Defaults.Key`)

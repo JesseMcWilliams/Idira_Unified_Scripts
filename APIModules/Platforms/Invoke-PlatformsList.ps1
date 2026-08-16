@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'List Platforms'
@@ -32,11 +32,11 @@ function Get-PlatformsListInput {
     Write-Host ''
 
     $search = Show-FieldPrompt -Label 'Search' `
-        -Default $(if ($Defaults.Search) { $Defaults.Search } else { '' }) `
+        -Default $(if ($Defaults['Search']) { $Defaults['Search'] } else { '' }) `
         -Description 'Free-text search across platform name and description. Leave blank for all platforms.'
 
     $activeOnlyStr = Show-FieldPrompt -Label 'Active Only' `
-        -Default $(if ($Defaults.ActiveOnly) { 'Y' } else { 'N' }) `
+        -Default $(if ($Defaults['ActiveOnly']) { 'Y' } else { 'N' }) `
         -Description 'Return only active platforms? (Y/N)'
 
     return @{

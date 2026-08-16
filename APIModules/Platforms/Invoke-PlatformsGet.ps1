@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Get Platform'
@@ -31,7 +31,7 @@ function Get-PlatformsGetInput {
     if (-not $Defaults) { $Defaults = @{} }
 
     $platformID = Show-FieldPrompt -Label 'Platform ID' `
-        -Default $(if ($Defaults.PlatformID) { $Defaults.PlatformID } else { '' }) `
+        -Default $(if ($Defaults['PlatformID']) { $Defaults['PlatformID'] } else { '' }) `
         -Required $true `
         -Description 'Platform ID (e.g. WinServerLocal).'
 

@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Get Account'
@@ -31,7 +31,7 @@ function Get-AccountsGetInput {
     if (-not $Defaults) { $Defaults = @{} }
 
     $id = Show-FieldPrompt -Label 'Account ID' `
-        -Default $(if ($Defaults.AccountID) { $Defaults.AccountID } else { '' }) `
+        -Default $(if ($Defaults['AccountID']) { $Defaults['AccountID'] } else { '' }) `
         -Required $true `
         -Description 'Account ID from List Accounts output.'
 

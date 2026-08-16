@@ -37,20 +37,20 @@ function Get-GroupsUpdateInput {
     Write-Host ''
 
     $groupId = Show-FieldPrompt -Label 'GroupID' `
-        -Default $(if ($Defaults.GroupID) { $Defaults.GroupID } else { '' }) `
+        -Default $(if ($Defaults['GroupID']) { $Defaults['GroupID'] } else { '' }) `
         -Required $true `
         -Description 'Numeric ID of the group to update. (Required)'
 
     $groupName = Show-FieldPrompt -Label 'GroupName' `
-        -Default $(if ($Defaults.GroupName) { $Defaults.GroupName } else { '' }) `
+        -Default $(if ($Defaults['GroupName']) { $Defaults['GroupName'] } else { '' }) `
         -Description 'New name for the group. Leave blank to keep the current value.'
 
     $description = Show-FieldPrompt -Label 'Description' `
-        -Default $(if ($Defaults.Description) { $Defaults.Description } else { '' }) `
+        -Default $(if ($Defaults['Description']) { $Defaults['Description'] } else { '' }) `
         -Description 'New description for the group. Leave blank to keep the current value.'
 
     $location = Show-FieldPrompt -Label 'Location' `
-        -Default $(if ($Defaults.Location) { $Defaults.Location } else { '' }) `
+        -Default $(if ($Defaults['Location']) { $Defaults['Location'] } else { '' }) `
         -Description 'New location for the group. Leave blank to keep the current value.'
 
     return @{

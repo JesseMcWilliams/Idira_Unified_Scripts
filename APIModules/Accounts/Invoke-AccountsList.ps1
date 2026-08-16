@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'List Accounts'
@@ -32,15 +32,15 @@ function Get-AccountsListInput {
     Write-Host ''
 
     $search = Show-FieldPrompt -Label 'Search' `
-        -Default $(if ($Defaults.Search) { $Defaults.Search } else { '' }) `
+        -Default $(if ($Defaults['Search']) { $Defaults['Search'] } else { '' }) `
         -Description 'Free-text search across account name, address, and username. Leave blank for all accounts.'
 
     $safe = Show-FieldPrompt -Label 'Safe' `
-        -Default $(if ($Defaults.Safe) { $Defaults.Safe } else { '' }) `
+        -Default $(if ($Defaults['Safe']) { $Defaults['Safe'] } else { '' }) `
         -Description 'Shortcut: filter by safe name (e.g. "MySafe"). Leave blank to skip.'
 
     $filter = Show-FieldPrompt -Label 'Filter' `
-        -Default $(if ($Defaults.Filter) { $Defaults.Filter } else { '' }) `
+        -Default $(if ($Defaults['Filter']) { $Defaults['Filter'] } else { '' }) `
         -Description 'OData filter expression (e.g. "safeName eq MySafe"). Leave blank for no filter. Overridden by Safe if both are provided.'
 
     # Safe shortcut: if Safe is provided and Filter is empty, build the filter automatically

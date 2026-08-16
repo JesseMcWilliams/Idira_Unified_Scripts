@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Add Account'
@@ -41,27 +41,27 @@ function Get-AccountsAddInput {
     Write-Host ''
 
     $name = Show-FieldPrompt -Label 'Name' `
-        -Default $(if ($Defaults.Name) { $Defaults.Name } else { '' }) `
+        -Default $(if ($Defaults['Name']) { $Defaults['Name'] } else { '' }) `
         -Description 'Account name. Leave blank to auto-generate as UserName@Address.'
 
     $address = Show-FieldPrompt -Label 'Address' `
-        -Default $(if ($Defaults.Address) { $Defaults.Address } else { '' }) `
+        -Default $(if ($Defaults['Address']) { $Defaults['Address'] } else { '' }) `
         -Description 'Target system address (hostname or IP). Required.'
 
     $userName = Show-FieldPrompt -Label 'UserName' `
-        -Default $(if ($Defaults.UserName) { $Defaults.UserName } else { '' }) `
+        -Default $(if ($Defaults['UserName']) { $Defaults['UserName'] } else { '' }) `
         -Description 'Privileged username. Required.'
 
     $platformID = Show-FieldPrompt -Label 'PlatformID' `
-        -Default $(if ($Defaults.PlatformID) { $Defaults.PlatformID } else { '' }) `
+        -Default $(if ($Defaults['PlatformID']) { $Defaults['PlatformID'] } else { '' }) `
         -Description 'Platform ID (e.g. WinServerLocal). Required.'
 
     $safeName = Show-FieldPrompt -Label 'SafeName' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
+        -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' }) `
         -Description 'Safe where the account will be stored. Required.'
 
     $secretType = Show-FieldPrompt -Label 'SecretType' `
-        -Default $(if ($Defaults.SecretType) { $Defaults.SecretType } else { 'password' }) `
+        -Default $(if ($Defaults['SecretType']) { $Defaults['SecretType'] } else { 'password' }) `
         -Description 'Credential type: password or key. Leave blank for default (password).'
 
     Write-Host '  Secret (leave blank for CPM-managed):' -ForegroundColor DarkGray
@@ -71,7 +71,7 @@ function Get-AccountsAddInput {
     [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
 
     $autoManaged = Show-FieldPrompt -Label 'AutoManaged' `
-        -Default $(if ($Defaults.AutoManaged) { $Defaults.AutoManaged } else { 'true' }) `
+        -Default $(if ($Defaults['AutoManaged']) { $Defaults['AutoManaged'] } else { 'true' }) `
         -Description 'Enable automatic CPM management: true/false (default: true).'
 
     return @{

@@ -36,7 +36,7 @@ function Get-GroupsDeleteInput {
     Write-Host ''
 
     $groupId = Show-FieldPrompt -Label 'GroupID' `
-        -Default $(if ($Defaults.GroupID) { $Defaults.GroupID } else { '' }) `
+        -Default $(if ($Defaults['GroupID']) { $Defaults['GroupID'] } else { '' }) `
         -Required $true `
         -Description 'Numeric ID of the group to delete.'
 

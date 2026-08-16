@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Add Safe'
@@ -41,36 +41,36 @@ function Get-SafesAddInput {
     Write-Host ''
 
     $safeName = Show-FieldPrompt -Label 'SafeName' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
+        -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' }) `
         -Required $true `
         -Description 'Unique safe name (max 28 chars).'
 
     $description = Show-FieldPrompt -Label 'Description' `
-        -Default $(if ($Defaults.Description) { $Defaults.Description } else { '' }) `
+        -Default $(if ($Defaults['Description']) { $Defaults['Description'] } else { '' }) `
         -Description 'Safe description.'
 
     $location = Show-FieldPrompt -Label 'Location' `
-        -Default $(if ($Defaults.Location) { $Defaults.Location } else { '\' }) `
+        -Default $(if ($Defaults['Location']) { $Defaults['Location'] } else { '\' }) `
         -Description 'Safe location path (default: \).'
 
     $managingCPM = Show-FieldPrompt -Label 'ManagingCPM' `
-        -Default $(if ($Defaults.ManagingCPM) { $Defaults.ManagingCPM } else { '' }) `
+        -Default $(if ($Defaults['ManagingCPM']) { $Defaults['ManagingCPM'] } else { '' }) `
         -Description 'CPM user managing this safe.'
 
     $numberOfVersionsRetention = Show-FieldPrompt -Label 'NumberOfVersionsRetention' `
-        -Default $(if ($Defaults.NumberOfVersionsRetention) { $Defaults.NumberOfVersionsRetention } else { '5' }) `
+        -Default $(if ($Defaults['NumberOfVersionsRetention']) { $Defaults['NumberOfVersionsRetention'] } else { '5' }) `
         -Description 'Password versions to retain (default: 5).'
 
     $numberOfDaysRetention = Show-FieldPrompt -Label 'NumberOfDaysRetention' `
-        -Default $(if ($Defaults.NumberOfDaysRetention) { $Defaults.NumberOfDaysRetention } else { '0' }) `
+        -Default $(if ($Defaults['NumberOfDaysRetention']) { $Defaults['NumberOfDaysRetention'] } else { '0' }) `
         -Description 'Days to retain (0 = versions-based, default: 0).'
 
     $autoPurgeEnabled = Show-FieldPrompt -Label 'AutoPurgeEnabled' `
-        -Default $(if ($Defaults.AutoPurgeEnabled) { $Defaults.AutoPurgeEnabled } else { 'false' }) `
+        -Default $(if ($Defaults['AutoPurgeEnabled']) { $Defaults['AutoPurgeEnabled'] } else { 'false' }) `
         -Description 'Auto-purge enabled? (true/false)'
 
     $olacEnabled = Show-FieldPrompt -Label 'OLACEnabled' `
-        -Default $(if ($Defaults.OLACEnabled) { $Defaults.OLACEnabled } else { 'false' }) `
+        -Default $(if ($Defaults['OLACEnabled']) { $Defaults['OLACEnabled'] } else { 'false' }) `
         -Description 'OLAC enabled? (true/false)'
 
     return @{

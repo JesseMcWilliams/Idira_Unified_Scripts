@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Get User'
@@ -31,7 +31,7 @@ function Get-UsersGetInput {
     if (-not $Defaults) { $Defaults = @{} }
 
     $userID = Show-FieldPrompt -Label 'User ID' `
-        -Default $(if ($Defaults.UserID) { $Defaults.UserID } else { '' }) `
+        -Default $(if ($Defaults['UserID']) { $Defaults['UserID'] } else { '' }) `
         -Required $true `
         -Description 'Numeric user ID (from List Users).'
 

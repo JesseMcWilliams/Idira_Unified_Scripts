@@ -209,7 +209,7 @@ function Get-AllDriverProfiles {
             [PSCustomObject]@{
                 ProfileName  = $p.ProfileName
                 SystemType   = $displaySystemType
-                AuthMethod   = $authMethod
+                AuthMethod   = if ($authMethod) { $authMethod } elseif ($p.AuthMethod) { $p.AuthMethod } else { '' }
                 BaseURL      = $baseURL
                 TokenStatus  = $tokenStatus
                 Expiry       = $expiry
@@ -278,7 +278,7 @@ function Show-ProfileList {
     if (-not $selectedProfiles -or $selectedProfiles.Count -eq 0) {
         Write-Host '  No profiles found.' -ForegroundColor DarkGray
         Write-Host ''
-        Write-Host '  [N] New currentProfile    [Q] Quit' -ForegroundColor White
+        Write-Host '  [N] New Profile    [Q] Quit' -ForegroundColor White
         return
     }
 
@@ -290,7 +290,7 @@ function Show-ProfileList {
     $useW  = 17
     $statW = 10
 
-    $hdr = "  {0,-$numW}  {1,-$nameW}  {2,-$sysW}  {3,-$authW}  {4,-$useW}  {5,-$statW}" -f '#', 'currentProfile Name', 'System', 'Auth Method', 'Last Used', 'Token'
+    $hdr = "  {0,-$numW}  {1,-$nameW}  {2,-$sysW}  {3,-$authW}  {4,-$useW}  {5,-$statW}" -f '#', 'Profile Name', 'System', 'Auth Method', 'Last Used', 'Token'
     Write-Host $hdr -ForegroundColor DarkCyan
     Write-Host ('  ' + ('-' * ($hdr.Length - 2))) -ForegroundColor DarkGray
 
@@ -316,7 +316,7 @@ function Show-ProfileList {
     Write-Host ''
     Show-Divider
     Write-Host '  Enter a number to view details, or:' -ForegroundColor DarkGray
-    Write-Host '  [N] New currentProfile    [Q] Quit' -ForegroundColor White
+    Write-Host '  [N] New Profile    [Q] Quit' -ForegroundColor White
 }
 
 function Show-ProfileDetail {
@@ -330,10 +330,10 @@ function Show-ProfileDetail {
         Write-Host $value -ForegroundColor $color
     }
 
-    Write-Host '  currentProfile Settings' -ForegroundColor White
+    Write-Host '  Profile Settings' -ForegroundColor White
     Show-Divider
-    Field 'currentProfile Name'    $p.ProfileName    'Cyan'
-    Field 'Auth currentProfile'    $p.AuthTokenProfile
+    Field 'Profile Name'    $p.ProfileName    'Cyan'
+    Field 'Auth Profile'    $p.AuthTokenProfile
     Field 'System Type'     $(if ($p.SystemType)  { $p.SystemType }  else { '(Not Set)' }) $(if ($p.SystemType) { 'Cyan' } else { 'Yellow' })
     Field 'Auth Method'     $(if ($p.AuthMethod)  { $p.AuthMethod }  else { '(Not Set)' }) $(if ($p.AuthMethod) { 'Cyan' } else { 'Yellow' })
     Field 'Username'        $(if ($p.Username)     { $p.Username }   else { '(Not Set)' }) $(if ($p.Username)   { 'Cyan' } else { 'Yellow' })
@@ -391,17 +391,17 @@ function Invoke-ProfileEditFlow {
     )
 
     Show-Header -Breadcrumbs $Breadcrumbs
-    Write-Host '  currentProfile Settings' -ForegroundColor White
+    Write-Host '  Profile Settings' -ForegroundColor White
     Write-Host '  (Press Enter to keep the current value)' -ForegroundColor DarkGray
     Write-Host ''
 
     # currentProfile Name — only editable on new profiles; for copy the name is already set
     if ($IsNew) {
         while ($true) {
-            $name = Show-FieldPrompt -Label 'currentProfile Name' -Default $currentProfile.ProfileName -Required `
+            $name = Show-FieldPrompt -Label 'Profile Name' -Default $currentProfile.ProfileName -Required `
                 -Description 'Unique name for this profile (e.g. Development, Production)'
             if (-not $name) {
-                Write-Host '    currentProfile Name is required.' -ForegroundColor Red
+                Write-Host '    Profile Name is required.' -ForegroundColor Red
                 continue
             }
             $existingPath = Get-ProfileJsonPath -Name $name
@@ -414,7 +414,7 @@ function Invoke-ProfileEditFlow {
             break
         }
     } else {
-        Write-Host "    currentProfile Name     : $($currentProfile.ProfileName)  (not editable)" -ForegroundColor DarkGray
+        Write-Host "    Profile Name     : $($currentProfile.ProfileName)  (not editable)" -ForegroundColor DarkGray
     }
 
     Write-Host ''
@@ -511,10 +511,10 @@ function Invoke-ProfileEditFlow {
 
     Write-Host ''
     Save-DriverProfile -currentProfile $currentProfile
-    Write-Host "  currentProfile '$($currentProfile.ProfileName)' saved." -ForegroundColor Green
+    Write-Host "  Profile '$($currentProfile.ProfileName)' saved." -ForegroundColor Green
 
     if ($currentProfile.IgnoreSSL) {
-        Write-CyberArkLog -Message "currentProfile '$($currentProfile.ProfileName)' has IgnoreSSL enabled — use only in lab/dev." -Level 'WARN'
+        Write-CyberArkLog -Message "Profile '$($currentProfile.ProfileName)' has IgnoreSSL enabled — use only in lab/dev." -Level 'WARN'
     }
 
     return $currentProfile
@@ -585,7 +585,7 @@ function Invoke-ProfileManagementLoop {
 
     Initialize-ProfileDirectory
 
-    $breadcrumbRoot = @('currentProfile Selection')
+    $breadcrumbRoot = @('Profile Selection')
     $selected       = $null   # initialize so StrictMode doesn't throw if a branch skips setting it
 
     while ($true) {
@@ -614,7 +614,7 @@ function Invoke-ProfileManagementLoop {
             '^N$' {
                 # --- Create new profile ---
                 $blank = New-BlankProfile -Name ''
-                $edited = Invoke-ProfileEditFlow -currentProfile $blank -Breadcrumbs ($breadcrumbRoot + @('New currentProfile')) -IsNew
+                $edited = Invoke-ProfileEditFlow -currentProfile $blank -Breadcrumbs ($breadcrumbRoot + @('New Profile')) -IsNew
                 if ($edited) { $DefaultProfileName = $edited.ProfileName }
                 continue
             }
@@ -667,7 +667,8 @@ function Invoke-ProfileManagementLoop {
                 Write-Host '  Choose E to edit it or D to delete this profile.' -ForegroundColor Yellow
             }
 
-            $action = Read-MenuChoice -Prompt 'C / E / P / D / T / B / Q'
+            $action = Read-MenuChoice -Prompt 'C / E / P / D / T / B / Q (default: C)'
+            if (-not $action) { $action = 'C' }
 
             switch ($action.ToUpper()) {
 
@@ -731,6 +732,14 @@ function Invoke-ProfileManagementLoop {
                             if ($token -and $selectedProfile.SystemType -eq 'Privilege Cloud' -and $token.BaseURL) {
                                 $token.BaseURL = "$($token.BaseURL.TrimEnd('/'))/$appName"
                             }
+                            # If user entered credentials, save username back to profile for next-login pre-fill
+                            if ($token -and $token._RefreshContext -and $token._RefreshContext['Credential']) {
+                                $enteredUser = $token._RefreshContext['Credential'].UserName
+                                if ($enteredUser -and $enteredUser -ne $selectedProfile.Username) {
+                                    $selectedProfile.Username = $enteredUser
+                                    Save-DriverProfile -currentProfile $selectedProfile
+                                }
+                            }
                         } catch {
                             $urlInfo = if ($selectedProfile.SystemType -eq 'Self-Hosted' -and $selectedProfile.BaseURL) {
                                 $an = if ($selectedProfile.AppName) { $selectedProfile.AppName.Trim('/') } else { 'PasswordVault' }
@@ -774,11 +783,11 @@ function Invoke-ProfileManagementLoop {
                 'P' {
                     # Copy profile — prompt for new name first
                     Show-Header -Breadcrumbs ($detailCrumbs + @('Copy'))
-                    Write-Host '  Copy currentProfile' -ForegroundColor White
+                    Write-Host '  Copy Profile' -ForegroundColor White
                     Write-Host ''
                     $newName = ''
                     while (-not $newName) {
-                        $newName = Show-FieldPrompt -Label 'New currentProfile Name' -Required `
+                        $newName = Show-FieldPrompt -Label 'New Profile Name' -Required `
                             -Description 'Name for the copied profile.'
                         if (-not $newName) {
                             Write-Host '    Name is required.' -ForegroundColor Red
@@ -803,8 +812,8 @@ function Invoke-ProfileManagementLoop {
                     # Delete profile
                     if (Confirm-Action "Delete profile '$($selected.ProfileName)' and its token file? This cannot be undone.") {
                         Remove-DriverProfile -Name $selected.ProfileName
-                        Write-CyberArkLog -Message "currentProfile '$($selected.ProfileName)' deleted." -Level 'INFO'
-                        Write-Host "  currentProfile deleted." -ForegroundColor Green
+                        Write-CyberArkLog -Message "Profile '$($selected.ProfileName)' deleted." -Level 'INFO'
+                        Write-Host "  Profile deleted." -ForegroundColor Green
                         Start-Sleep -Seconds 1
                         break   # Back to profile list
                     }
@@ -1280,6 +1289,9 @@ function Invoke-SessionLoop {
     $warnShown = $false
 
     Import-APIModules
+    # Re-dot-source each module file into this scope so child functions (Invoke-ActionModule)
+    # can call both entry points and custom-input functions by name.
+    foreach ($m in $script:LoadedModules) { . $m.FilePath }
 
     $crumbs = @($script:ActiveProfile.ProfileName)
 
@@ -1449,7 +1461,7 @@ while ($true) {
         -BaseURL     $script:SessionToken.BaseURL `
         -WhatIfMode  $script:WhatIfMode
 
-    Write-CyberArkLog -Message "Session started. currentProfile: $selectedProfile  WhatIf: $($script:WhatIfMode)" -Level 'INFO'
+    Write-CyberArkLog -Message "Session started. Profile: $selectedProfile  WhatIf: $($script:WhatIfMode)" -Level 'INFO'
 
     if ($script:ActiveProfile.IgnoreSSL) {
         Write-CyberArkLog -Message 'IgnoreSSL is enabled for this profile.' -Level 'WARN'

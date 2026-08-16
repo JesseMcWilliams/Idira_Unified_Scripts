@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'List Users'
@@ -32,11 +32,11 @@ function Get-UsersListInput {
     Write-Host ''
 
     $search = Show-FieldPrompt -Label 'Search' `
-        -Default $(if ($Defaults.Search) { $Defaults.Search } else { '' }) `
+        -Default $(if ($Defaults['Search']) { $Defaults['Search'] } else { '' }) `
         -Description 'Free-text search across username and user details. Leave blank for all users.'
 
     $userType = Show-FieldPrompt -Label 'UserType' `
-        -Default $(if ($Defaults.UserType) { $Defaults.UserType } else { '' }) `
+        -Default $(if ($Defaults['UserType']) { $Defaults['UserType'] } else { '' }) `
         -Description 'Filter by user type (e.g. EPVUser, BasicUser). Leave blank for all types.'
 
     return @{

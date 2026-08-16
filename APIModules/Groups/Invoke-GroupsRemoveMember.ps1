@@ -37,12 +37,12 @@ function Get-GroupsRemoveMemberInput {
     Write-Host ''
 
     $groupId = Show-FieldPrompt -Label 'GroupID' `
-        -Default $(if ($Defaults.GroupID) { $Defaults.GroupID } else { '' }) `
+        -Default $(if ($Defaults['GroupID']) { $Defaults['GroupID'] } else { '' }) `
         -Required $true `
         -Description 'Numeric ID of the group.'
 
     $memberId = Show-FieldPrompt -Label 'MemberID' `
-        -Default $(if ($Defaults.MemberID) { $Defaults.MemberID } else { '' }) `
+        -Default $(if ($Defaults['MemberID']) { $Defaults['MemberID'] } else { '' }) `
         -Required $true `
         -Description 'Numeric ID of the member to remove.'
 

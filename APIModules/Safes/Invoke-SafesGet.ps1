@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Get Safe'
@@ -31,7 +31,7 @@ function Get-SafesGetInput {
     if (-not $Defaults) { $Defaults = @{} }
 
     $safeName = Show-FieldPrompt -Label 'Safe Name' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
+        -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' }) `
         -Required $true `
         -Description 'Name of the safe to retrieve.'
 

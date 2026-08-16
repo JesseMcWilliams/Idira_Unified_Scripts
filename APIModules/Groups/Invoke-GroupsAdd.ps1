@@ -36,16 +36,16 @@ function Get-GroupsAddInput {
     Write-Host ''
 
     $groupName = Show-FieldPrompt -Label 'GroupName' `
-        -Default $(if ($Defaults.GroupName) { $Defaults.GroupName } else { '' }) `
+        -Default $(if ($Defaults['GroupName']) { $Defaults['GroupName'] } else { '' }) `
         -Required $true `
         -Description 'Unique group name.'
 
     $description = Show-FieldPrompt -Label 'Description' `
-        -Default $(if ($Defaults.Description) { $Defaults.Description } else { '' }) `
+        -Default $(if ($Defaults['Description']) { $Defaults['Description'] } else { '' }) `
         -Description 'Group description.'
 
     $location = Show-FieldPrompt -Label 'Location' `
-        -Default $(if ($Defaults.Location) { $Defaults.Location } else { '\' }) `
+        -Default $(if ($Defaults['Location']) { $Defaults['Location'] } else { '\' }) `
         -Description 'Group location path (default: \).'
 
     return @{

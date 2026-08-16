@@ -37,21 +37,21 @@ function Get-GroupsAddMemberInput {
     Write-Host ''
 
     $groupId = Show-FieldPrompt -Label 'GroupID' `
-        -Default $(if ($Defaults.GroupID) { $Defaults.GroupID } else { '' }) `
+        -Default $(if ($Defaults['GroupID']) { $Defaults['GroupID'] } else { '' }) `
         -Required $true `
         -Description 'Numeric ID of the group.'
 
     $memberId = Show-FieldPrompt -Label 'MemberID' `
-        -Default $(if ($Defaults.MemberID) { $Defaults.MemberID } else { '' }) `
+        -Default $(if ($Defaults['MemberID']) { $Defaults['MemberID'] } else { '' }) `
         -Required $true `
         -Description 'Numeric user ID to add.'
 
     $memberType = Show-FieldPrompt -Label 'MemberType' `
-        -Default $(if ($Defaults.MemberType) { $Defaults.MemberType } else { 'EPVUser' }) `
+        -Default $(if ($Defaults['MemberType']) { $Defaults['MemberType'] } else { 'EPVUser' }) `
         -Description 'EPVUser or Group (default EPVUser).'
 
     $domainName = Show-FieldPrompt -Label 'DomainName' `
-        -Default $(if ($Defaults.DomainName) { $Defaults.DomainName } else { '' }) `
+        -Default $(if ($Defaults['DomainName']) { $Defaults['DomainName'] } else { '' }) `
         -Description 'FQDN for domain users (leave blank for local users).'
 
     return @{

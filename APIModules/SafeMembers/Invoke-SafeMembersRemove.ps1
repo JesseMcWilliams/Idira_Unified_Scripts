@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Remove Safe Member'
@@ -37,12 +37,12 @@ function Get-SafeMembersRemoveInput {
     Write-Host ''
 
     $safeName = Show-FieldPrompt -Label 'SafeName' `
-        -Default $(if ($Defaults.SafeName) { $Defaults.SafeName } else { '' }) `
+        -Default $(if ($Defaults['SafeName']) { $Defaults['SafeName'] } else { '' }) `
         -Required $true `
         -Description 'Name of the safe.'
 
     $memberName = Show-FieldPrompt -Label 'MemberName' `
-        -Default $(if ($Defaults.MemberName) { $Defaults.MemberName } else { '' }) `
+        -Default $(if ($Defaults['MemberName']) { $Defaults['MemberName'] } else { '' }) `
         -Required $true `
         -Description 'Name of the member to remove.'
 

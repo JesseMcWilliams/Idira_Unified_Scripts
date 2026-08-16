@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Delete Account'
@@ -36,7 +36,7 @@ function Get-AccountsDeleteInput {
     Write-Host ''
 
     $accountId = Show-FieldPrompt -Label 'AccountID' `
-        -Default $(if ($Defaults.AccountID) { $Defaults.AccountID } else { '' }) `
+        -Default $(if ($Defaults['AccountID']) { $Defaults['AccountID'] } else { '' }) `
         -Required $true `
         -Description 'Account ID to delete.'
 
