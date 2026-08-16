@@ -140,6 +140,39 @@ function Show-FieldPrompt {
     return $value.Trim()
 }
 
+function Get-CsvSavePath {
+    param(
+        [string]$DefaultFolder,
+        [string]$ModuleName
+    )
+    $safeName    = ($ModuleName -replace '[\\/:*?"<>|]', '_').Trim()
+    $defaultName = "$safeName $(Get-Date -Format 'yyyy-MM-dd').csv"
+    $defaultDir  = if ($DefaultFolder -and (Test-Path -LiteralPath $DefaultFolder)) {
+        $DefaultFolder
+    } else {
+        (Get-Location).Path
+    }
+    $defaultPath = Join-Path $defaultDir $defaultName
+
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        $dialog                  = New-Object System.Windows.Forms.SaveFileDialog
+        $dialog.Title            = 'Save Results to CSV'
+        $dialog.Filter           = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'
+        $dialog.DefaultExt       = 'csv'
+        $dialog.FileName         = $defaultName
+        $dialog.InitialDirectory = $defaultDir
+        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            return $dialog.FileName
+        }
+        return $null
+    } catch {
+        $path = Show-FieldPrompt -Label 'CSV save path' -Default $defaultPath `
+            -Description 'Full path for the output CSV file. Leave blank to cancel.'
+        if ($path) { return $path } else { return $null }
+    }
+}
+
 #endregion
 
 #region --- currentProfile Directory ---
@@ -153,7 +186,7 @@ function Initialize-ProfileDirectory {
 }
 
 function Get-ProfileJsonPath  { param([string]$Name) Join-Path $script:ProfileDir "$Name.json" }
-function Get-ProfileTokenPath { param([string]$Name) Join-Path $script:ProfileDir "$Name.xml"  }
+function Get-ProfileTokenPath { param([string]$Name) Join-Path $script:ProfileDir "$Name.cred" }
 
 #endregion
 
@@ -1266,6 +1299,23 @@ function Invoke-ActionModule {
             Write-Host "    Error: $($err.ErrorMessage)" -ForegroundColor Yellow
             if ($err.ErrorDetails -and $err.ErrorDetails.ErrorCode) {
                 Write-Host "    Code:  $($err.ErrorDetails.ErrorCode)" -ForegroundColor DarkGray
+            }
+        }
+    }
+
+    if ($meta.ProducesOutput -and $result.Results.Count -gt 0) {
+        $saveCsv = Read-MenuChoice -Prompt 'Save results to CSV? [Y/N]'
+        if ($saveCsv -match '^[Yy]') {
+            $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name
+            if ($csvPath) {
+                try {
+                    $result.Results | Export-Csv -Path $csvPath -NoTypeInformation -Force
+                    Write-Host "  Saved: $csvPath" -ForegroundColor Green
+                    Write-CyberArkLog -Message "Results saved to CSV: $csvPath" -Level 'INFO'
+                } catch {
+                    Write-Host "  Failed to save CSV: $_" -ForegroundColor Red
+                    Write-CyberArkLog -Message "Failed to save CSV to '$csvPath': $_" -Level 'ERROR'
+                }
             }
         }
     }

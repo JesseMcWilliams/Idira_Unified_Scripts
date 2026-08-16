@@ -1226,11 +1226,11 @@ function Resolve-ProfilePath {
     $dir = Get-ProfileDir
     if ($ProfileName) {
         $safe = $ProfileName -replace '[\\/:*?"<>|]', '_'
-        return Join-Path $dir "$safe.xml"
+        return Join-Path $dir "$safe.cred"
     }
     if ($SystemType -and $AuthMethod) {
         $safe = ($SystemType + '_' + $AuthMethod) -replace '[^A-Za-z0-9_-]', '_'
-        return Join-Path $dir "$safe.xml"
+        return Join-Path $dir "$safe.cred"
     }
     return $null
 }
@@ -1245,7 +1245,7 @@ function Save-AuthToken {
         protection covers them alongside ClientSecret and Credential. The resulting file can
         only be decrypted by the same Windows user on the same machine.
 
-        Profiles are stored in %APPDATA%\CyberArkPAS\<ProfileName>.xml.
+        Profiles are stored in %APPDATA%\CyberArkPAS\<ProfileName>.cred.
         When no profile name or path is given the name defaults to <SystemType>_<AuthMethod>.
 
     .PARAMETER TokenObject
@@ -1465,7 +1465,7 @@ function Get-AuthTokenProfiles {
     }
 
     $now   = [DateTime]::UtcNow
-    $files = Get-ChildItem -Path $dir -Filter '*.xml' -File -ErrorAction SilentlyContinue
+    $files = Get-ChildItem -Path $dir -Filter '*.cred' -File -ErrorAction SilentlyContinue
 
     foreach ($file in $files) {
         try {

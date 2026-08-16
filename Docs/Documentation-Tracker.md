@@ -105,3 +105,7 @@ Build documents in this sequence to support the implementation phases:
 | 2026-08-15 | 27 API modules | Fixed $Defaults.Key dot notation → $Defaults['Key'] bracket notation in all Get-*Input custom input functions — PS 5.1 strict-mode throws PropertyNotFoundException on missing hashtable keys accessed via dot notation |
 | 2026-08-15 | Lessons-Learned-PowerShell-Pester.md | Added Section 4.5 ($Defaults bracket notation in custom input functions) and Section 6.1 (function scope lost when dot-source runs inside a returned function) |
 | 2026-08-15 | API-Module-Development-Guide.md | Fixed $Defaults example code to use bracket notation; added $Defaults['Key'] checklist item under custom input section |
+| 2026-08-15 | Driver.ps1 | Added Get-CsvSavePath (Windows Forms SaveFileDialog + console fallback); Invoke-ActionModule now offers CSV save after any ProducesOutput=true module returns results |
+| 2026-08-15 | Driver.ps1 | Changed Get-ProfileTokenPath: token file extension .xml → .cred |
+| 2026-08-15 | Get-AuthToken.ps1 | Changed Resolve-ProfilePath (2 paths) and Get-AuthTokenProfiles filter: .xml → .cred |
+| 2026-08-15 | Interfaces.md | Updated Auth Token File section and Driver Profile field reference: .xml → .cred |
