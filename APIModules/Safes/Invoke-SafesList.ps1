@@ -130,25 +130,38 @@ function Invoke-SafesList {
     }
 
     foreach ($safe in $safes) {
-        $creationDate = if ($safe.PSObject.Properties['creationTime'] -and $safe.creationTime) {
-            try { [DateTimeOffset]::FromUnixTimeSeconds($safe.creationTime).LocalDateTime.ToString('yyyy-MM-dd') }
-            catch { '' }
-        } else { '' }
+        try {
+            $creationDate = if ($safe.PSObject.Properties['creationTime'] -and $safe.creationTime) {
+                try { [DateTimeOffset]::FromUnixTimeSeconds($safe.creationTime).LocalDateTime.ToString('yyyy-MM-dd') }
+                catch { '' }
+            } else { '' }
 
-        $result.Results.Add([PSCustomObject]@{
-            SafeName          = $safe.safeName
-            Description       = $safe.description
-            Location          = $safe.location
-            ManagingCPM       = $safe.managingCPM
-            VersionRetention  = $safe.numberOfVersionsRetention
-            DayRetention      = $safe.numberOfDaysRetention
-            AutoPurge         = $safe.autoPurgeEnabled
-            OLACEnabled       = $safe.olacEnabled
-            Creator           = if ($safe.creator) { $safe.creator.name } else { '' }
-            Created           = $creationDate
-        })
-        $result.Successes++
-        $result.ItemsProcessed++
+            $result.Results.Add([PSCustomObject]@{
+                SafeName          = $safe.safeName
+                Description       = $safe.description
+                Location          = $safe.location
+                ManagingCPM       = $safe.managingCPM
+                VersionRetention  = $safe.numberOfVersionsRetention
+                DayRetention      = $safe.numberOfDaysRetention
+                AutoPurge         = $safe.autoPurgeEnabled
+                OLACEnabled       = $safe.olacEnabled
+                Creator           = if ($safe.PSObject.Properties['creator'] -and $safe.creator) { $safe.creator.name } else { '' }
+                Created           = $creationDate
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $safeName = try { "$($safe.safeName)" } catch { '(unknown)' }
+            $msg = "Unexpected error mapping safe '$safeName': $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = $InputData
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
     }
 
     Write-CyberArkLog -Level 'INFO' -Message "Safe list complete. Safes retrieved: $($result.Successes)."

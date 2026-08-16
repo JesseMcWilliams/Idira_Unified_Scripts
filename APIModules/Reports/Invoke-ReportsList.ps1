@@ -108,16 +108,29 @@ function Invoke-ReportsList {
     }
 
     foreach ($report in $reports) {
-        $result.Results.Add([PSCustomObject]@{
-            ReportID    = $report.reportId
-            ReportName  = $report.reportName
-            Description = $report.description
-            ReportType  = $report.reportType
-            RunDate     = $report.runDate
-            Aggregated  = [bool]$report.aggregated
-        })
-        $result.Successes++
-        $result.ItemsProcessed++
+        try {
+            $result.Results.Add([PSCustomObject]@{
+                ReportID    = $report.reportId
+                ReportName  = $report.reportName
+                Description = $report.description
+                ReportType  = $report.reportType
+                RunDate     = $report.runDate
+                Aggregated  = [bool]$report.aggregated
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $reportId = try { "$($report.reportId)" } catch { '(unknown)' }
+            $msg = "Unexpected error mapping report '$reportId': $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = $InputData
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
     }
 
     Write-CyberArkLog -Level 'INFO' -Message "Report list complete. Reports retrieved: $($result.Successes)."

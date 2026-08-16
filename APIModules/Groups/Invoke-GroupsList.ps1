@@ -123,18 +123,33 @@ function Invoke-GroupsList {
     }
 
     foreach ($group in $groups) {
-        $directoryType = if ($group.directory) { $group.directory.directoryType } else { '' }
+        try {
+            $directoryType = if ($group.PSObject.Properties['directory'] -and $group.directory) {
+                $group.directory.directoryType
+            } else { '' }
 
-        $result.Results.Add([PSCustomObject]@{
-            GroupID       = $group.id
-            GroupName     = $group.groupName
-            Description   = $group.description
-            Location      = $group.location
-            GroupType     = $group.groupType
-            DirectoryType = $directoryType
-        })
-        $result.Successes++
-        $result.ItemsProcessed++
+            $result.Results.Add([PSCustomObject]@{
+                GroupID       = $group.id
+                GroupName     = $group.groupName
+                Description   = $group.description
+                Location      = $group.location
+                GroupType     = $group.groupType
+                DirectoryType = $directoryType
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $groupId = try { "$($group.id)" } catch { '(unknown)' }
+            $msg = "Unexpected error mapping group '$groupId': $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = $InputData
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
     }
 
     Write-CyberArkLog -Level 'INFO' -Message "Group list complete. Groups retrieved: $($result.Successes)."

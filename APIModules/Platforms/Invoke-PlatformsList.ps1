@@ -123,15 +123,28 @@ function Invoke-PlatformsList {
     }
 
     foreach ($platform in $platforms) {
-        $result.Results.Add([PSCustomObject]@{
-            PlatformID   = $platform.id
-            Name         = $platform.name
-            Description  = $platform.description
-            Active       = $platform.active
-            PlatformType = $platform.platformType
-        })
-        $result.Successes++
-        $result.ItemsProcessed++
+        try {
+            $result.Results.Add([PSCustomObject]@{
+                PlatformID   = $platform.id
+                Name         = $platform.name
+                Description  = $platform.description
+                Active       = $platform.active
+                PlatformType = $platform.platformType
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $platformId = try { "$($platform.id)" } catch { '(unknown)' }
+            $msg = "Unexpected error mapping platform '$platformId': $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = $InputData
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
     }
 
     Write-CyberArkLog -Level 'INFO' -Message "Platform list complete. Platforms retrieved: $($result.Successes)."

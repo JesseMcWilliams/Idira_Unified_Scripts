@@ -123,18 +123,32 @@ function Invoke-UsersList {
     }
 
     foreach ($user in $users) {
-        $result.Results.Add([PSCustomObject]@{
-            UserID        = $user.id
-            Username      = $user.username
-            UserType      = $user.userType
-            Source        = $user.source
-            ComponentUser = $user.componentUser
-            Email         = if ($user.personalDetails) { $user.personalDetails.email     } else { '' }
-            FirstName     = if ($user.personalDetails) { $user.personalDetails.firstName } else { '' }
-            LastName      = if ($user.personalDetails) { $user.personalDetails.lastName  } else { '' }
-        })
-        $result.Successes++
-        $result.ItemsProcessed++
+        try {
+            $details = if ($user.PSObject.Properties['personalDetails'] -and $user.personalDetails) { $user.personalDetails } else { $null }
+            $result.Results.Add([PSCustomObject]@{
+                UserID        = $user.id
+                Username      = $user.username
+                UserType      = $user.userType
+                Source        = $user.source
+                ComponentUser = $user.componentUser
+                Email         = if ($details) { $details.email     } else { '' }
+                FirstName     = if ($details) { $details.firstName } else { '' }
+                LastName      = if ($details) { $details.lastName  } else { '' }
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $userId = try { "$($user.id)" } catch { '(unknown)' }
+            $msg = "Unexpected error mapping user '$userId': $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = $InputData
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
     }
 
     Write-CyberArkLog -Level 'INFO' -Message "User list complete. Users retrieved: $($result.Successes)."

@@ -133,14 +133,27 @@ function Invoke-GroupsGetMembers {
     }
 
     foreach ($m in $members) {
-        $result.Results.Add([PSCustomObject]@{
-            MemberID      = $m.id
-            Username      = $m.username
-            UserType      = $m.userType
-            ComponentUser = $m.componentUser
-        })
-        $result.Successes++
-        $result.ItemsProcessed++
+        try {
+            $result.Results.Add([PSCustomObject]@{
+                MemberID      = $m.id
+                Username      = $m.username
+                UserType      = $m.userType
+                ComponentUser = $m.componentUser
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $memberId = try { "$($m.id)" } catch { '(unknown)' }
+            $msg = "Unexpected error mapping group member '$memberId': $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = $InputData
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
     }
 
     Write-CyberArkLog -Level 'INFO' -Message "Group members retrieval complete. Members retrieved: $($result.Successes)."

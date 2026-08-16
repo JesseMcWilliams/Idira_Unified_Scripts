@@ -131,28 +131,45 @@ function Invoke-AccountsList {
     }
 
     foreach ($acct in $accounts) {
-        $createdDate = if ($acct.createdTime) {
-            try { [DateTimeOffset]::FromUnixTimeSeconds($acct.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
-            catch { '' }
-        } else { '' }
+        try {
+            $createdDate = if ($acct.PSObject.Properties['createdTime'] -and $acct.createdTime) {
+                try { [DateTimeOffset]::FromUnixTimeSeconds($acct.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
+                catch { '' }
+            } else { '' }
 
-        $autoManaged = if ($acct.secretManagement) { $acct.secretManagement.automaticManagementEnabled } else { $false }
-        $cpmStatus   = if ($acct.secretManagement) { $acct.secretManagement.status } else { '' }
+            $autoManaged = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement) {
+                $acct.secretManagement.automaticManagementEnabled
+            } else { $false }
+            $cpmStatus = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement) {
+                $acct.secretManagement.status
+            } else { '' }
 
-        $result.Results.Add([PSCustomObject]@{
-            AccountID   = $acct.id
-            AccountName = $acct.name
-            Address     = $acct.address
-            UserName    = $acct.userName
-            PlatformID  = $acct.platformId
-            SafeName    = $acct.safeName
-            SecretType  = $acct.secretType
-            AutoManaged = $autoManaged
-            CPMStatus   = $cpmStatus
-            Created     = $createdDate
-        })
-        $result.Successes++
-        $result.ItemsProcessed++
+            $result.Results.Add([PSCustomObject]@{
+                AccountID   = $acct.id
+                AccountName = $acct.name
+                Address     = $acct.address
+                UserName    = $acct.userName
+                PlatformID  = $acct.platformId
+                SafeName    = $acct.safeName
+                SecretType  = $acct.secretType
+                AutoManaged = $autoManaged
+                CPMStatus   = $cpmStatus
+                Created     = $createdDate
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $acctId = try { "$($acct.id)" } catch { '(unknown)' }
+            $msg = "Unexpected error mapping account '$acctId': $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = $InputData
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
     }
 
     Write-CyberArkLog -Level 'INFO' -Message "Account list complete. Accounts retrieved: $($result.Successes)."

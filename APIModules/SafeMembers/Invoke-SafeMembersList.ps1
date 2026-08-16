@@ -133,26 +133,42 @@ function Invoke-SafeMembersList {
     }
 
     foreach ($member in $members) {
-        $expirationDate = if ($member.membershipExpirationDate) { $member.membershipExpirationDate } else { '' }
+        try {
+            $expirationDate = if ($member.PSObject.Properties['membershipExpirationDate'] -and $member.membershipExpirationDate) {
+                $member.membershipExpirationDate
+            } else { '' }
+            $perms = if ($member.PSObject.Properties['permissions'] -and $member.permissions) { $member.permissions } else { $null }
 
-        $result.Results.Add([PSCustomObject]@{
-            SafeName          = $member.safeName
-            MemberName        = $member.memberName
-            MemberType        = $member.memberType
-            SearchIn          = ''
-            IsPredefined      = $member.isPredefinedUser
-            IsMemberOfSafe    = $member.isMemberOfSafe
-            ExpirationDate    = $expirationDate
-            UseAccounts       = $member.permissions.UseAccounts
-            RetrieveAccounts  = $member.permissions.RetrieveAccounts
-            ListAccounts      = $member.permissions.ListAccounts
-            AddAccounts       = $member.permissions.AddAccounts
-            ManageSafe        = $member.permissions.ManageSafe
-            ManageSafeMembers = $member.permissions.ManageSafeMembers
-            ViewAuditLog      = $member.permissions.ViewAuditLog
-        })
-        $result.Successes++
-        $result.ItemsProcessed++
+            $result.Results.Add([PSCustomObject]@{
+                SafeName          = $member.safeName
+                MemberName        = $member.memberName
+                MemberType        = if ($member.PSObject.Properties['memberType'])       { $member.memberType }       else { '' }
+                SearchIn          = ''
+                IsPredefined      = if ($member.PSObject.Properties['isPredefinedUser']) { $member.isPredefinedUser } else { $false }
+                IsMemberOfSafe    = if ($member.PSObject.Properties['isMemberOfSafe'])   { $member.isMemberOfSafe }   else { $false }
+                ExpirationDate    = $expirationDate
+                UseAccounts       = if ($perms -and $perms.PSObject.Properties['UseAccounts'])       { $perms.UseAccounts }       else { $false }
+                RetrieveAccounts  = if ($perms -and $perms.PSObject.Properties['RetrieveAccounts'])  { $perms.RetrieveAccounts }  else { $false }
+                ListAccounts      = if ($perms -and $perms.PSObject.Properties['ListAccounts'])      { $perms.ListAccounts }      else { $false }
+                AddAccounts       = if ($perms -and $perms.PSObject.Properties['AddAccounts'])       { $perms.AddAccounts }       else { $false }
+                ManageSafe        = if ($perms -and $perms.PSObject.Properties['ManageSafe'])        { $perms.ManageSafe }        else { $false }
+                ManageSafeMembers = if ($perms -and $perms.PSObject.Properties['ManageSafeMembers']) { $perms.ManageSafeMembers } else { $false }
+                ViewAuditLog      = if ($perms -and $perms.PSObject.Properties['ViewAuditLog'])      { $perms.ViewAuditLog }      else { $false }
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        } catch {
+            $memberName = try { "$($member.memberName)" } catch { '(unknown)' }
+            $msg = "Unexpected error mapping member '$memberName': $_"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = @{ MemberName = $memberName }
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+        }
     }
 
     Write-CyberArkLog -Level 'INFO' -Message "Safe members list complete. Members retrieved: $($result.Successes)."
