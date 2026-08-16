@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'List Applications'
@@ -78,9 +78,9 @@ function Invoke-ApplicationsList {
     $inclSublocations   = [bool]$InputData['IncludeSublocations']
 
     $queryParams = @{}
-    if ($appId)            { $queryParams['AppID']               = $appId            }
-    if ($location)         { $queryParams['Location']            = $location         }
-    if ($inclSublocations) { $queryParams['IncludeSublocations'] = 'true'            }
+    if ($appId)    { $queryParams['AppID']    = $appId    }
+    if ($location) { $queryParams['Location'] = $location }
+    $queryParams['IncludeSublocations'] = if ($inclSublocations) { 'true' } else { 'false' }
 
     $criteriaLog = $(
         $parts = @()
@@ -96,7 +96,7 @@ function Invoke-ApplicationsList {
     $response = Invoke-CyberArkAPI `
         -Token       $Token `
         -Method      'GET' `
-        -Endpoint    '/WebServices/PIMServices.svc/Applications' `
+        -Endpoint    '/WebServices/PIMServices.svc/Applications/' `
         -QueryParams $queryParams `
         -WhatIf:     $WhatIf.IsPresent
 

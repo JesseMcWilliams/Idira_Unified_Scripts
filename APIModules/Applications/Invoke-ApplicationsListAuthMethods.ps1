@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'List Application Authentication Methods'
@@ -39,7 +39,7 @@ function Get-ApplicationsListAuthMethodsInput {
         if ($searchTerm) {
             $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
             $appId = Invoke-EntitySearch -Token $Token `
-                -Endpoint           '/WebServices/PIMServices.svc/Applications' `
+                -Endpoint           '/WebServices/PIMServices.svc/Applications/' `
                 -SearchTerm         $searchTerm `
                 -SearchParam        'AppID' `
                 -ResponseProperty   'application' `
@@ -104,7 +104,7 @@ function Invoke-ApplicationsListAuthMethods {
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'GET' `
-        -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedId/Authentications" `
+        -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedId/Authentications/" `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {

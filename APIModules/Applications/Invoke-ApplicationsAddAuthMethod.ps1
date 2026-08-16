@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Add Application Authentication Method'
@@ -44,7 +44,7 @@ function Get-ApplicationsAddAuthMethodInput {
         if ($searchTerm) {
             $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
             $appId = Invoke-EntitySearch -Token $Token `
-                -Endpoint           '/WebServices/PIMServices.svc/Applications' `
+                -Endpoint           '/WebServices/PIMServices.svc/Applications/' `
                 -SearchTerm         $searchTerm `
                 -SearchParam        'AppID' `
                 -ResponseProperty   'application' `
@@ -172,7 +172,7 @@ function Invoke-ApplicationsAddAuthMethod {
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'POST' `
-        -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedId/Authentications" `
+        -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedId/Authentications/" `
         -Body     @{ authentication = $authBody } `
         -WhatIf:  $WhatIf.IsPresent
 

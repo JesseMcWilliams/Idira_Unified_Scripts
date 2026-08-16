@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Delete Application Authentication Method'
@@ -41,7 +41,7 @@ function Get-ApplicationsDeleteAuthMethodInput {
         if ($searchTerm) {
             $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
             $appId = Invoke-EntitySearch -Token $Token `
-                -Endpoint           '/WebServices/PIMServices.svc/Applications' `
+                -Endpoint           '/WebServices/PIMServices.svc/Applications/' `
                 -SearchTerm         $searchTerm `
                 -SearchParam        'AppID' `
                 -ResponseProperty   'application' `
@@ -64,7 +64,7 @@ function Get-ApplicationsDeleteAuthMethodInput {
 
         try {
             $authResponse = Invoke-CyberArkAPI -Token $Token -Method 'GET' `
-                -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedApp/Authentications" `
+                -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedApp/Authentications/" `
                 -IgnoreSSL:$ignoreSSL
         } catch {
             Write-Host "    Error retrieving auth methods: $_" -ForegroundColor Red
@@ -186,7 +186,7 @@ function Invoke-ApplicationsDeleteAuthMethod {
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'DELETE' `
-        -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedApp/Authentications/$encodedAuth" `
+        -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedApp/Authentications/$encodedAuth/" `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {

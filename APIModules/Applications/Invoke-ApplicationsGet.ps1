@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Get Application'
@@ -39,7 +39,7 @@ function Get-ApplicationsGetInput {
         if ($searchTerm) {
             $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
             $appId = Invoke-EntitySearch -Token $Token `
-                -Endpoint           '/WebServices/PIMServices.svc/Applications' `
+                -Endpoint           '/WebServices/PIMServices.svc/Applications/' `
                 -SearchTerm         $searchTerm `
                 -SearchParam        'AppID' `
                 -ResponseProperty   'application' `

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Add Application'
@@ -178,7 +178,7 @@ function Invoke-ApplicationsAdd {
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'POST' `
-        -Endpoint '/WebServices/PIMServices.svc/Applications' `
+        -Endpoint '/WebServices/PIMServices.svc/Applications/' `
         -Body     @{ application = $appBody } `
         -WhatIf:  $WhatIf.IsPresent
 

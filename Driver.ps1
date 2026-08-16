@@ -1065,6 +1065,7 @@ function Import-APIModules {
             $num++
             Write-CyberArkLog -Message "Loaded module: $($ModuleMeta.Name) v$($ModuleMeta.Version)" -Level 'DEBUG'
         } catch {
+            Write-Host "  [Module Load Error] $($file.Name): $_" -ForegroundColor Red
             Write-CyberArkLog -Message "Failed to load module '$($file.Name)': $_" -Level 'WARN'
         }
     }

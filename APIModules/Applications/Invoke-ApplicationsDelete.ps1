@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Delete Application'
@@ -39,7 +39,7 @@ function Get-ApplicationsDeleteInput {
         if ($searchTerm) {
             $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
             $appId = Invoke-EntitySearch -Token $Token `
-                -Endpoint           '/WebServices/PIMServices.svc/Applications' `
+                -Endpoint           '/WebServices/PIMServices.svc/Applications/' `
                 -SearchTerm         $searchTerm `
                 -SearchParam        'AppID' `
                 -ResponseProperty   'application' `
@@ -112,7 +112,7 @@ function Invoke-ApplicationsDelete {
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'DELETE' `
-        -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedId" `
+        -Endpoint "/WebServices/PIMServices.svc/Applications/$encodedId/" `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
