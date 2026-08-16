@@ -165,7 +165,7 @@ function Get-AllDriverProfiles {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
             # Normalize: add any fields introduced after this profile was saved
-            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
+            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
                 $defaultVal = if ($field -eq 'AppName') { 'PasswordVault' } else { '' }
                 if (-not $p.PSObject.Properties[$field]) {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $defaultVal -Force
@@ -246,6 +246,7 @@ function New-BlankProfile {
         SystemType       = ''
         AppName          = 'PasswordVault'
         AuthMethod       = ''
+        Username         = ''
         BaseURL          = ''
         LogFolder        = ''
         InputFolder      = ''
@@ -335,6 +336,7 @@ function Show-ProfileDetail {
     Field 'Auth currentProfile'    $p.AuthTokenProfile
     Field 'System Type'     $(if ($p.SystemType)  { $p.SystemType }  else { '(Not Set)' }) $(if ($p.SystemType) { 'Cyan' } else { 'Yellow' })
     Field 'Auth Method'     $(if ($p.AuthMethod)  { $p.AuthMethod }  else { '(Not Set)' }) $(if ($p.AuthMethod) { 'Cyan' } else { 'Yellow' })
+    Field 'Username'        $(if ($p.Username)     { $p.Username }   else { '(Not Set)' }) $(if ($p.Username)   { 'Cyan' } else { 'Yellow' })
     Field 'Base URL'        $(if ($p.BaseURL)      { $p.BaseURL } else { '(Not Set)' })
     Field 'Application'     $(if ($p.AppName)      { $p.AppName } else { 'PasswordVault' })
     Field 'Log Folder'      $(if ($p.LogFolder)    { $p.LogFolder    } else { '(launch directory)' })
@@ -486,6 +488,9 @@ function Invoke-ProfileEditFlow {
         -Description 'CyberArk application name in the URL path (e.g. PasswordVault). Joined with Base URL for API calls.'
     $currentProfile.AppName = if ($enteredAppName) { $enteredAppName } else { 'PasswordVault' }
 
+    $currentProfile.Username = Show-FieldPrompt -Label 'Username' -Default $currentProfile.Username `
+        -Description 'Default username pre-filled in the credential prompt at login. Leave blank to always be prompted.'
+
     $currentProfile.LogFolder = Show-FieldPrompt -Label 'Log Folder' -Default $currentProfile.LogFolder `
         -Description 'Absolute path for log files. Leave blank to use the script launch directory.'
 
@@ -592,9 +597,11 @@ function Invoke-ProfileManagementLoop {
         if (-not $selectedProfiles -or $selectedProfiles.Count -eq 0) {
             $choice = Read-MenuChoice -Prompt '[N] New    [Q] Quit'
         } else {
-            $defaultHint = if ($DefaultProfileName) { " (default: $DefaultProfileName)" } else { '' }
+            $defaultHint = if ($DefaultProfileName) { " (default: $DefaultProfileName)" } else { ' (default: 1)' }
             $choice = Read-MenuChoice -Prompt "Number / [N]ew / [Q]uit$defaultHint"
-            if (-not $choice -and $DefaultProfileName) { $choice = $DefaultProfileName }
+            if (-not $choice) {
+                $choice = if ($DefaultProfileName) { $DefaultProfileName } else { '1' }
+            }
         }
 
         switch -Regex ($choice.ToUpper()) {
@@ -680,7 +687,14 @@ function Invoke-ProfileManagementLoop {
 
                     if (Test-Path -LiteralPath $xmlPath) {
                         try {
-                            $token = Import-AuthToken -Path $xmlPath -AutoRefresh
+                            if ($selected.TokenStatus -eq 'Valid') {
+                                # Token known-good — load directly, no refresh needed
+                                $token = Import-AuthToken -Path $xmlPath
+                            } elseif ($selected.TokenStatus -eq 'Expired') {
+                                # Attempt silent refresh (succeeds for ClientCredentials; falls through for others)
+                                $token = Import-AuthToken -Path $xmlPath -AutoRefresh
+                            }
+                            # No Token / Unreadable: skip Import-AuthToken, go straight to Get-AuthToken
                         } catch {
                             Write-CyberArkLog -Message "Failed to load saved token: $_" -Level 'WARN'
                         }
@@ -688,11 +702,17 @@ function Invoke-ProfileManagementLoop {
 
                     if (-not $token) {
                         Show-Header -Breadcrumbs ($detailCrumbs + @('Authenticate'))
-                        Write-Host '  No valid token found. Please authenticate.' -ForegroundColor Yellow
+                        $authStatusMsg = switch ($selected.TokenStatus) {
+                            'Expired'    { 'Saved token has expired. Please re-authenticate.' }
+                            'Unreadable' { 'Could not read saved token. Please re-authenticate.' }
+                            default      { 'No saved token found. Please authenticate.' }
+                        }
+                        Write-Host "  $authStatusMsg" -ForegroundColor Yellow
                         Write-Host ''
                         try {
                             $authParams = @{ IgnoreSSL = $selectedProfile.IgnoreSSL }
                             if ($selectedProfile.AuthMethod) { $authParams['AuthMethod'] = $selectedProfile.AuthMethod }
+                            if ($selectedProfile.Username)   { $authParams['Username']   = $selectedProfile.Username }
                             $appName = if ($selectedProfile.AppName) { $selectedProfile.AppName.Trim('/') } else { 'PasswordVault' }
                             # Map profile SystemType to the auth script's expected values
                             if ($selectedProfile.SystemType -eq 'Privilege Cloud') {
@@ -1127,31 +1147,23 @@ function Invoke-CsvProcessing {
 
 #region --- Action Menu ---
 
-function Show-ActionMenu {
-    param([string[]]$Breadcrumbs)
+function Show-CategoryMenu {
+    param([string[]]$Breadcrumbs, [object[]]$Categories)
     Show-Header -Breadcrumbs $Breadcrumbs
 
-    if (-not $script:LoadedModules -or $script:LoadedModules.Count -eq 0) {
-        Write-Host '  No API modules are loaded for this system type.' -ForegroundColor DarkGray
+    if (-not $Categories -or $Categories.Count -eq 0) {
+        Write-Host '  No API modules loaded for this system type.' -ForegroundColor DarkGray
         Write-Host "  Add .ps1 files to: $($script:APIModulesPath)" -ForegroundColor DarkGray
         Write-Host ''
     } else {
-        $groups = $script:LoadedModules |
-                  Sort-Object { if ($_.Meta.PSObject.Properties['Priority']) { $_.Meta.Priority } else { 99 } },
-                               { $_.Meta.Category }, { $_.Meta.Action } |
-                  Group-Object { $_.Meta.Category }
-
-        foreach ($group in $groups) {
-            Write-Host "  $($group.Name)" -ForegroundColor Cyan
-            foreach ($entry in $group.Group) {
-                $tags = @()
-                if ($entry.Meta.AcceptsInputFile)                    { $tags += 'CSV' }
-                if ($entry.Meta.SupportsWhatIf -and $script:WhatIfMode) { $tags += 'WhatIf' }
-                $tagStr = if ($tags) { "  [$($tags -join ', ')]" } else { '' }
-                Write-Host ("    {0,3}.  {1}{2}" -f $entry.Number, $entry.Meta.Name, $tagStr) -ForegroundColor White
-            }
-            Write-Host ''
+        $i = 1
+        foreach ($cat in $Categories) {
+            $n    = $cat.Count
+            $noun = if ($n -eq 1) { 'action' } else { 'actions' }
+            Write-Host ("  [{0,2}]  {1,-20}  ({2} {3})" -f $i, $cat.Name, $n, $noun) -ForegroundColor White
+            $i++
         }
+        Write-Host ''
     }
 
     Show-Divider
@@ -1160,12 +1172,37 @@ function Show-ActionMenu {
     $idleMin   = if ($script:LastActivityTime) {
         [Math]::Round(((Get-Date) - $script:LastActivityTime).TotalMinutes, 1)
     } else { 0 }
-
     Write-Host ("  Token: {0} min remaining    Idle: {1} min" -f $remaining, $idleMin) -ForegroundColor $expColor
     if ($script:WhatIfMode) {
         Write-Host '  WhatIf mode is ON — write operations will be suppressed.' -ForegroundColor Yellow
     }
     Write-Host '  [R] Restart to profile selection    [X] Exit' -ForegroundColor White
+}
+
+function Show-ActionMenu {
+    param([string[]]$Breadcrumbs, [PSCustomObject[]]$CategoryModules)
+    Show-Header -Breadcrumbs $Breadcrumbs
+
+    $i = 1
+    foreach ($entry in $CategoryModules) {
+        $tags = @()
+        if ($entry.Meta.AcceptsInputFile)                    { $tags += 'CSV' }
+        if ($entry.Meta.SupportsWhatIf -and $script:WhatIfMode) { $tags += 'WhatIf' }
+        $tagStr = if ($tags) { "  [$($tags -join ', ')]" } else { '' }
+        Write-Host ("    {0,3}.  {1}{2}" -f $i, $entry.Meta.Name, $tagStr) -ForegroundColor White
+        Write-Host ("           {0}" -f $entry.Meta.Description) -ForegroundColor DarkGray
+        $i++
+    }
+    Write-Host ''
+
+    Show-Divider
+    $remaining = [Math]::Round((Get-TokenRemainingMinutes), 1)
+    $expColor  = if ($remaining -le $script:TokenExpiryWarnMin) { 'Yellow' } else { 'DarkGray' }
+    Write-Host ("  Token: {0} min remaining" -f $remaining) -ForegroundColor $expColor
+    if ($script:WhatIfMode) {
+        Write-Host '  WhatIf mode is ON — write operations will be suppressed.' -ForegroundColor Yellow
+    }
+    Write-Host '  [B] Back to categories    [R] Restart    [X] Exit' -ForegroundColor White
 }
 
 function Invoke-ActionModule {
@@ -1280,13 +1317,14 @@ function Invoke-SessionLoop {
             }
         }
 
-        # --- Render menu and read input ---
-        Show-ActionMenu -Breadcrumbs $crumbs
-        $choice = Read-MenuChoice -Prompt 'Number / [R]estart / [X]it'
+        # --- Category selection ---
+        $categories = @($script:LoadedModules | Group-Object { $_.Meta.Category } | Sort-Object Name)
+        Show-CategoryMenu -Breadcrumbs $crumbs -Categories $categories
+        $catChoice = Read-MenuChoice -Prompt 'Category / [R]estart / [X]it'
         $script:LastActivityTime = Get-Date
         $warnShown = $false
 
-        switch -Regex ($choice.ToUpper()) {
+        switch -Regex ($catChoice.ToUpper()) {
 
             '^X$' {
                 if (Confirm-Action 'End this session and exit the script?') { return 'Exit' }
@@ -1296,29 +1334,60 @@ function Invoke-SessionLoop {
                 if (Confirm-Action 'Return to profile selection?') { return 'Restart' }
             }
 
-            { $_ -match '^B\d*$' } {
-                # B at the top action menu = back to profile selection
-                if (Confirm-Action 'Return to profile selection?') { return 'Restart' }
-            }
-
             '^\d+$' {
-                $num   = [int]$choice
-                $entry = $script:LoadedModules | Where-Object { $_.Number -eq $num } | Select-Object -First 1
-                if (-not $entry) {
+                $catNum = [int]$catChoice
+                if ($catNum -lt 1 -or $catNum -gt $categories.Count) {
                     Write-Host '  Invalid selection.' -ForegroundColor Red
                     Start-Sleep -Seconds 1
                 } else {
-                    Invoke-ActionModule -ModuleEntry $entry
+                    $selectedCat = $categories[$catNum - 1]
+                    $catName     = $selectedCat.Name
+                    $catModules  = @($selectedCat.Group |
+                        Sort-Object { if ($_.Meta.PSObject.Properties['Priority']) { $_.Meta.Priority } else { 99 } },
+                                    { $_.Meta.Action })
+                    $catCrumbs   = $crumbs + @($catName)
+
+                    # --- Action loop for this category ---
+                    while ($true) {
+                        Show-ActionMenu -Breadcrumbs $catCrumbs -CategoryModules $catModules
+                        $actChoice = Read-MenuChoice -Prompt 'Action / [B]ack'
+                        $script:LastActivityTime = Get-Date
+
+                        switch -Regex ($actChoice.ToUpper()) {
+                            '^X$' {
+                                if (Confirm-Action 'End this session and exit the script?') { return 'Exit' }
+                            }
+                            '^R$' {
+                                if (Confirm-Action 'Return to profile selection?') { return 'Restart' }
+                            }
+                            '^\d+$' {
+                                $actNum = [int]$actChoice
+                                if ($actNum -lt 1 -or $actNum -gt $catModules.Count) {
+                                    Write-Host '  Invalid selection.' -ForegroundColor Red
+                                    Start-Sleep -Seconds 1
+                                } else {
+                                    Invoke-ActionModule -ModuleEntry $catModules[$actNum - 1]
+                                }
+                            }
+                            { $_ -match '^B\d*$' } { break }
+                            default {
+                                if ($actChoice) {
+                                    Write-Host '  Invalid input.' -ForegroundColor Red
+                                    Start-Sleep -Seconds 1
+                                }
+                            }
+                        }
+
+                        if ($actChoice.ToUpper() -match '^B\d*$') { break }
+                    }   # end action loop
                 }
             }
 
             default {
-                if ($choice) {
+                if ($catChoice) {
                     Write-Host '  Invalid input.' -ForegroundColor Red
                     Start-Sleep -Seconds 1
                 }
-                # Empty input (Enter) — redraw the menu, don't reset idle timer
-                $script:LastActivityTime = $script:LastActivityTime   # no-op to keep original time
             }
         }
 

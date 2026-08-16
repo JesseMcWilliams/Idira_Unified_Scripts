@@ -792,12 +792,15 @@ function Invoke-SelfHostedPasswordAuth {
         [string]$PVWAUrl,
         [string]$AuthMethod,
         [System.Management.Automation.PSCredential]$Credential,
+        [string]$Username,
         [switch]$ConcurrentSession,
         [switch]$IgnoreSSL
     )
 
     if (-not $Credential) {
-        $Credential = Get-Credential -Message "Enter credentials for CyberArk $AuthMethod authentication"
+        $credParams = @{ Message = "Enter credentials for CyberArk $AuthMethod authentication" }
+        if ($Username) { $credParams['UserName'] = $Username }
+        $Credential = Get-Credential @credParams
     }
 
     $body = @{
@@ -996,6 +999,7 @@ function Get-AuthToken {
         [System.Management.Automation.PSCredential]$Credential,
         [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
         [string]$CertificateThumbprint,
+        [string]$Username,
         [switch]$IgnoreSSL,
         [string]$WebView2AssemblyPath,
         [PSCustomObject]$TokenToRefresh
@@ -1077,7 +1081,7 @@ function Get-AuthToken {
             switch ($AuthMethod) {
                 { $_ -in @('CyberArk', 'LDAP', 'RADIUS') } {
                     return Invoke-SelfHostedPasswordAuth -PVWAUrl $PVWAUrl -AuthMethod $AuthMethod `
-                        -Credential $Credential -ConcurrentSession:$ConcurrentSession -IgnoreSSL:$IgnoreSSL
+                        -Credential $Credential -Username $Username -ConcurrentSession:$ConcurrentSession -IgnoreSSL:$IgnoreSSL
                 }
                 'Shared' {
                     return Invoke-SelfHostedShared -PVWAUrl $PVWAUrl `

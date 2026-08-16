@@ -184,9 +184,9 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
             if ($script:MenuQ.Count -gt 0) { $script:MenuQ.Dequeue() } else { 'Q' }
         }
 
-        # Queued field values for Invoke-ProfileEditFlow:
-        #   ProfileName, BaseURL/Subdomain, LogFolder, InputFolder, OutputFolder, IgnoreSSL, WhatIfDefault
-        # SystemType is now a numbered Read-MenuChoice ('1'=Privilege Cloud, '2'=Self-Hosted) and goes into MenuQ
+        # Queued field values for Invoke-ProfileEditFlow (Show-FieldPrompt order):
+        #   ProfileName, BaseURL/Subdomain, AppName, Username, LogFolder, InputFolder, OutputFolder, IgnoreSSL, WhatIfDefault
+        # SystemType ('1'/'2') and AuthMethod ('1'-'8') are Read-MenuChoice and go into MenuQ
         $script:FieldQ = [System.Collections.Generic.Queue[string]]::new()
         Mock Show-FieldPrompt {
             param($Label, $Default, $Description, [switch]$Required, [switch]$IsSecret)
@@ -196,7 +196,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
 
     It 'DP13 — creates profile and returns null when user then quits' {
         'N', '2', '1', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
-        'CreatedProfile', 'https://pvwa.test.com', '', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
+        'CreatedProfile', 'https://pvwa.test.com', '', '', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
 
         $result = Invoke-ProfileManagementLoop
         $result | Should -BeNullOrEmpty
@@ -207,7 +207,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
 
     It 'DP14 — profile saved with correct ProfileName' {
         'N', '2', '1', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
-        'VerifyName', 'https://pvwa.test.com', '', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
+        'VerifyName', 'https://pvwa.test.com', '', '', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
 
         Invoke-ProfileManagementLoop | Out-Null
 
@@ -217,6 +217,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
         $saved.SystemType    | Should -Be 'Self-Hosted'
         $saved.AuthMethod    | Should -Be 'CyberArk'
         $saved.AppName       | Should -Be 'PasswordVault'
+        $saved.Username      | Should -Be ''
         $saved.BaseURL       | Should -Be 'https://pvwa.test.com'
         $saved.IgnoreSSL     | Should -Be $false
         $saved.WhatIfDefault | Should -Be $false
