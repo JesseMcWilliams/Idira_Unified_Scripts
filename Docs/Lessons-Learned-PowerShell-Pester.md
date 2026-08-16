@@ -972,3 +972,118 @@ causing the `Should -Not -Throw` assertion to fail.
 use `GET`) should not have a WhatIf `Context` block in their test file. If a module is read-only
 (GET only), remove or omit the WhatIf context entirely — do not adjust the mock to make it pass,
 because passing would mask the misunderstanding.
+
+---
+
+## 10. File Encoding: UTF-8 with BOM is Required for PowerShell 5.1
+
+### 10.1 Em-dash and other multi-byte Unicode characters silently corrupt double-quoted strings
+
+**Root cause:** PowerShell 5.1 (`powershell.exe`) reads `.ps1` and `.psm1` files using the
+Windows system ANSI codepage (typically Windows-1252 on English systems) when the file has no
+Byte Order Mark (BOM). It does NOT assume UTF-8 for BOM-less files.
+
+The UTF-8 encoding of `U+2014` (em-dash `—`) is three bytes: `0xE2 0x80 0x94`.
+
+When decoded as Windows-1252:
+- `0xE2` -> `â`
+- `0x80` -> `€`
+- `0x94` -> `"` (U+201D, RIGHT DOUBLE QUOTATION MARK)
+
+PowerShell accepts `"` (U+201D) as a string terminator for double-quoted strings — it is part
+of the language spec as a "typographic double quote". This means every em-dash inside a
+double-quoted string silently ends that string early. Everything after the em-dash up to the
+next `"` or `"` becomes bare code, producing cascading parse errors:
+
+```
+The string is missing the terminator: '.
+Missing closing '}' in statement block or type definition.
+The Try statement is missing its Catch or Finally block.
+```
+
+These errors are reported near the END of the function, not at the actual em-dash line, making
+the root cause hard to spot.
+
+**Symptom (runtime):**
+```
+WARN | Import-APIModules | Failed to load module 'Invoke-CustomExportAll.ps1':
+At Invoke-CustomExportAll.ps1:128 char:35
++ ... -Level 'INFO' -Message "Export All complete. Modules: $($result.Items...
+The string is missing the terminator: '.
+```
+
+**Wrong (UTF-8 without BOM, em-dash in double-quoted string):**
+```powershell
+# File saved as UTF-8, no BOM — PS 5.1 reads it as Windows-1252
+Write-Host " — $count records" -ForegroundColor Green   # em-dash terminates the string!
+```
+
+**Correct option 1 — Save all PS files as UTF-8 with BOM:**
+```
+BOM bytes at start of file: 0xEF 0xBB 0xBF
+```
+When a BOM is present, PowerShell 5.1 correctly identifies the file as UTF-8 and all Unicode
+characters are decoded properly, including em-dashes, accented letters, and any other codepoints.
+This is the **recommended standard** for this project.
+
+**Correct option 2 — Avoid non-ASCII characters in string literals:**
+```powershell
+# Safe on any encoding — no non-ASCII bytes in string literals
+Write-Host " - $count records" -ForegroundColor Green   # plain hyphen
+```
+Use a regular ASCII hyphen (`-`) instead of an em-dash. This works regardless of encoding but
+sacrifices typographic quality in displayed output.
+
+### 10.2 Encoding standard for this project
+
+All `.ps1` and `.psm1` files in this project **must** be saved as **UTF-8 with BOM**
+(`UTF-8-BOM`, `utf-8-sig`, or equivalent). This ensures correct parsing by both:
+- PowerShell 5.1 (`powershell.exe`) on Windows — reads BOM as UTF-8 signal
+- PowerShell 7+ (`pwsh`) — reads BOM-less UTF-8 by default; also respects BOM
+
+**In Visual Studio Code:** set `"files.encoding": "utf8bom"` in workspace settings, or choose
+`UTF-8 with BOM` from the encoding picker in the status bar before saving a PS file.
+
+**In PowerShell when writing files programmatically:**
+```powershell
+# Write with BOM
+$utf8Bom = New-Object System.Text.UTF8Encoding $true
+[IO.File]::WriteAllText($path, $content, $utf8Bom)
+```
+
+**In the `Write` tool (Claude Code):** the Write tool generates UTF-8 without BOM. Always
+run the project-wide BOM conversion script after generating new PS files:
+```powershell
+$utf8Bom = New-Object System.Text.UTF8Encoding $true
+Get-ChildItem -Recurse -Include '*.ps1','*.psm1' | ForEach-Object {
+    $text = [IO.File]::ReadAllText($_.FullName, [Text.Encoding]::UTF8)
+    [IO.File]::WriteAllText($_.FullName, $text, $utf8Bom)
+}
+```
+
+### 10.3 Affected characters and byte sequences
+
+Any UTF-8 multi-byte sequence whose last byte maps to a string-significant character in
+Windows-1252 can corrupt parsing. Known dangerous bytes:
+
+| UTF-8 last byte | Windows-1252 char | PowerShell meaning |
+|---|---|---|
+| `0x94` | `"` (U+201D right double-quote) | Terminates double-quoted string |
+| `0x93` | `"` (U+201C left double-quote) | Opens a new double-quoted string |
+| `0x92` | `'` (U+2019 right single-quote) | Terminates single-quoted string |
+| `0x91` | `'` (U+2018 left single-quote) | Opens a new single-quoted string |
+
+Common Unicode characters that contain these dangerous last bytes in UTF-8:
+
+| Character | Unicode | UTF-8 bytes | Danger |
+|---|---|---|---|
+| Em-dash `—` | U+2014 | `E2 80 94` | Double-quoted string terminator |
+| En-dash `—` | U+2013 | `E2 80 93` | Double-quote opener (opens rogue string) |
+| Curly `"` | U+201C | `E2 80 9C` | Double-quote opener |
+| Curly `"` | U+201D | `E2 80 9D` | Double-quote terminator |
+| Curly `'` | U+2018 | `E2 80 98` | Single-quote opener |
+| Curly `'` | U+2019 | `E2 80 99` | Single-quote terminator |
+
+**Rule:** Never use any of these characters in `.ps1` or `.psm1` source files unless the file
+is saved with a UTF-8 BOM. In double-quoted strings, prefer plain ASCII `-` over em-dash `—`
+regardless of encoding, because some editors silently strip the BOM.

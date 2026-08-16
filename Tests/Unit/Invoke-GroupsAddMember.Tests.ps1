@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v6 unit tests for APIModules\Groups\Invoke-GroupsAddMember.ps1.

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Integration tests for CyberArk Safes CRUD operations against a live PVWA 14.6 instance.

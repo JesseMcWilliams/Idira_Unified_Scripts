@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Retrieves authentication tokens from CyberArk ISPSS (Privilege Cloud) or Self-Hosted PAM.

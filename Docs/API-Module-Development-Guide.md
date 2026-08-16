@@ -40,6 +40,37 @@ PowerShell/
 
 ---
 
+## File Encoding
+
+All `.ps1` module files **must** be saved as **UTF-8 with BOM**.
+
+PowerShell 5.1 reads BOM-less files using the Windows system ANSI codepage (Windows-1252 on
+English systems). In Windows-1252, the last byte of the UTF-8 em-dash (`0x94`) decodes to
+`"` (U+201D), which PowerShell treats as a string terminator. This silently corrupts any
+double-quoted string that contains an em-dash or other non-ASCII character, producing cascading
+parse errors that prevent the module from loading entirely.
+
+**Required:** Save every `.ps1` file in this project as UTF-8 with BOM before committing.
+
+In VS Code: set `"files.encoding": "utf8bom"` in workspace settings, or select
+`UTF-8 with BOM` from the encoding picker in the status bar.
+
+When writing files programmatically (e.g. from the Claude Code Write tool, which generates
+UTF-8 without BOM), run the project-wide conversion after generating new files:
+
+```powershell
+$utf8Bom = New-Object System.Text.UTF8Encoding $true
+Get-ChildItem -Recurse -Include '*.ps1','*.psm1' | ForEach-Object {
+    $text = [IO.File]::ReadAllText($_.FullName, [Text.Encoding]::UTF8)
+    [IO.File]::WriteAllText($_.FullName, $text, $utf8Bom)
+}
+```
+
+See **Section 10** of [Lessons-Learned-PowerShell-Pester.md](Lessons-Learned-PowerShell-Pester.md)
+for the full root-cause analysis and a table of all dangerous Unicode code points.
+
+---
+
 ## Naming Conventions
 
 | Item | Convention | Example |
@@ -530,3 +561,9 @@ Use this checklist before considering a module complete.
 - [ ] Returns hashtable with keys matching `InputSchema` column names
 - [ ] Handles `$null` `$Defaults` gracefully: `if (-not $Defaults) { $Defaults = @{} }`
 - [ ] All `$Defaults` access uses bracket notation: `$Defaults['Key']` (never `$Defaults.Key`)
+
+### File encoding
+- [ ] File saved as **UTF-8 with BOM** (not UTF-8 without BOM, not UTF-16)
+- [ ] No em-dashes (`—`), curly quotes (`"` `"` `'` `'`), or other non-ASCII characters
+      inside double-quoted string literals (safe in comments and single-quoted strings only
+      when the BOM is present; avoid them entirely for maximum portability)
