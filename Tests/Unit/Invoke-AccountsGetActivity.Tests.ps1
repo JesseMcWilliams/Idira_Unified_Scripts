@@ -4,18 +4,18 @@
     Unit tests for Invoke-AccountsGetActivity.
 #>
 
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$modulePath  = Join-Path (Split-Path (Split-Path $here)) 'APIModules\Accounts\Invoke-AccountsGetActivity.ps1'
-$commsPath   = Join-Path (Split-Path (Split-Path $here)) 'Modules\CyberArkComms.psm1'
-$loggingPath = Join-Path (Split-Path (Split-Path $here)) 'Modules\CyberArkLogging.psm1'
+BeforeAll {
+    $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\Accounts\Invoke-AccountsGetActivity.ps1'
+    $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
+    $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
+
+    Import-Module $script:LoggingPath -Force -ErrorAction Stop
+    Import-Module $script:CommsPath   -Force -ErrorAction Stop
+    . $script:ModulePath
+    Initialize-CyberArkLog -Destination 'Console' -ProfileName 'AccountsGetActivityTests' -MinLevel 'ERROR'
+}
 
 Describe 'Invoke-AccountsGetActivity' {
-
-    BeforeAll {
-        Import-Module $loggingPath -Force
-        Import-Module $commsPath   -Force
-        . $modulePath
-    }
 
     Context 'Missing AccountID' {
         It 'returns failure when AccountID is not provided' {
@@ -40,24 +40,21 @@ Describe 'Invoke-AccountsGetActivity' {
     }
 
     Context 'Successful operation' {
-        It 'records success on 200/204 response' {
+        It 'returns activity rows on success' {
             $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $actData = [PSCustomObject]@{
+                Activities = @(
+                    [PSCustomObject]@{ time = '12345'; action = 'LogonByUser'; reason = ''; User = 'Admin' }
+                )
+            }
             Mock Invoke-CyberArkAPI {
-                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{} }
+                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $actData }
             }
             $result = Invoke-AccountsGetActivity -Token $token -InputData @{ AccountID = 'acc123' }
             $result.Successes   | Should -BeGreaterThan 0
             $result.Failures    | Should -Be 0
         }
     }
-
-    Context 'WhatIf mode' {
-        It 'does not call the API when WhatIf is set' {
-            $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
-            Mock Invoke-CyberArkAPI { throw 'Should not be called in WhatIf mode' }
-            Mock Add-CyberArkLogSummaryEntry {}
-            { Invoke-AccountsGetActivity -Token $token -InputData @{ AccountID = 'acc123' } -WhatIf } | Should -Not -Throw
-        }
-    }
+    # GetActivity is a GET — SupportsWhatIf=$false; WhatIf does not suppress GET calls
 
 }

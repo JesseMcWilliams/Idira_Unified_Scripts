@@ -4,18 +4,18 @@
     Unit tests for Invoke-AccountsChangeInVault.
 #>
 
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$modulePath  = Join-Path (Split-Path (Split-Path $here)) 'APIModules\Accounts\Invoke-AccountsChangeInVault.ps1'
-$commsPath   = Join-Path (Split-Path (Split-Path $here)) 'Modules\CyberArkComms.psm1'
-$loggingPath = Join-Path (Split-Path (Split-Path $here)) 'Modules\CyberArkLogging.psm1'
+BeforeAll {
+    $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\Accounts\Invoke-AccountsChangeInVault.ps1'
+    $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
+    $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
+
+    Import-Module $script:LoggingPath -Force -ErrorAction Stop
+    Import-Module $script:CommsPath   -Force -ErrorAction Stop
+    . $script:ModulePath
+    Initialize-CyberArkLog -Destination 'Console' -ProfileName 'AccountsChangeInVaultTests' -MinLevel 'ERROR'
+}
 
 Describe 'Invoke-AccountsChangeInVault' {
-
-    BeforeAll {
-        Import-Module $loggingPath -Force
-        Import-Module $commsPath   -Force
-        . $modulePath
-    }
 
     Context 'Missing AccountID' {
         It 'returns failure when AccountID is not provided' {
@@ -45,7 +45,10 @@ Describe 'Invoke-AccountsChangeInVault' {
             Mock Invoke-CyberArkAPI {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{} }
             }
-            $result = Invoke-AccountsChangeInVault -Token $token -InputData @{ AccountID = 'acc123' }
+            $result = Invoke-AccountsChangeInVault -Token $token -InputData @{
+                AccountID      = 'acc123'
+                NewCredentials = 'NewPassword1'
+            }
             $result.Successes   | Should -BeGreaterThan 0
             $result.Failures    | Should -Be 0
         }

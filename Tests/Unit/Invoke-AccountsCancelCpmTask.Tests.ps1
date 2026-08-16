@@ -4,18 +4,18 @@
     Unit tests for Invoke-AccountsCancelCpmTask.
 #>
 
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$modulePath  = Join-Path (Split-Path (Split-Path $here)) 'APIModules\Accounts\Invoke-AccountsCancelCpmTask.ps1'
-$commsPath   = Join-Path (Split-Path (Split-Path $here)) 'Modules\CyberArkComms.psm1'
-$loggingPath = Join-Path (Split-Path (Split-Path $here)) 'Modules\CyberArkLogging.psm1'
+BeforeAll {
+    $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\Accounts\Invoke-AccountsCancelCpmTask.ps1'
+    $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
+    $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
+
+    Import-Module $script:LoggingPath -Force -ErrorAction Stop
+    Import-Module $script:CommsPath   -Force -ErrorAction Stop
+    . $script:ModulePath
+    Initialize-CyberArkLog -Destination 'Console' -ProfileName 'AccountsCancelCpmTaskTests' -MinLevel 'ERROR'
+}
 
 Describe 'Invoke-AccountsCancelCpmTask' {
-
-    BeforeAll {
-        Import-Module $loggingPath -Force
-        Import-Module $commsPath   -Force
-        . $modulePath
-    }
 
     Context 'Missing AccountID' {
         It 'returns failure when AccountID is not provided' {

@@ -114,8 +114,21 @@ PowerShell\
 │   │   ├── Invoke-GroupsGetMembers.ps1
 │   │   ├── Invoke-GroupsAddMember.ps1
 │   │   └── Invoke-GroupsRemoveMember.ps1
-│   └── Reports\
-│       └── Invoke-ReportsList.ps1          # SelfHosted only (GET /API/Reports)
+│   ├── Reports\
+│   │   └── Invoke-ReportsList.ps1          # SelfHosted only (GET /API/Reports)
+│   ├── Custom\
+│   │   ├── Invoke-CustomExportAll.ps1              # Export all list-module results to CSV
+│   │   ├── Invoke-CustomExportEntitlements.ps1     # All safes + members → single CSV
+│   │   ├── Invoke-CustomExportGroupMembersLocal.ps1 # Local group members with nesting
+│   │   └── Invoke-CustomExportGroupMembersLDAP.ps1 # LDAP/Directory group members via ADSI
+│   └── Applications\
+│       ├── Invoke-ApplicationsList.ps1             # SelfHosted only (GET /WebServices/PIMServices.svc/Applications)
+│       ├── Invoke-ApplicationsGet.ps1              # SelfHosted only
+│       ├── Invoke-ApplicationsAdd.ps1              # SelfHosted only
+│       ├── Invoke-ApplicationsDelete.ps1           # SelfHosted only
+│       ├── Invoke-ApplicationsListAuthMethods.ps1  # SelfHosted only
+│       ├── Invoke-ApplicationsAddAuthMethod.ps1    # SelfHosted only
+│       └── Invoke-ApplicationsDeleteAuthMethod.ps1 # SelfHosted only
 ├── Profiles\                           # Created at runtime (default: %APPDATA%\CyberArkPAS\)
 │   ├── Production.json
 │   ├── Production.cred          # DPAPI-encrypted token (was .xml)

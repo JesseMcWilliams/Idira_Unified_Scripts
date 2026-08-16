@@ -699,3 +699,276 @@ Email = if ($user.personalDetails -and $user.personalDetails.PSObject.Properties
 
 This applies to all nested optional fields: `personalDetails.email`, `secretManagement.status`,
 `directory.directoryType`, etc.
+
+---
+
+## 8. Orchestration Modules and External Queries
+
+### 8.1 Orchestration modules can call other module entry-point functions directly
+
+**Root cause:** All module files are re-dot-sourced into `Invoke-SessionLoop`'s scope, so
+`Invoke-SafesList`, `Invoke-GroupsList`, etc. are all in the same scope at runtime. An orchestration
+module (like `Invoke-CustomExportAll`) can call them with `& $fnName -Token $Token -InputData @{}`.
+
+**Important:** `$ModuleMeta` in those called functions resolves to the last module loaded (a known
+benign scope issue), so `$moduleResult.ModuleName` / `Category` / `Action` on the returned object
+may be wrong. Use only `Results`, `Successes`, `Failures`, and `Errors` from the returned object.
+
+**Pattern:**
+```powershell
+$fnName = "Invoke-$($module.Meta.Category)$($module.Meta.Action)"
+$moduleResult = & $fnName -Token $Token -InputData @{}
+# Use $moduleResult.Results, $moduleResult.Successes, $moduleResult.Failures
+```
+
+**Rule:** Orchestration modules iterate `$script:LoadedModules` (set by `Import-APIModules`). Skip
+`Category = 'Custom'` to prevent recursive calls. Handle exceptions with try/catch per module so one
+failure does not abort the entire export.
+
+---
+
+### 8.2 AD queries in PS 5.1 must use ADSI objects, not the ActiveDirectory module
+
+**Root cause:** The ActiveDirectory PowerShell module (`Get-ADGroup`, `Get-ADGroupMember`, etc.) is
+not available on all systems and is not required to be present. `System.DirectoryServices` ADSI
+objects are part of .NET Framework and available in all PS 5.1 environments on domain-joined Windows.
+
+**Symptom:** `CommandNotFoundException: Get-ADGroup` or dependency on optional RSAT tools.
+
+**Wrong:**
+```powershell
+$members = Get-ADGroupMember -Identity $groupName -Recursive
+```
+
+**Correct — use DirectorySearcher:**
+```powershell
+$searcher = New-Object System.DirectoryServices.DirectorySearcher
+$searcher.Filter = "(&(objectClass=group)(sAMAccountName=$groupSAM))"
+$searcher.PropertiesToLoad.Add('distinguishedName') | Out-Null
+$searcher.PropertiesToLoad.Add('member') | Out-Null
+$entry = $searcher.FindOne()
+if ($entry) {
+    $dn  = "$($entry.Properties['distinguishedName'][0])"
+    $dns = @($entry.Properties['member'])
+}
+```
+
+**Property access:** `$entry.Properties['key'][0]` returns the value — ALWAYS access by bracket
+index, as the value is a `ResultPropertyValueCollection`. String interpolation `"$(...)"` is needed
+since `[0]` returns `[object]`, not `[string]`.
+
+**Rule:** Use `New-Object System.DirectoryServices.DirectorySearcher` (or `DirectoryEntry`) for all
+AD queries. Never use `Get-ADGroup`, `Get-ADGroupMember`, or other `ActiveDirectory` module cmdlets.
+Wrap all ADSI operations in `try/catch` — domain connectivity failures must be caught gracefully.
+
+---
+
+### 8.3 Stack-based iteration avoids recursion depth limits for nested group traversal
+
+**Root cause:** PowerShell's default call stack is limited (~500 frames). Recursive function calls
+for deeply nested group structures (10+ levels) can exhaust the stack and throw a
+`StackOverflowException`.
+
+**Pattern — use an explicit stack instead of recursion:**
+```powershell
+$stack   = [System.Collections.Generic.Stack[hashtable]]::new()
+$visited = [System.Collections.Generic.HashSet[string]]::new()
+
+$stack.Push(@{ ID = $rootId; Path = $rootName; Depth = 1 })
+
+while ($stack.Count -gt 0) {
+    $current = $stack.Pop()
+    if ($visited.Contains($current['ID'])) { continue }  # Prevents circular loops
+    [void]$visited.Add($current['ID'])
+
+    # Process current item, push children
+    foreach ($child in $children) {
+        if (-not $visited.Contains($child.ID)) {
+            $stack.Push(@{
+                ID    = $child.ID
+                Path  = "$($current['Path']) > $($child.Name)"
+                Depth = $current['Depth'] + 1
+            })
+        }
+    }
+}
+```
+
+**Rule:** For any traversal that may be more than ~3 levels deep or involves potentially circular
+references, use a `Stack[hashtable]` with a `HashSet[string]` visited guard instead of recursive
+function calls. This applies to both CyberArk group member traversal and AD nested group expansion.
+
+---
+
+### 8.4 Applications API uses legacy PIMServices endpoint and nested body wrapper
+
+**Root cause:** The CyberArk Applications API (`WebServices/PIMServices.svc`) predates the modern
+REST API (`/API/`) and uses different URL patterns and body shapes.
+
+**Key differences from `/API/` modules:**
+- Endpoint path: `/WebServices/PIMServices.svc/Applications` (not `/API/Applications`)
+- List response: `{ "application": [ {...} ] }` — array under `application` key
+- Get response: `{ "application": { ... } }` — single object under `application` key
+- Auth methods list: `{ "authentication": [ {...} ] }` — under `authentication` key
+- **Add body must be wrapped:** `@{ application = @{ AppID = ...; ... } }` (not a flat body)
+- `SupportedSystems = @('SelfHosted')` — Privilege Cloud (ISPSS) does not expose this endpoint
+
+**Correct body for Add Application:**
+```powershell
+$response = Invoke-CyberArkAPI `
+    -Token    $Token `
+    -Method   'POST' `
+    -Endpoint '/WebServices/PIMServices.svc/Applications' `
+    -Body     @{ application = @{ AppID = $appId; Description = $desc; Disabled = $false } }
+```
+
+**Rule:** When mapping API response fields, always check `PSObject.Properties['application']` or
+`PSObject.Properties['authentication']` before accessing the inner object/array. The inner payload
+may be a single object OR an array depending on the endpoint — cast with `@(...)` to normalize.
+
+---
+
+## 9. Pester v6 Test File Structure
+
+Patterns discovered when fixing a systematic test regression across 22 test files (all new modules
+created in the Custom, Applications, and extended Accounts categories). All 22 files failed with
+`InvalidOperationException: A 'break' or 'continue' statement with a label that does not match any
+enclosing loop escaped from your code` (Pester issue #2669).
+
+### 9.1 `BeforeAll` must be at file level, not inside `Describe`
+
+**Root cause:** In Pester v6.1+, a `BeforeAll` block nested **inside** a `Describe` runs inside
+Pester's own internal `foreach` loop. Any `break` or `continue` statement encountered in user code
+at that point — even one that lives inside a function body of an imported module and would never
+execute at import time — can escape Pester's `foreach` and throw `InvalidOperationException`.
+`CyberArkComms.psm1` contains `break` and `continue` inside `Invoke-CyberArkAPI`'s retry loop;
+this triggered the error in every new-style test file.
+
+**Symptom:** Every test in every new file fails immediately with the escape-loop error. Old-style
+test files (that already had file-level `BeforeAll`) continue to pass unchanged.
+
+**Wrong (all new test files had this pattern):**
+```powershell
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$modulePath  = Join-Path (Split-Path (Split-Path $here)) 'APIModules\...'
+$commsPath   = Join-Path (Split-Path (Split-Path $here)) 'Modules\CyberArkComms.psm1'
+$loggingPath = Join-Path (Split-Path (Split-Path $here)) 'Modules\CyberArkLogging.psm1'
+
+Describe 'Invoke-Xxx' {
+    BeforeAll {                          # ← WRONG: BeforeAll inside Describe
+        Import-Module $loggingPath -Force
+        Import-Module $commsPath   -Force
+        . $modulePath
+    }
+    ...
+}
+```
+
+**Correct:**
+```powershell
+BeforeAll {                              # ← file level, before any Describe
+    $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\...\Invoke-Xxx.ps1'
+    $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
+    $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
+
+    Import-Module $script:LoggingPath -Force -ErrorAction Stop
+    Import-Module $script:CommsPath   -Force -ErrorAction Stop
+    . $script:ModulePath
+    Initialize-CyberArkLog -Destination 'Console' -ProfileName 'XxxTests' -MinLevel 'ERROR'
+}
+
+Describe 'Invoke-Xxx' {
+    ...
+}
+```
+
+**Rule:** Always place the `BeforeAll` that imports modules at the **file level** (before any
+`Describe` block). Use `$PSScriptRoot` (available in all scopes in Pester v6) instead of
+`Split-Path -Parent $MyInvocation.MyCommand.Path`. Use `$script:` prefix for any variable set
+in file-level `BeforeAll` that is needed inside `Describe` or `Context` blocks.
+
+---
+
+### 9.2 Always call `Initialize-CyberArkLog` in file-level `BeforeAll`
+
+**Root cause:** All production modules call `Write-CyberArkLog` internally. Without initialising
+the logging module, each test run spits log lines to the console and — if the default log folder
+doesn't exist on the test machine — throws on first write.
+
+**Rule:** Every test file must include `Initialize-CyberArkLog -Destination 'Console'
+-ProfileName '<ModuleName>Tests' -MinLevel 'ERROR'` in the file-level `BeforeAll`, after the
+module imports. Use a unique `ProfileName` per file to avoid cross-contamination of summary
+entries between test files.
+
+---
+
+### 9.3 Driver-scope helper functions must be stubbed before Mocking
+
+**Root cause:** Functions defined in `Driver.ps1` (e.g. `Get-CsvSavePath`) are not imported by
+the unit test file. In Pester v6, you **cannot** call `Mock SomeFunction` if `SomeFunction` does
+not already exist in the session — Pester will throw `CommandNotFoundException` before the test
+even runs.
+
+**Symptom:** `CommandNotFoundException: Could not find Command Get-CsvSavePath` inside Pester's
+`Mock` setup, causing every test in the `Describe` to fail.
+
+**Fix:** Define a minimal global stub in the file-level `BeforeAll` **before** any `Mock` calls:
+```powershell
+BeforeAll {
+    ...
+    # Stub for Driver helper — not available outside Driver.ps1
+    function global:Get-CsvSavePath {
+        param([string]$DefaultFolder, [string]$ModuleName)
+        return $null
+    }
+}
+```
+
+The stub only needs to have the same parameter signature; its body can be a no-op. Pester's
+`Mock` then replaces the stub in each test that needs it.
+
+**Rule:** Any function that the module under test calls, but that lives in a file not imported by
+the test, must be stubbed in `BeforeAll`. Check the module's code for `& $fnName` and bare
+function calls to names not defined in `CyberArkComms.psm1` or `CyberArkLogging.psm1`.
+
+---
+
+### 9.4 Success tests must satisfy all module-level validation
+
+**Root cause:** Several "Successful operation" tests only provided the minimum primary key
+(`AccountID`) in `InputData` but forgot other fields the module validates as required before
+calling the API. The module returned early with `Failures = 1`; the mocked API was never called.
+
+**Symptom:** `$result.Successes | Should -BeGreaterThan 0` evaluates to 0 even though the mock
+is set up correctly.
+
+**Affected tests and the missing fields:**
+
+| Test file | Missing required fields |
+|---|---|
+| `Invoke-AccountsChangeInVault.Tests.ps1` | `NewCredentials` |
+| `Invoke-AccountsLinkAccount.Tests.ps1` | `ExtraPasswordIndex`, `Name`, `Safe` |
+| `Invoke-AccountsUnlinkAccount.Tests.ps1` | `ExtraPasswordIndex` |
+
+**Rule:** Before writing the success-path `It` block, read the module's validation section to
+identify every field that causes an early-return failure. The success test's `InputData` must
+include all required fields. The failure-path `It` blocks intentionally omit them — keep those
+as-is.
+
+---
+
+### 9.5 `WhatIf` does not suppress `GET` operations
+
+**Root cause:** `Invoke-CyberArkAPI` only suppresses the API call when `$WhatIfPreference` is set
+**and** the HTTP method is one of `POST`, `PUT`, `PATCH`, or `DELETE`. `GET` calls execute
+regardless of `-WhatIf`. `Invoke-AccountsGetActivity` uses `GET`; its test incorrectly asserted
+that `-WhatIf` would prevent the API call.
+
+**Symptom:** The mocked `Invoke-CyberArkAPI` throws `'Should not be called in WhatIf mode'`,
+causing the `Should -Not -Throw` assertion to fail.
+
+**Rule:** Only write a WhatIf test for modules that use a mutating HTTP method (`POST`, `PUT`,
+`PATCH`, `DELETE`). Modules with `SupportsWhatIf = $false` in their metadata (or those that only
+use `GET`) should not have a WhatIf `Context` block in their test file. If a module is read-only
+(GET only), remove or omit the WhatIf context entirely — do not adjust the mock to make it pass,
+because passing would mask the misunderstanding.
