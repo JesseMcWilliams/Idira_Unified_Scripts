@@ -151,30 +151,25 @@ function Invoke-GroupsAddMember {
         return $result
     }
 
-    $encodedId  = [Uri]::EscapeDataString($groupId)
-    $memberType = if ($InputData['MemberType']) { $InputData['MemberType'] } else { 'EPVUser' }
+    $encodedId = [Uri]::EscapeDataString($groupId)
 
-    $body = @{
-        memberId   = [int]$memberId
-        memberType = $memberType
-    }
+    $body = @{ memberId = [int]$memberId }
 
     $domainName = if ($InputData['DomainName']) { "$($InputData['DomainName'])".Trim() } else { '' }
     if (-not [string]::IsNullOrEmpty($domainName)) {
-        $body.domainName = $domainName
+        $body['domainName'] = $domainName
     }
 
     Write-CyberArkLog -Level 'INFO'  -Message "Adding member ID '$memberId' to group ID '$groupId'."
-    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/UserGroups/$encodedId/Members | MemberID='$memberId' MemberType='$memberType'"
+    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/UserGroups/$encodedId/Members | MemberID='$memberId'"
 
     # WhatIf check BEFORE API call
     if ($WhatIf.IsPresent) {
         Write-CyberArkLog -Level 'INFO' -Message "WhatIf: would POST /API/UserGroups/$encodedId/Members for member ID '$memberId'."
         $result.Results.Add([PSCustomObject]@{
-            GroupID    = $groupId
-            MemberID   = $memberId
-            MemberType = $memberType
-            Added      = $true
+            GroupID  = $groupId
+            MemberID = $memberId
+            Added    = $true
         })
         $result.Successes++
         $result.ItemsProcessed++
@@ -205,10 +200,9 @@ function Invoke-GroupsAddMember {
     }
 
     $result.Results.Add([PSCustomObject]@{
-        GroupID    = $groupId
-        MemberID   = $memberId
-        MemberType = $memberType
-        Added      = $true
+        GroupID  = $groupId
+        MemberID = $memberId
+        Added    = $true
     })
     $result.Successes++
     $result.ItemsProcessed++

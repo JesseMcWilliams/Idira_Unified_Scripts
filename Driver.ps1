@@ -1197,15 +1197,53 @@ function Invoke-TokenRefresh {
         return $false
     }
 
-    # All other methods - must prompt the user to re-authenticate
+    # SelfHosted password-based methods - prompt for password only (pre-fill URL and username)
+    if ($type -eq 'SelfHosted' -and $method -in @('CyberArk', 'LDAP', 'RADIUS')) {
+        $ctx      = if ($script:SessionToken.PSObject.Properties['_RefreshContext']) { $script:SessionToken._RefreshContext } else { $null }
+        $pvwaUrl  = if ($ctx -and $ctx['PVWAUrl']) { $ctx['PVWAUrl'] } else { $script:SessionToken.BaseURL }
+        $username = if ($ctx -and $ctx['Credential']) { $ctx['Credential'].UserName } else { '' }
+
+        Write-Host ''
+        Write-Host '  Your session token has expired. Re-authentication required.' -ForegroundColor Yellow
+        if ($username) { Write-Host "  Signing in as: $username" -ForegroundColor Cyan }
+        Write-Host '  Press Enter to enter your password, or X to exit: ' -ForegroundColor White -NoNewline
+        $r = (Read-Host).Trim()
+        if ($r -match '^[Xx]$') { return $false }
+
+        try {
+            $securePassword = Read-Host -AsSecureString "  Password$(if ($username) { " for $username" })"
+            $uname      = if ($username) { $username } else { (Read-Host '  Username').Trim() }
+            $newCred    = [System.Management.Automation.PSCredential]::new($uname, $securePassword)
+            $concurrent = if ($ctx -and $ctx.ContainsKey('ConcurrentSession')) { $ctx['ConcurrentSession'] } else { $false }
+            $newToken = Get-AuthToken `
+                -SystemType         $type `
+                -AuthMethod         $method `
+                -PVWAUrl            $pvwaUrl `
+                -Credential         $newCred `
+                -ConcurrentSession: ([switch]::new($concurrent)) `
+                -IgnoreSSL:         $script:ActiveProfile.IgnoreSSL
+            if ($newToken -and $newToken.Token) {
+                $script:SessionToken = $newToken
+                $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
+                Write-CyberArkLog -Message 'Re-authentication successful.' -Level 'INFO'
+                return $true
+            }
+        } catch {
+            Write-CyberArkLog -Message "Re-authentication failed: $_" -Level 'ERROR'
+            Write-Host "  Authentication failed: $_" -ForegroundColor Red
+        }
+        return $false
+    }
+
+    # All other methods (SAML, OIDC, Shared, PKI, ISPSS Interactive/SSO) - use stored context
     Write-Host ''
     Write-Host '  Your session token has expired. Re-authentication required.' -ForegroundColor Yellow
-    Write-Host '  Press Enter to open the authentication prompt, or X to exit: ' -ForegroundColor White -NoNewline
+    Write-Host '  Press Enter to re-authenticate, or X to exit: ' -ForegroundColor White -NoNewline
     $r = (Read-Host).Trim()
     if ($r -match '^[Xx]$') { return $false }
 
     try {
-        $newToken = Get-AuthToken -IgnoreSSL:$script:ActiveProfile.IgnoreSSL
+        $newToken = Get-AuthToken -TokenToRefresh $script:SessionToken -IgnoreSSL:$script:ActiveProfile.IgnoreSSL
         if ($newToken -and $newToken.Token) {
             $script:SessionToken = $newToken
             $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
@@ -1539,12 +1577,27 @@ function Invoke-ActionModule {
         Write-Host "  $($meta.Name)" -ForegroundColor White
         Write-Host "  $($meta.Description)" -ForegroundColor DarkGray
         Write-Host ''
-        Write-Host '  [1] Process CSV file(s)    [2] Enter values interactively    [B] Back' -ForegroundColor White
-        $mode = Read-MenuChoice -Prompt '[1] / [2] / [B]ack (default: B)'
+        Write-Host '  [1] Process CSV file(s)    [2] Enter values interactively    [3] Generate Template    [B] Back' -ForegroundColor White
+        $mode = Read-MenuChoice -Prompt '[1] / [2] / [3] / [B]ack (default: B)'
         if (-not $mode) { $mode = 'B' }
         switch ($mode.ToUpper()) {
             '1' { Invoke-CsvProcessing -ModuleEntry $ModuleEntry; return }
             '2' { <# fall through to interactive input below #> }
+            '3' {
+                $cols = @($meta.InputSchema | ForEach-Object { $_.Column })
+                if ($cols.Count -eq 0) {
+                    Write-Host '  This module has no input schema; no template to generate.' -ForegroundColor Yellow
+                } else {
+                    $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder `
+                        -ModuleName "$($meta.Name) Template"
+                    if ($csvPath) {
+                        $header = ($cols | ForEach-Object { "`"$_`"" }) -join ','
+                        [System.IO.File]::WriteAllLines($csvPath, [string[]]@($header), [System.Text.Encoding]::UTF8)
+                        Write-Host "  Template saved: $csvPath" -ForegroundColor Green
+                    }
+                }
+                return
+            }
             { $_ -match '^B\d*$' } { return }
             default { return }
         }

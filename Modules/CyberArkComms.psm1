@@ -303,7 +303,8 @@ function Invoke-CyberArkAPI {
 
     # --- Pagination state ---
     $allItems     = [System.Collections.Generic.List[object]]::new()
-    $paginate     = ($Method -eq 'GET' -and $PageSize -gt 0)
+    # PIMServices.svc (legacy WCF REST) does not accept offset/limit pagination params
+    $paginate     = ($Method -eq 'GET' -and $PageSize -gt 0 -and $Uri -notlike '*/PIMServices.svc/*')
     $offset       = 0
     $firstPage    = $true
     $lastResponse = $null

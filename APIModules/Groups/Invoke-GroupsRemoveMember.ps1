@@ -124,7 +124,7 @@ function Invoke-GroupsRemoveMember {
     }
 
     # Validate GroupID
-    $groupId = if ($InputData.GroupID) { "$($InputData.GroupID)".Trim() } else { '' }
+    $groupId = if ($InputData['GroupID']) { "$($InputData['GroupID'])".Trim() } else { '' }
 
     if (-not $groupId) {
         $msg = 'GroupID is required and must not be empty.'
@@ -140,7 +140,7 @@ function Invoke-GroupsRemoveMember {
     }
 
     # Validate MemberID
-    $memberId = if ($InputData.MemberID) { "$($InputData.MemberID)".Trim() } else { '' }
+    $memberId = if ($InputData['MemberID']) { "$($InputData['MemberID'])".Trim() } else { '' }
 
     if (-not $memberId) {
         $msg = 'MemberID is required and must not be empty.'

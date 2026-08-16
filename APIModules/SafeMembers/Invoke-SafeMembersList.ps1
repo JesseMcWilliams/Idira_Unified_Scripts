@@ -1,20 +1,21 @@
 ﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
-    Name             = 'List Safe Members'
-    Category         = 'SafeMembers'
-    Action           = 'List'
-    Description      = 'Retrieve all members of a safe with their permissions.'
-    SupportedSystems = @('ISPSS', 'SelfHosted')
-    SupportsWhatIf   = $false
-    AcceptsInputFile = $false
-    ProducesOutput   = $true
-    HasCustomInput   = $true
-    InputSchema      = @(
+    Name                 = 'List Safe Members'
+    Category             = 'SafeMembers'
+    Action               = 'List'
+    Description          = 'Retrieve all members of a safe with their permissions.'
+    SupportedSystems     = @('ISPSS', 'SelfHosted')
+    SupportsWhatIf       = $false
+    AcceptsInputFile     = $false
+    ProducesOutput       = $true
+    HasCustomInput       = $true
+    ExcludeFromExportAll = $true
+    InputSchema          = @(
         @{ Column = 'SafeName'; Required = $true; Description = 'Name of the safe.' }
     )
-    Priority         = 20
-    Version          = '1.0.0'
+    Priority             = 20
+    Version              = '1.0.0'
 }
 
 function Get-SafeMembersListInput {

@@ -117,10 +117,10 @@ function Invoke-AccountsAdd {
 
     $validationErrors = @()
 
-    if (-not $InputData.Address)    { $validationErrors += 'Address is required.' }
-    if (-not $InputData.UserName)   { $validationErrors += 'UserName is required.' }
-    if (-not $InputData.PlatformID) { $validationErrors += 'PlatformID is required.' }
-    if (-not $InputData.SafeName)   { $validationErrors += 'SafeName is required.' }
+    if (-not $InputData['Address'])    { $validationErrors += 'Address is required.' }
+    if (-not $InputData['UserName'])   { $validationErrors += 'UserName is required.' }
+    if (-not $InputData['PlatformID']) { $validationErrors += 'PlatformID is required.' }
+    if (-not $InputData['SafeName'])   { $validationErrors += 'SafeName is required.' }
 
     if ($validationErrors.Count -gt 0) {
         foreach ($msg in $validationErrors) {
@@ -138,26 +138,26 @@ function Invoke-AccountsAdd {
 
     # ── Build request body ────────────────────────────────────────────────────
 
-    $accountName = if ($InputData.Name) { $InputData.Name } else { "$($InputData.UserName)@$($InputData.Address)" }
-    $secretType  = if ($InputData.SecretType) { $InputData.SecretType } else { 'password' }
-    $autoManaged = ($InputData.AutoManaged -notmatch '^false$')
+    $accountName = if ($InputData['Name']) { $InputData['Name'] } else { "$($InputData['UserName'])@$($InputData['Address'])" }
+    $secretType  = if ($InputData['SecretType']) { $InputData['SecretType'] } else { 'password' }
+    $autoManaged = ($InputData['AutoManaged'] -notmatch '^false$')
+
+    $secretMgmt = @{ automaticManagementEnabled = $autoManaged }
+    if (-not $autoManaged) { $secretMgmt['manualManagementReason'] = '' }
 
     $body = @{
         name             = $accountName
-        address          = $InputData.Address
-        userName         = $InputData.UserName
-        platformId       = $InputData.PlatformID
-        safeName         = $InputData.SafeName
+        address          = $InputData['Address']
+        userName         = $InputData['UserName']
+        platformId       = $InputData['PlatformID']
+        safeName         = $InputData['SafeName']
         secretType       = $secretType
-        secretManagement = @{
-            automaticManagementEnabled = $autoManaged
-            manualManagementReason     = ''
-        }
+        secretManagement = $secretMgmt
     }
 
     if ($InputData['Secret']) { $body['secret'] = $InputData['Secret'] }
 
-    Write-CyberArkLog -Level 'INFO' -Message "Adding account UserName=$($InputData.UserName) to SafeName=$($InputData.SafeName)"
+    Write-CyberArkLog -Level 'INFO' -Message "Adding account UserName=$($InputData['UserName']) to SafeName=$($InputData['SafeName'])"
 
     # ── WhatIf ────────────────────────────────────────────────────────────────
 

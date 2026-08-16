@@ -116,12 +116,13 @@ function Invoke-GroupsGetMembers {
     $encodedId = [Uri]::EscapeDataString($groupId)
 
     Write-CyberArkLog -Level 'INFO'  -Message "Starting group members retrieval for group ID: $groupId"
-    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/UserGroups/$encodedId/Members"
+    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/UserGroups/$encodedId"
 
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'GET' `
-        -Endpoint "/API/UserGroups/$encodedId/Members" `
+        -Endpoint "/API/UserGroups/$encodedId" `
+        -PageSize 0 `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
@@ -138,9 +139,16 @@ function Invoke-GroupsGetMembers {
         return $result
     }
 
-    $members = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
-        @($response.Data.value)
-    } else { @() }
+    # Members may be under 'members', 'groupMembers', or 'Members' depending on PVWA version
+    [array]$members = @()
+    if ($response.Data) {
+        foreach ($prop in @('members', 'Members', 'groupMembers')) {
+            if ($response.Data.PSObject.Properties[$prop] -and $response.Data.$prop) {
+                $members = @($response.Data.$prop)
+                break
+            }
+        }
+    }
 
     if ((-not $members) -or $members.Count -eq 0) {
         Write-CyberArkLog -Level 'WARN' -Message 'No members found in group.'

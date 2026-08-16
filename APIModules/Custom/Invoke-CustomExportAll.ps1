@@ -46,7 +46,8 @@ function Invoke-CustomExportAll {
         $listModules = @($script:LoadedModules | Where-Object {
             $_.Meta.Action -eq 'List' -and
             $_.Meta.ProducesOutput -eq $true -and
-            $_.Meta.Category -ne 'Custom'
+            $_.Meta.Category -ne 'Custom' -and
+            -not ($_.Meta.PSObject.Properties['ExcludeFromExportAll'] -and $_.Meta.ExcludeFromExportAll)
         } | Sort-Object { [int]$_.Meta.Priority })
     }
 

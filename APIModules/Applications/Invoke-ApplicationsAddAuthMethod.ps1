@@ -69,13 +69,18 @@ function Get-ApplicationsAddAuthMethodInput {
         -Required $true `
         -Description 'Authentication value (required).'
 
-    $isFolderStr = Show-FieldPrompt -Label 'Is Folder' `
-        -Default $(if ($Defaults['IsFolder']) { 'Y' } else { 'N' }) `
-        -Description 'For path type: match folder and subfolders? (Y/N)'
-
-    $allowScriptsStr = Show-FieldPrompt -Label 'Allow Internal Scripts' `
-        -Default $(if ($Defaults['AllowInternalScripts']) { 'Y' } else { 'N' }) `
-        -Description 'For path type: allow scripts inside the path? (Y/N)'
+    $isFolder             = $false
+    $allowInternalScripts = $false
+    if ($authType -eq 'path') {
+        $isFolderStr = Show-FieldPrompt -Label 'Is Folder' `
+            -Default $(if ($Defaults['IsFolder']) { 'Y' } else { 'N' }) `
+            -Description 'Match folder and all subfolders? (Y/N)'
+        $allowScriptsStr = Show-FieldPrompt -Label 'Allow Internal Scripts' `
+            -Default $(if ($Defaults['AllowInternalScripts']) { 'Y' } else { 'N' }) `
+            -Description 'Allow scripts inside the path? (Y/N)'
+        $isFolder             = ($isFolderStr -match '^[Yy]$')
+        $allowInternalScripts = ($allowScriptsStr -match '^[Yy]$')
+    }
 
     $comment = Show-FieldPrompt -Label 'Comment' `
         -Default $(if ($Defaults['Comment']) { $Defaults['Comment'] } else { '' }) `
@@ -85,8 +90,8 @@ function Get-ApplicationsAddAuthMethodInput {
         AppID                = $appId
         AuthType             = $authType
         AuthValue            = $authValue
-        IsFolder             = ($isFolderStr -match '^[Yy]$')
-        AllowInternalScripts = ($allowScriptsStr -match '^[Yy]$')
+        IsFolder             = $isFolder
+        AllowInternalScripts = $allowInternalScripts
         Comment              = $comment
     }
 }
@@ -162,10 +167,12 @@ function Invoke-ApplicationsAddAuthMethod {
     }
 
     $authBody = @{
-        AuthType             = $authType
-        AuthValue            = $authValue
-        IsFolder             = $isFolder
-        AllowInternalScripts = $allowInternalScripts
+        AuthType  = $authType
+        AuthValue = $authValue
+    }
+    if ($authType -eq 'path') {
+        $authBody['IsFolder']             = $isFolder
+        $authBody['AllowInternalScripts'] = $allowInternalScripts
     }
     if ($comment) { $authBody['Comment'] = $comment }
 

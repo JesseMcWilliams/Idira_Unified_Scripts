@@ -94,7 +94,7 @@ function Invoke-CustomExportEntitlements {
         return $result
     }
 
-    $safes = if ($safesResponse.Data -and $safesResponse.Data.PSObject.Properties['value']) {
+    [array]$safes = if ($safesResponse.Data -and $safesResponse.Data.PSObject.Properties['value']) {
         @($safesResponse.Data.value)
     } else { @() }
 
@@ -138,7 +138,7 @@ function Invoke-CustomExportEntitlements {
             continue
         }
 
-        $members = if ($membersResponse.Data -and $membersResponse.Data.PSObject.Properties['value']) {
+        [array]$members = if ($membersResponse.Data -and $membersResponse.Data.PSObject.Properties['value']) {
             @($membersResponse.Data.value)
         } else { @() }
 
