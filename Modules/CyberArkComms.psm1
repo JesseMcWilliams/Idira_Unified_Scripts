@@ -162,7 +162,7 @@ function Join-CyberArkUrl {
 
     $result = $Base.TrimEnd('/')
     foreach ($seg in $Segments) {
-        $result = $result.TrimEnd('/') + '/' + $seg.Trim('/')
+        $result = $result.TrimEnd('/') + '/' + $seg.TrimStart('/')
     }
     return $result
 }
@@ -381,6 +381,7 @@ function Invoke-CyberArkAPI {
             # Non-429 HTTP error — fall through to response building below
             $errDetails = script:Parse-CyberArkError -Body $rawBody
             $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode $($webEx.Message)" }
+            if ($statusCode -ge 400) { $errMsg = "$errMsg  [$Method $fullUri]" }
             return script:New-ApiResponse -IsSuccess $false -StatusCode $statusCode `
                 -RawResponse $rawBody -ErrorMessage $errMsg -ErrorDetails $errDetails
 

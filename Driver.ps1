@@ -481,7 +481,7 @@ function Show-ProfileDetail {
 
     Write-Host ''
     Show-Divider
-    Write-Host '  [C] Continue    [E] Edit    [P] Copy    [D] Delete    [T] Test Connection    [B] Back' -ForegroundColor White
+    Write-Host '  [C] Continue    [E] Edit    [P] Copy    [D] Delete    [T] Test Connection    [L] Log Out    [B] Back' -ForegroundColor White
 }
 
 #endregion
@@ -824,8 +824,8 @@ function Invoke-ProfileManagementLoop {
                 Write-Host '  Choose E to edit it or D to delete this profile.' -ForegroundColor Yellow
             }
 
-            $action = Read-MenuChoice -Prompt 'C / E / P / D / T / B / Q (default: C)'
-            if (-not $action) { $action = 'C' }
+            $action = Read-MenuChoice -Prompt 'C / E / P / D / T / L / B / Q (default: B)'
+            if (-not $action) { $action = 'B' }
 
             switch ($action.ToUpper()) {
 
@@ -935,6 +935,41 @@ function Invoke-ProfileManagementLoop {
                             Write-CyberArkLog -Message "Could not save refreshed token: $_" -Level 'WARN'
                         }
 
+                        # Display token details as informational output before entering session
+                        Write-Host ''
+                        $tokenUsername = ''
+                        if ($token.PSObject.Properties['_RefreshContext'] -and $token._RefreshContext) {
+                            $rc = $token._RefreshContext
+                            if ($rc.PSObject.Properties['Credential'] -and $rc.Credential) {
+                                $tokenUsername = $rc.Credential.UserName
+                            }
+                        }
+                        if (-not $tokenUsername -and $selectedProfile.Username) {
+                            $tokenUsername = $selectedProfile.Username
+                        }
+                        if ($tokenUsername) {
+                            Write-Host ("    Signed in as : $tokenUsername") -ForegroundColor Cyan
+                        }
+                        $sysLabel = switch ($token.SystemType) {
+                            'ISPSS'      { 'Privilege Cloud' }
+                            'SelfHosted' { 'Self-Hosted' }
+                            default      { if ($token.PSObject.Properties['SystemType']) { $token.SystemType } else { '' } }
+                        }
+                        if ($sysLabel) { Write-Host ("    System       : $sysLabel") -ForegroundColor Cyan }
+                        if ($token.PSObject.Properties['AuthMethod'] -and $token.AuthMethod) {
+                            Write-Host ("    Auth Method  : $($token.AuthMethod)") -ForegroundColor Cyan
+                        }
+                        if ($token.PSObject.Properties['BaseURL'] -and $token.BaseURL) {
+                            Write-Host ("    Base URL     : $($token.BaseURL)") -ForegroundColor Cyan
+                        }
+                        if ($token.PSObject.Properties['Expiry'] -and $token.Expiry) {
+                            $expiryStr = try {
+                                ([datetime]$token.Expiry).ToLocalTime().ToString('yyyy-MM-dd HH:mm')
+                            } catch { "$($token.Expiry)" }
+                            Write-Host ("    Token Expiry : $expiryStr") -ForegroundColor Cyan
+                        }
+                        Write-Host ''
+
                         $script:SessionToken  = $token
                         $script:ActiveProfile = $selectedProfile
                         $script:WhatIfMode    = $selectedProfile.WhatIfDefault -or $script:WhatIfMode
@@ -997,6 +1032,34 @@ function Invoke-ProfileManagementLoop {
                     # Test connection
                     Invoke-ProfileTestConnection -Summary $selected `
                         -Breadcrumbs ($detailCrumbs + @('Test Connection'))
+                }
+
+                'L' {
+                    # Log out — call server logoff and delete local token file
+                    if ($selected.TokenStatus -notin @('Valid', 'Expired')) {
+                        Write-Host '  No saved session token to log out.' -ForegroundColor DarkGray
+                        Start-Sleep -Seconds 1
+                    } else {
+                        if (Confirm-Action "Log out '$($selected.ProfileName)' — end server session and delete saved token?") {
+                            $tokenPath   = Get-ProfileTokenPath -Name $selected.currentProfile.AuthTokenProfile
+                            $logoutToken = $null
+                            try { $logoutToken = Import-AuthToken -Path $tokenPath } catch {}
+                            if ($logoutToken -and $logoutToken.SystemType -eq 'SelfHosted') {
+                                Write-Host '  Ending server session...' -ForegroundColor DarkGray
+                                try {
+                                    Invoke-CyberArkAPI -Token $logoutToken -Method 'POST' `
+                                        -Endpoint '/API/auth/Logoff' `
+                                        -IgnoreSSL:$selected.currentProfile.IgnoreSSL | Out-Null
+                                } catch {
+                                    Write-CyberArkLog -Message "Logoff request failed: $_" -Level 'WARN'
+                                }
+                            }
+                            Remove-Item -LiteralPath $tokenPath -Force -ErrorAction SilentlyContinue
+                            Write-CyberArkLog -Message "Logged out profile '$($selected.ProfileName)'. Token cleared." -Level 'INFO'
+                            Write-Host '  Logged out. Token cleared.' -ForegroundColor Green
+                            Start-Sleep -Seconds 1
+                        }
+                    }
                 }
 
                 { $_ -match '^B\d*$' } {
@@ -1065,8 +1128,28 @@ function Import-APIModules {
             $num++
             Write-CyberArkLog -Message "Loaded module: $($ModuleMeta.Name) v$($ModuleMeta.Version)" -Level 'DEBUG'
         } catch {
-            Write-Host "  [Module Load Error] $($file.Name): $_" -ForegroundColor Red
-            Write-CyberArkLog -Message "Failed to load module '$($file.Name)': $_" -Level 'WARN'
+            $loadErr = "$_"
+            Write-Host "  [Module Load Error] $($file.Name): $loadErr" -ForegroundColor Red
+            Write-CyberArkLog -Message "Failed to load module '$($file.Name)': $loadErr" -Level 'WARN'
+            $script:LoadedModules += [PSCustomObject]@{
+                Number    = $num
+                Meta      = @{
+                    Name             = $file.BaseName
+                    Category         = 'Errors'
+                    Action           = 'LoadFailed'
+                    Description      = $loadErr
+                    SupportedSystems = @('ISPSS', 'SelfHosted')
+                    SupportsWhatIf   = $false
+                    AcceptsInputFile = $false
+                    ProducesOutput   = $false
+                    HasCustomInput   = $false
+                    Priority         = 999
+                }
+                FilePath  = $file.FullName
+                Failed    = $true
+                FailError = $loadErr
+            }
+            $num++
         }
     }
 
@@ -1405,12 +1488,17 @@ function Show-ActionMenu {
 
     $i = 1
     foreach ($entry in $CategoryModules) {
-        $tags = @()
-        if ($entry.Meta.AcceptsInputFile)                    { $tags += 'CSV' }
-        if ($entry.Meta.SupportsWhatIf -and $script:WhatIfMode) { $tags += 'WhatIf' }
-        $tagStr = if ($tags) { "  [$($tags -join ', ')]" } else { '' }
-        Write-Host ("    {0,3}.  {1}{2}" -f $i, $entry.Meta.Name, $tagStr) -ForegroundColor White
-        Write-Host ("           {0}" -f $entry.Meta.Description) -ForegroundColor DarkGray
+        if ($entry.PSObject.Properties['Failed'] -and $entry.Failed) {
+            Write-Host ("    {0,3}.  {1}  [Load Failed]" -f $i, $entry.Meta.Name) -ForegroundColor Red
+            Write-Host ("           $($entry.Meta.Description)") -ForegroundColor DarkRed
+        } else {
+            $tags = @()
+            if ($entry.Meta.AcceptsInputFile)                       { $tags += 'CSV' }
+            if ($entry.Meta.SupportsWhatIf -and $script:WhatIfMode) { $tags += 'WhatIf' }
+            $tagStr = if ($tags) { "  [$($tags -join ', ')]" } else { '' }
+            Write-Host ("    {0,3}.  {1}{2}" -f $i, $entry.Meta.Name, $tagStr) -ForegroundColor White
+            Write-Host ("           {0}" -f $entry.Meta.Description) -ForegroundColor DarkGray
+        }
         $i++
     }
     Write-Host ''
@@ -1426,7 +1514,23 @@ function Show-ActionMenu {
 }
 
 function Invoke-ActionModule {
-    param([PSCustomObject]$ModuleEntry)
+    param(
+        [PSCustomObject]$ModuleEntry,
+        [hashtable]$Defaults = $null
+    )
+
+    if ($ModuleEntry.PSObject.Properties['Failed'] -and $ModuleEntry.Failed) {
+        Show-Header -Breadcrumbs @($script:ActiveProfile.ProfileName, $ModuleEntry.Meta.Category, $ModuleEntry.Meta.Name)
+        Write-Host "  $($ModuleEntry.Meta.Name)" -ForegroundColor Red
+        Write-Host '  This module failed to load and cannot be executed.' -ForegroundColor Red
+        Write-Host ''
+        Write-Host "  Error: $($ModuleEntry.FailError)" -ForegroundColor Yellow
+        Write-Host ''
+        Write-Host '  Press Enter to return.' -ForegroundColor DarkGray
+        Read-Host | Out-Null
+        return
+    }
+
     $meta   = $ModuleEntry.Meta
     $fnName = "Invoke-$($meta.Category)$($meta.Action)"
 
@@ -1436,7 +1540,8 @@ function Invoke-ActionModule {
         Write-Host "  $($meta.Description)" -ForegroundColor DarkGray
         Write-Host ''
         Write-Host '  [1] Process CSV file(s)    [2] Enter values interactively    [B] Back' -ForegroundColor White
-        $mode = Read-MenuChoice -Prompt 'Mode'
+        $mode = Read-MenuChoice -Prompt '[1] / [2] / [B]ack (default: B)'
+        if (-not $mode) { $mode = 'B' }
         switch ($mode.ToUpper()) {
             '1' { Invoke-CsvProcessing -ModuleEntry $ModuleEntry; return }
             '2' { <# fall through to interactive input below #> }
@@ -1451,7 +1556,11 @@ function Invoke-ActionModule {
     Write-Host ''
 
     $inputData = if ($meta.HasCustomInput) {
-        & "Get-$($meta.Category)$($meta.Action)Input" -Token $script:SessionToken
+        if ($Defaults) {
+            & "Get-$($meta.Category)$($meta.Action)Input" -Token $script:SessionToken -Defaults $Defaults
+        } else {
+            & "Get-$($meta.Category)$($meta.Action)Input" -Token $script:SessionToken
+        }
     } elseif ($meta.InputSchema) {
         Invoke-InteractiveInput -Schema $meta.InputSchema
     } else { @{} }
@@ -1467,7 +1576,15 @@ function Invoke-ActionModule {
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {
         Write-Host "  Result: $($result.Successes) succeeded, $($result.Failures) failed." -ForegroundColor Green
         if ($result.Results.Count -gt 0) {
-            $result.Results | Format-Table -AutoSize | Out-String |
+            $tableData = if ($meta.Action -eq 'List') {
+                $n = 1
+                $result.Results | ForEach-Object {
+                    $props = [ordered]@{ '#' = $n++ }
+                    foreach ($p in $_.PSObject.Properties) { $props[$p.Name] = $p.Value }
+                    [PSCustomObject]$props
+                }
+            } else { $result.Results }
+            $tableData | Format-Table -AutoSize | Out-String |
                 Where-Object { $_.Trim() } |
                 ForEach-Object { Write-Host "  $_" }
         }
@@ -1513,6 +1630,31 @@ function Invoke-ActionModule {
             -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
     }
 
+    # For List actions: offer line-number drill-down to the corresponding Get module
+    if ($meta.Action -eq 'List' -and $result.Results.Count -gt 0) {
+        $getModule = $script:LoadedModules | Where-Object {
+            -not ($_.PSObject.Properties['Failed'] -and $_.Failed) -and
+            $_.Meta.Category -eq $meta.Category -and $_.Meta.Action -eq 'Get'
+        } | Select-Object -First 1
+        if ($getModule) {
+            Write-Host ''
+            Write-Host '  Enter a line number to view details, or press Enter to return.' -ForegroundColor DarkGray
+            $lineInput = (Read-Host '  #').Trim()
+            if ($lineInput -match '^\d+$') {
+                $lineNum = [int]$lineInput
+                if ($lineNum -ge 1 -and $lineNum -le $result.Results.Count) {
+                    $selectedRow = $result.Results[$lineNum - 1]
+                    $rowDefaults = @{}
+                    foreach ($prop in $selectedRow.PSObject.Properties) {
+                        $rowDefaults[$prop.Name] = $prop.Value
+                    }
+                    Invoke-ActionModule -ModuleEntry $getModule -Defaults $rowDefaults
+                }
+            }
+            return
+        }
+    }
+
     Write-Host ''
     Write-Host '  Press Enter to return to the menu.' -ForegroundColor DarkGray
     Read-Host | Out-Null
@@ -1529,7 +1671,10 @@ function Invoke-SessionLoop {
     Import-APIModules
     # Re-dot-source each module file into this scope so child functions (Invoke-ActionModule)
     # can call both entry points and custom-input functions by name.
-    foreach ($m in $script:LoadedModules) { . $m.FilePath }
+    foreach ($m in $script:LoadedModules) {
+        if ($m.PSObject.Properties['Failed'] -and $m.Failed) { continue }
+        . $m.FilePath
+    }
 
     $crumbs = @($script:ActiveProfile.ProfileName)
 
@@ -1600,7 +1745,8 @@ function Invoke-SessionLoop {
                     # --- Action loop for this category ---
                     while ($true) {
                         Show-ActionMenu -Breadcrumbs $catCrumbs -CategoryModules $catModules
-                        $actChoice = Read-MenuChoice -Prompt 'Action / [B]ack'
+                        $actChoice = Read-MenuChoice -Prompt 'Action / [B]ack (default: B)'
+                        if (-not $actChoice) { $actChoice = 'B' }
                         $script:LastActivityTime = Get-Date
 
                         switch -Regex ($actChoice.ToUpper()) {

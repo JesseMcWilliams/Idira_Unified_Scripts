@@ -124,16 +124,19 @@ function Invoke-PlatformsList {
 
     foreach ($platform in $platforms) {
         try {
-            # CyberArk v12+ nests platform detail fields inside 'general'; fall back to flat structure
+            # CyberArk v12+ nests platform detail inside 'general'; fall back to root for either shape.
             $gen = if ($platform.PSObject.Properties['general'] -and $platform.general) { $platform.general } else { $platform }
             $result.Results.Add([PSCustomObject]@{
-                PlatformID   = if ($gen.PSObject.Properties['id'])           { $gen.id           } else { '' }
-                Name         = if ($gen.PSObject.Properties['name'])         { $gen.name         } else { '' }
-                Description  = if ($gen.PSObject.Properties['description'])  { $gen.description  } else { '' }
-                Active       = if ($gen.PSObject.Properties['active'])       { $gen.active       } `
-                               elseif ($platform.PSObject.Properties['active']) { $platform.active } `
-                               else { $false }
-                PlatformType = if ($gen.PSObject.Properties['platformType']) { $gen.platformType } else { '' }
+                PlatformID   = if ($gen.PSObject.Properties['id'])              { $gen.id              }
+                               elseif ($platform.PSObject.Properties['id'])     { $platform.id         } else { '' }
+                Name         = if ($gen.PSObject.Properties['name'])            { $gen.name            }
+                               elseif ($platform.PSObject.Properties['name'])   { $platform.name       } else { '' }
+                Description  = if ($gen.PSObject.Properties['description'])     { $gen.description     }
+                               elseif ($platform.PSObject.Properties['description']) { $platform.description } else { '' }
+                Active       = if ($gen.PSObject.Properties['active'])          { $gen.active          }
+                               elseif ($platform.PSObject.Properties['active']) { $platform.active     } else { $false }
+                PlatformType = if ($gen.PSObject.Properties['platformType'])    { $gen.platformType    }
+                               elseif ($platform.PSObject.Properties['platformType']) { $platform.platformType } else { '' }
             })
             $result.Successes++
             $result.ItemsProcessed++

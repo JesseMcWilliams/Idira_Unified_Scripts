@@ -126,3 +126,10 @@ Build documents in this sequence to support the implementation phases:
 | 2026-08-16 | Lessons-Learned-PowerShell-Pester.md | Added Section 8 — orchestration module pattern, ADSI vs AD module, stack-based traversal, Applications API body/response shape |
 | 2026-08-16 | 22 test files (Tests\Unit\) | Fixed Pester v6.1 regression: moved BeforeAll to file level (before Describe) in all new-style test files; added Initialize-CyberArkLog calls; added Get-CsvSavePath global stub; fixed mock data for GetActivity, ChangeInVault, LinkAccount, UnlinkAccount; removed invalid WhatIf test from GetActivity — 697 tests passing, 0 failures |
 | 2026-08-16 | Lessons-Learned-PowerShell-Pester.md | Added Section 9 — Pester v6 BeforeAll scoping (9.1), Initialize-CyberArkLog requirement (9.2), Driver-scope helper stubs (9.3), success test required field completeness (9.4), WhatIf only suppresses mutating methods (9.5) |
+| 2026-08-16 | CyberArkComms.psm1 | Fixed Join-CyberArkUrl: changed Trim('/') → TrimStart('/') to preserve trailing slashes; appended [Method URL] to all HTTP 400/500 error messages |
+| 2026-08-16 | Driver.ps1 | Added Logout option [L] to profile detail screen; failed modules shown in red in action menu and show error on invoke; Join-CyberArkUrl trailing slash fix enables Applications List |
+| 2026-08-16 | Driver.ps1 | List actions display numbered table and offer line-number drill-down to corresponding Get module after results; Invoke-ActionModule accepts $Defaults for pre-populated input |
+| 2026-08-16 | Driver.ps1 | Back [B] is now the default on profile detail, action menu, and module mode selection screens — pressing Enter goes back |
+| 2026-08-16 | Driver.ps1 | Continue [C] now shows auth token details (signed-in user, system type, auth method, base URL, expiry) before entering session loop |
+| 2026-08-16 | Invoke-PlatformsGet.ps1 | Added root-level fallback for id/name/description/platformType/active — handles CyberArk single-GET responses where fields are at root instead of under general |
+| 2026-08-16 | Invoke-PlatformsList.ps1 | Same dual-fallback applied for consistency |
