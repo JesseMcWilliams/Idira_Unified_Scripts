@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Get Application'
@@ -121,7 +121,7 @@ function Invoke-ApplicationsGet {
         return $result
     }
 
-    # Response: { "application": { ... } } — single object wrapped in application key
+    # Response: { "application": { ... } } - single object wrapped in application key
     $app = $null
     if ($response.Data) {
         if ($response.Data.PSObject.Properties['application'] -and $response.Data.application) {

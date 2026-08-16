@@ -138,7 +138,7 @@ function Invoke-GroupsUpdate {
     Write-CyberArkLog -Level 'INFO'  -Message "Starting group update. GroupID='$groupId'."
     Write-CyberArkLog -Level 'DEBUG' -Message "PUT $endpoint"
 
-    # Build body — always include groupId as integer; only include optional keys with non-empty values
+    # Build body - always include groupId as integer; only include optional keys with non-empty values
     $body = @{
         groupId = [int]$groupId
     }

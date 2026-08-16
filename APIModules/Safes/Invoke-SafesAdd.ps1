@@ -183,7 +183,7 @@ function Invoke-SafesAdd {
         return $result
     }
 
-    # Map result — WhatIf returns a synthetic success with no Data object
+    # Map result - WhatIf returns a synthetic success with no Data object
     $safe = if ($response.Data) { $response.Data } else { $null }
 
     $creationDate = if ($safe -and $safe.creationTime) {

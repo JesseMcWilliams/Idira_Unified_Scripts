@@ -143,7 +143,7 @@ function Invoke-GroupsAdd {
         return $result
     }
 
-    # Map response — group object has id, groupName, description, location, groupType
+    # Map response - group object has id, groupName, description, location, groupType
     $group = if ($response.Data) { $response.Data } else { $null }
 
     $result.Results.Add([PSCustomObject]@{

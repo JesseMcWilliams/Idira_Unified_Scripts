@@ -1,7 +1,7 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Idira Unified Scripts — CyberArk PAS interactive driver.
+    Idira Unified Scripts - CyberArk PAS interactive driver.
 
 .DESCRIPTION
     Profile-managed, authenticated sessions for CyberArk ISPSS (Privilege Cloud SaaS)
@@ -25,7 +25,7 @@ $ErrorActionPreference = 'Stop'
 
 #region --- Configuration ---
 
-$script:AppName              = 'Idira Unified Scripts — CyberArk PAS Driver'
+$script:AppName              = 'Idira Unified Scripts - CyberArk PAS Driver'
 $script:Version              = '1.0.0'
 $script:AuthScriptPath       = Join-Path $PSScriptRoot 'Auth\Get-AuthToken.ps1'
 $script:LoggingModulePath    = Join-Path $PSScriptRoot 'Modules\CyberArkLogging.psm1'
@@ -37,7 +37,7 @@ $script:InactivityTimeoutMin = 10
 $script:TokenExpiryWarnMin   = 5
 $script:WhatIfMode           = $WhatIf.IsPresent
 $script:ScreenWidth          = 80
-$script:SessionToken         = $null   # Active token object — set after successful auth
+$script:SessionToken         = $null   # Active token object - set after successful auth
 $script:ActiveProfile        = $null   # Active driver profile JSON object
 
 #endregion
@@ -82,7 +82,7 @@ function Show-Header {
         Write-Host $crumb -ForegroundColor DarkCyan
     }
     if ($script:WhatIfMode) {
-        Write-Host '  [WhatIf Mode ON — no changes will be made]' -ForegroundColor Yellow
+        Write-Host '  [WhatIf Mode ON - no changes will be made]' -ForegroundColor Yellow
     }
     Write-Host $bar -ForegroundColor Cyan
     Write-Host ''
@@ -500,7 +500,7 @@ function Invoke-ProfileEditFlow {
     Write-Host '  (Press Enter to keep the current value)' -ForegroundColor DarkGray
     Write-Host ''
 
-    # currentProfile Name — only editable on new profiles; for copy the name is already set
+    # currentProfile Name - only editable on new profiles; for copy the name is already set
     if ($IsNew) {
         while ($true) {
             $name = Show-FieldPrompt -Label 'Profile Name' -Default $currentProfile.ProfileName -Required `
@@ -523,11 +523,11 @@ function Invoke-ProfileEditFlow {
     }
 
     Write-Host ''
-    # System Type — numbered choice so the user only has to type one key
+    # System Type - numbered choice so the user only has to type one key
     $sysTypeMap = @{ '1' = 'Privilege Cloud'; '2' = 'Self-Hosted' }
     Write-Host '  System Type:' -ForegroundColor White
-    Write-Host '    [1] Privilege Cloud   — SaaS / ISPSS  (*.privilegecloud.cyberark.cloud)' -ForegroundColor Gray
-    Write-Host '    [2] Self-Hosted       — On-premises PVWA' -ForegroundColor Gray
+    Write-Host '    [1] Privilege Cloud   - SaaS / ISPSS  (*.privilegecloud.cyberark.cloud)' -ForegroundColor Gray
+    Write-Host '    [2] Self-Hosted       - On-premises PVWA' -ForegroundColor Gray
     if ($currentProfile.SystemType) {
         Write-Host ("    Current: $($currentProfile.SystemType)") -ForegroundColor DarkCyan
     }
@@ -535,12 +535,12 @@ function Invoke-ProfileEditFlow {
     do {
         $sysChoice = Read-MenuChoice -Prompt '1 / 2'
         if ($sysChoice -notin @('1', '2')) {
-            Write-Host '    Invalid — enter 1 or 2.' -ForegroundColor Red
+            Write-Host '    Invalid - enter 1 or 2.' -ForegroundColor Red
         }
     } while ($sysChoice -notin @('1', '2'))
     $currentProfile.SystemType = $sysTypeMap[$sysChoice]
 
-    # Auth Method — numbered choice, depends on SystemType
+    # Auth Method - numbered choice, depends on SystemType
     Write-Host ''
     $ispssAuthMethods      = @('ClientCredentials', 'Interactive', 'SSO')
     $selfHostedAuthMethods = @('CyberArk', 'LDAP', 'RADIUS', 'SAML', 'OIDC', 'Shared', 'PKI', 'PKIPN')
@@ -558,12 +558,12 @@ function Invoke-ProfileEditFlow {
         $methodIdx = 0
         $methodValid = [int]::TryParse($methodChoice, [ref]$methodIdx) -and $methodIdx -ge 1 -and $methodIdx -le $authMethods.Count
         if (-not $methodValid) {
-            Write-Host "    Invalid — enter 1 through $($authMethods.Count)." -ForegroundColor Red
+            Write-Host "    Invalid - enter 1 through $($authMethods.Count)." -ForegroundColor Red
         }
     } while (-not $methodValid)
     $currentProfile.AuthMethod = $authMethods[$methodIdx - 1]
 
-    # Base URL — prompt depends on SystemType
+    # Base URL - prompt depends on SystemType
     Write-Host ''
     $pcloudTemplate = 'https://{0}.privilegecloud.cyberark.cloud'
     switch ($currentProfile.SystemType) {
@@ -607,11 +607,11 @@ function Invoke-ProfileEditFlow {
 
     Write-Host ''
     $sslStr = Show-FieldPrompt -Label 'Ignore SSL Errors' -Default $(if ($currentProfile.IgnoreSSL) { 'Y' } else { 'N' }) `
-        -Description 'Bypass SSL certificate validation? (Y/N) — Use only for lab/dev environments.'
+        -Description 'Bypass SSL certificate validation? (Y/N) - Use only for lab/dev environments.'
     $currentProfile.IgnoreSSL = $sslStr -match '^[Yy]$'
 
     $wiStr = Show-FieldPrompt -Label 'WhatIf Default' -Default $(if ($currentProfile.WhatIfDefault) { 'Y' } else { 'N' }) `
-        -Description 'Default to WhatIf mode for this profile? (Y/N) — Recommended for production.'
+        -Description 'Default to WhatIf mode for this profile? (Y/N) - Recommended for production.'
     $currentProfile.WhatIfDefault = $wiStr -match '^[Yy]$'
 
     Write-Host ''
@@ -619,7 +619,7 @@ function Invoke-ProfileEditFlow {
     Write-Host "  Profile '$($currentProfile.ProfileName)' saved." -ForegroundColor Green
 
     if ($currentProfile.IgnoreSSL) {
-        Write-CyberArkLog -Message "Profile '$($currentProfile.ProfileName)' has IgnoreSSL enabled — use only in lab/dev." -Level 'WARN'
+        Write-CyberArkLog -Message "Profile '$($currentProfile.ProfileName)' has IgnoreSSL enabled - use only in lab/dev." -Level 'WARN'
     }
 
     return $currentProfile
@@ -656,7 +656,7 @@ function Invoke-ProfileTestConnection {
                     $valResp = Invoke-TokenValidate -Token $existing -IgnoreSSL:$Summary.currentProfile.IgnoreSSL
                     if ($valResp -and $valResp.IsSuccess) {
                         $logonUser = if ($valResp.Data -and $valResp.Data.PSObject.Properties['username']) {
-                            " — logged on as $($valResp.Data.username)"
+                            " - logged on as $($valResp.Data.username)"
                         } else { '' }
                         Write-Host "  Token verified$logonUser." -ForegroundColor Green
                         Write-Host ''
@@ -691,7 +691,7 @@ function Invoke-ProfileTestConnection {
         Write-Host ''
     }
 
-    # Token missing or expired — authenticate
+    # Token missing or expired - authenticate
     Write-Host '  Calling Get-AuthToken...' -ForegroundColor DarkGray
     Write-Host ''
 
@@ -820,12 +820,12 @@ function Invoke-ProfileManagementLoop {
                 if ($missingSystemType) { $missingFields += 'System Type' }
                 if ($missingBaseURL)    { $missingFields += 'Base URL' }
                 Write-Host ''
-                Write-Host ("  WARNING: Profile incomplete — missing: $($missingFields -join ', ').") -ForegroundColor Yellow
+                Write-Host ("  WARNING: Profile incomplete - missing: $($missingFields -join ', ').") -ForegroundColor Yellow
                 Write-Host '  Choose E to edit it or D to delete this profile.' -ForegroundColor Yellow
             }
 
-            $action = Read-MenuChoice -Prompt 'C / E / P / D / T / L / B / Q (default: B)'
-            if (-not $action) { $action = 'B' }
+            $action = Read-MenuChoice -Prompt 'C / E / P / D / T / L / B / Q (default: C)'
+            if (-not $action) { $action = 'C' }
 
             switch ($action.ToUpper()) {
 
@@ -835,7 +835,7 @@ function Invoke-ProfileManagementLoop {
                         Start-Sleep -Seconds 2
                         break
                     }
-                    # Continue to session — authenticate and return token
+                    # Continue to session - authenticate and return token
                     $selectedProfile = $selected.currentProfile
                     $selectedProfile.LastUsed = (Get-Date).ToUniversalTime().ToString('o')
                     Save-DriverProfile -currentProfile $selectedProfile
@@ -846,7 +846,7 @@ function Invoke-ProfileManagementLoop {
                     if (Test-Path -LiteralPath $xmlPath) {
                         try {
                             if ($selected.TokenStatus -eq 'Valid') {
-                                # Token known-good — load directly, no refresh needed
+                                # Token known-good - load directly, no refresh needed
                                 $token = Import-AuthToken -Path $xmlPath
                             } elseif ($selected.TokenStatus -eq 'Expired') {
                                 # Attempt silent refresh (succeeds for ClientCredentials; falls through for others)
@@ -871,7 +871,7 @@ function Invoke-ProfileManagementLoop {
                                 Remove-Item -LiteralPath $xmlPath -Force -ErrorAction SilentlyContinue
                                 $token = $null
                             }
-                            # Non-401 errors (network unreachable, etc.) — proceed with the loaded token
+                            # Non-401 errors (network unreachable, etc.) - proceed with the loaded token
                         }
                     }
 
@@ -974,7 +974,7 @@ function Invoke-ProfileManagementLoop {
                         $script:ActiveProfile = $selectedProfile
                         $script:WhatIfMode    = $selectedProfile.WhatIfDefault -or $script:WhatIfMode
 
-                        # Return the profile name — caller starts the session loop
+                        # Return the profile name - caller starts the session loop
                         return $selectedProfile.ProfileName
                     }
 
@@ -990,7 +990,7 @@ function Invoke-ProfileManagementLoop {
                 }
 
                 'P' {
-                    # Copy profile — prompt for new name first
+                    # Copy profile - prompt for new name first
                     Show-Header -Breadcrumbs ($detailCrumbs + @('Copy'))
                     Write-Host '  Copy Profile' -ForegroundColor White
                     Write-Host ''
@@ -1035,12 +1035,12 @@ function Invoke-ProfileManagementLoop {
                 }
 
                 'L' {
-                    # Log out — call server logoff and delete local token file
+                    # Log out - call server logoff and delete local token file
                     if ($selected.TokenStatus -notin @('Valid', 'Expired')) {
                         Write-Host '  No saved session token to log out.' -ForegroundColor DarkGray
                         Start-Sleep -Seconds 1
                     } else {
-                        if (Confirm-Action "Log out '$($selected.ProfileName)' — end server session and delete saved token?") {
+                        if (Confirm-Action "Log out '$($selected.ProfileName)' - end server session and delete saved token?") {
                             $tokenPath   = Get-ProfileTokenPath -Name $selected.currentProfile.AuthTokenProfile
                             $logoutToken = $null
                             try { $logoutToken = Import-AuthToken -Path $tokenPath } catch {}
@@ -1063,7 +1063,7 @@ function Invoke-ProfileManagementLoop {
                 }
 
                 { $_ -match '^B\d*$' } {
-                    # B# navigation — B = back 1, B2 = back 2, etc.
+                    # B# navigation - B = back 1, B2 = back 2, etc.
                     $levels = if ($_ -eq 'B') { 1 } else { [int]($_ -replace '^B', '') }
                     if ($levels -ge 1) { break }   # Back to profile list
                 }
@@ -1179,7 +1179,7 @@ function Invoke-TokenRefresh {
     $method = $script:SessionToken.AuthMethod
     $type   = $script:SessionToken.SystemType
 
-    # ISPSS ClientCredentials — silent refresh via refresh_token grant
+    # ISPSS ClientCredentials - silent refresh via refresh_token grant
     if ($type -eq 'ISPSS' -and $method -eq 'ClientCredentials') {
         Write-CyberArkLog -Message 'Silently refreshing ISPSS ClientCredentials token.' -Level 'INFO'
         try {
@@ -1197,7 +1197,7 @@ function Invoke-TokenRefresh {
         return $false
     }
 
-    # All other methods — must prompt the user to re-authenticate
+    # All other methods - must prompt the user to re-authenticate
     Write-Host ''
     Write-Host '  Your session token has expired. Re-authentication required.' -ForegroundColor Yellow
     Write-Host '  Press Enter to open the authentication prompt, or X to exit: ' -ForegroundColor White -NoNewline
@@ -1224,7 +1224,7 @@ function Invoke-SelfHostedKeepalive {
     $remaining = Get-TokenRemainingMinutes
     if ($remaining -gt 2) { return }
 
-    Write-CyberArkLog -Message 'SelfHosted token near expiry — attempting keepalive via Get Logged On User.' -Level 'INFO'
+    Write-CyberArkLog -Message 'SelfHosted token near expiry - attempting keepalive via Get Logged On User.' -Level 'INFO'
     try {
         $resp = Invoke-CyberArkAPI -Token $script:SessionToken -Method 'GET' `
             -Endpoint '/API/LoggedOnUser' -IgnoreSSL:$script:ActiveProfile.IgnoreSSL
@@ -1281,7 +1281,7 @@ function Invoke-TokenInvalidate {
     if ($script:SessionToken) {
         $script:SessionToken.Expiry = [DateTime]::UtcNow.AddHours(-1)
     }
-    Write-CyberArkLog -Message '401 Unauthorized — session token invalidated and file removed.' -Level 'WARN'
+    Write-CyberArkLog -Message '401 Unauthorized - session token invalidated and file removed.' -Level 'WARN'
 }
 
 #endregion
@@ -1354,7 +1354,7 @@ function Invoke-CsvProcessing {
         }
 
         if (-not $rows) {
-            Write-Host "  '$fileName' is empty — skipped." -ForegroundColor Yellow
+            Write-Host "  '$fileName' is empty - skipped." -ForegroundColor Yellow
             continue
         }
 
@@ -1362,7 +1362,7 @@ function Invoke-CsvProcessing {
             $missing = Test-CsvSchema -Headers $rows[0].PSObject.Properties.Name -Schema $meta.InputSchema
             if ($missing) {
                 $cols = ($missing | ForEach-Object { $_.Column }) -join ', '
-                Write-Host "  '$fileName' missing required columns: $cols — skipped." -ForegroundColor Red
+                Write-Host "  '$fileName' missing required columns: $cols - skipped." -ForegroundColor Red
                 Write-CyberArkLog -Message "CSV schema validation failed for '$fileName'. Missing: $cols" -Level 'WARN'
                 continue
             }
@@ -1383,7 +1383,7 @@ function Invoke-CsvProcessing {
                 'Warning' { Invoke-SelfHostedKeepalive; Invoke-TokenRefresh | Out-Null }
                 'Expired' {
                     if (-not (Invoke-TokenRefresh)) {
-                        Write-CyberArkLog -Message 'Auth failure mid-CSV — aborting.' -Level 'ERROR'
+                        Write-CyberArkLog -Message 'Auth failure mid-CSV - aborting.' -Level 'ERROR'
                         $fatal = $true
                     }
                 }
@@ -1413,10 +1413,10 @@ function Invoke-CsvProcessing {
             $outputRows.Add([PSCustomObject]$outRow)
 
             if ($result.IsFatal) {
-                Write-CyberArkLog -Message "IsFatal returned by module — aborting CSV loop." -Level 'ERROR'
+                Write-CyberArkLog -Message "IsFatal returned by module - aborting CSV loop." -Level 'ERROR'
                 $errText = ($result.Errors | ForEach-Object { $_.ErrorMessage }) -join ' '
                 if ($errText -match '\b401\b' -or $errText -match 'Unauthorized') {
-                    Write-Host '  Session rejected by server (401 Unauthorized) — token invalidated.' -ForegroundColor Red
+                    Write-Host '  Session rejected by server (401 Unauthorized) - token invalidated.' -ForegroundColor Red
                     Invoke-TokenInvalidate
                 }
                 $fatal = $true
@@ -1429,7 +1429,7 @@ function Invoke-CsvProcessing {
             Write-Host "  Output: $outputPath" -ForegroundColor Green
         }
 
-        $msg = "'$fileName': $($outputRows.Count) processed — $okCount OK, $failCount failed."
+        $msg = "'$fileName': $($outputRows.Count) processed - $okCount OK, $failCount failed."
         Write-Host "  $msg" -ForegroundColor $(if ($failCount -gt 0) { 'Yellow' } else { 'White' })
         Write-CyberArkLog -Message $msg -Level 'INFO'
 
@@ -1477,7 +1477,7 @@ function Show-CategoryMenu {
     } else { 0 }
     Write-Host ("  Token: {0} min remaining    Idle: {1} min" -f $remaining, $idleMin) -ForegroundColor $expColor
     if ($script:WhatIfMode) {
-        Write-Host '  WhatIf mode is ON — write operations will be suppressed.' -ForegroundColor Yellow
+        Write-Host '  WhatIf mode is ON - write operations will be suppressed.' -ForegroundColor Yellow
     }
     Write-Host '  [R] Restart to profile selection    [X] Exit' -ForegroundColor White
 }
@@ -1508,7 +1508,7 @@ function Show-ActionMenu {
     $expColor  = if ($remaining -le $script:TokenExpiryWarnMin) { 'Yellow' } else { 'DarkGray' }
     Write-Host ("  Token: {0} min remaining" -f $remaining) -ForegroundColor $expColor
     if ($script:WhatIfMode) {
-        Write-Host '  WhatIf mode is ON — write operations will be suppressed.' -ForegroundColor Yellow
+        Write-Host '  WhatIf mode is ON - write operations will be suppressed.' -ForegroundColor Yellow
     }
     Write-Host '  [B] Back to categories    [R] Restart    [X] Exit' -ForegroundColor White
 }
@@ -1602,7 +1602,7 @@ function Invoke-ActionModule {
         $errText = ($result.Errors | ForEach-Object { $_.ErrorMessage }) -join ' '
         if ($errText -match '\b401\b' -or $errText -match 'Unauthorized') {
             Write-Host ''
-            Write-Host '  Session rejected by server (401 Unauthorized) — token invalidated.' -ForegroundColor Red
+            Write-Host '  Session rejected by server (401 Unauthorized) - token invalidated.' -ForegroundColor Red
             Invoke-TokenInvalidate
         }
         return
@@ -1701,7 +1701,7 @@ function Invoke-SessionLoop {
         switch (Test-TokenExpiry) {
             'Expired' {
                 if (-not (Invoke-TokenRefresh)) {
-                    Write-CyberArkLog -Message 'Session ended — could not renew token.' -Level 'ERROR'
+                    Write-CyberArkLog -Message 'Session ended - could not renew token.' -Level 'ERROR'
                     return 'Exit'
                 }
                 $warnShown = $false

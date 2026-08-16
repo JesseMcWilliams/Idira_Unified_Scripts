@@ -144,7 +144,7 @@ function Invoke-GroupsGetMembers {
 
     if ((-not $members) -or $members.Count -eq 0) {
         Write-CyberArkLog -Level 'WARN' -Message 'No members found in group.'
-        # Not a failure — a valid empty result
+        # Not a failure - a valid empty result
         return $result
     }
 

@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Runs all Pester v5 unit tests for the Idira Unified Scripts project.
@@ -94,7 +94,7 @@ if ($OutputFile) {
 
 Write-Host ''
 Write-Host ('=' * 60) -ForegroundColor Cyan
-Write-Host '  Idira Unified Scripts — Unit Test Run' -ForegroundColor White
+Write-Host '  Idira Unified Scripts - Unit Test Run' -ForegroundColor White
 Write-Host "  Path: $testPath" -ForegroundColor DarkGray
 Write-Host ('=' * 60) -ForegroundColor Cyan
 Write-Host ''

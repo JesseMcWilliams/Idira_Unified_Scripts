@@ -158,7 +158,7 @@ function Invoke-SafeMembersRemove {
         return $result
     }
 
-    # Success — 204 No Content
+    # Success - 204 No Content
     $result.Results.Add([PSCustomObject]@{
         SafeName   = $safeName
         MemberName = $memberName

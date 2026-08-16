@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Accounts\Invoke-AccountsList.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-AccountsListInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -96,11 +96,11 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'AL01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'AL01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'AL02 — required fields are all present' {
+    It 'AL02 - required fields are all present' {
         $ModuleMeta.Name             | Should -Not -BeNullOrEmpty
         $ModuleMeta.Category         | Should -Not -BeNullOrEmpty
         $ModuleMeta.Action           | Should -Not -BeNullOrEmpty
@@ -108,25 +108,25 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Version          | Should -Not -BeNullOrEmpty
     }
 
-    It 'AL03 — Category is Accounts' {
+    It 'AL03 - Category is Accounts' {
         $ModuleMeta.Category | Should -Be 'Accounts'
     }
 
-    It 'AL04 — Action is List' {
+    It 'AL04 - Action is List' {
         $ModuleMeta.Action | Should -Be 'List'
     }
 
-    It 'AL05 — SupportsWhatIf is $false (list operation)' {
+    It 'AL05 - SupportsWhatIf is $false (list operation)' {
         $ModuleMeta.SupportsWhatIf | Should -BeFalse
     }
 
-    It 'AL06 — AcceptsInputFile is $false' {
+    It 'AL06 - AcceptsInputFile is $false' {
         $ModuleMeta.AcceptsInputFile | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsList — successful response' {
+Describe 'Invoke-AccountsList - successful response' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -135,7 +135,7 @@ Describe 'Invoke-AccountsList — successful response' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'AL07 — returns a result object with all 9 required fields' {
+    It 'AL07 - returns a result object with all 9 required fields' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -148,49 +148,49 @@ Describe 'Invoke-AccountsList — successful response' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'AL08 — single account: Successes=1, ItemsProcessed=1, Failures=0' {
+    It 'AL08 - single account: Successes=1, ItemsProcessed=1, Failures=0' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
         $r.Failures       | Should -Be 0
     }
 
-    It 'AL09 — account.id is mapped to AccountID' {
+    It 'AL09 - account.id is mapped to AccountID' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Results[0].AccountID | Should -Be '12345'
     }
 
-    It 'AL10 — account.userName is mapped to UserName' {
+    It 'AL10 - account.userName is mapped to UserName' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Results[0].UserName | Should -Be 'localadmin'
     }
 
-    It 'AL11 — account.safeName is mapped to SafeName' {
+    It 'AL11 - account.safeName is mapped to SafeName' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 
-    It 'AL12 — secretManagement.automaticManagementEnabled is mapped to AutoManaged' {
+    It 'AL12 - secretManagement.automaticManagementEnabled is mapped to AutoManaged' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Results[0].AutoManaged | Should -BeTrue
     }
 
-    It 'AL13 — secretManagement.status is mapped to CPMStatus' {
+    It 'AL13 - secretManagement.status is mapped to CPMStatus' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Results[0].CPMStatus | Should -Be 'success'
     }
 
-    It 'AL14 — createdTime epoch is converted to a yyyy-MM-dd string' {
+    It 'AL14 - createdTime epoch is converted to a yyyy-MM-dd string' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Results[0].Created | Should -Match '^\d{4}-\d{2}-\d{2}$'
     }
 
-    It 'AL15 — IsFatal is $false on success' {
+    It 'AL15 - IsFatal is $false on success' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'AL16 — empty value array: Successes=0, Failures=0, IsFatal=$false' {
+    It 'AL16 - empty value array: Successes=0, Failures=0, IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-AccountsApiResponse -Accounts @() }
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Successes | Should -Be 0
@@ -200,13 +200,13 @@ Describe 'Invoke-AccountsList — successful response' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsList — query parameters' {
+Describe 'Invoke-AccountsList - query parameters' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'AL17 — Search value is passed in QueryParams' {
+    It 'AL17 - Search value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -217,7 +217,7 @@ Describe 'Invoke-AccountsList — query parameters' {
         $script:capturedParams.QueryParams['search'] | Should -Be 'localadmin'
     }
 
-    It 'AL18 — Filter value is passed in QueryParams' {
+    It 'AL18 - Filter value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -228,7 +228,7 @@ Describe 'Invoke-AccountsList — query parameters' {
         $script:capturedParams.QueryParams['filter'] | Should -Be 'safeName eq TestSafe'
     }
 
-    It 'AL19 — empty Search string means no search key in QueryParams' {
+    It 'AL19 - empty Search string means no search key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -239,7 +239,7 @@ Describe 'Invoke-AccountsList — query parameters' {
         $script:capturedParams.QueryParams.ContainsKey('search') | Should -BeFalse
     }
 
-    It 'AL20 — empty Filter string means no filter key in QueryParams' {
+    It 'AL20 - empty Filter string means no filter key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -252,25 +252,25 @@ Describe 'Invoke-AccountsList — query parameters' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsList — API errors' {
+Describe 'Invoke-AccountsList - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'AL21 — 401 Unauthorized: IsFatal=$true' {
+    It 'AL21 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'AL22 — status 0 (network error): IsFatal=$true' {
+    It 'AL22 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'AL23 — 403 Forbidden: error added, IsFatal=$false' {
+    It 'AL23 - 403 Forbidden: error added, IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Failures     | Should -Be 1
@@ -278,13 +278,13 @@ Describe 'Invoke-AccountsList — API errors' {
         $r.IsFatal      | Should -BeFalse
     }
 
-    It 'AL24 — 404 Not Found: IsFatal=$false' {
+    It 'AL24 - 404 Not Found: IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'AL25 — error entry ErrorMessage is not null or empty' {
+    It 'AL25 - error entry ErrorMessage is not null or empty' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Errors[0].ErrorMessage | Should -Not -BeNullOrEmpty

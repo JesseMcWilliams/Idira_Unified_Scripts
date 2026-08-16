@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Shared logging module for CyberArk PAS Scripts.
@@ -148,13 +148,13 @@ function Initialize-CyberArkLog {
     .PARAMETER Destination
         Where to write log output. Default: Both. Values: File, Console, Both.
     .PARAMETER SystemType
-        ISPSS or SelfHosted — included in the startup header line.
+        ISPSS or SelfHosted - included in the startup header line.
     .PARAMETER AuthMethod
-        Auth method name — included in the startup header line.
+        Auth method name - included in the startup header line.
     .PARAMETER BaseURL
-        Base URL — included in the startup header line.
+        Base URL - included in the startup header line.
     .PARAMETER WhatIfMode
-        Whether WhatIf is active for this session — noted in startup header.
+        Whether WhatIf is active for this session - noted in startup header.
     #>
     [CmdletBinding()]
     param(
@@ -217,7 +217,7 @@ function Write-CyberArkLog {
     .PARAMETER FunctionName
         Calling function name. If omitted, auto-detected from call stack.
     .PARAMETER Bare
-        When present, writes message only — no PID/timestamp/level/function prefix.
+        When present, writes message only - no PID/timestamp/level/function prefix.
     #>
     [CmdletBinding()]
     param(

@@ -1,14 +1,14 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Runs integration tests against a live CyberArk PVWA instance.
 
 .DESCRIPTION
-    Prompts for credentials at runtime — nothing is stored in files.
+    Prompts for credentials at runtime - nothing is stored in files.
     Read-only tests (List/Get) always run.
     Write tests (Add/Update/Delete) require explicit -IncludeWrite flag.
 
-    Excluded safe: Z_Template_Safe_Permissions — this safe is NEVER touched.
+    Excluded safe: Z_Template_Safe_Permissions - this safe is NEVER touched.
 
 .PARAMETER Suite
     Which test suite to run. Default: All.
@@ -50,7 +50,7 @@ $scriptDir = $PSScriptRoot
 #region --- Banner ---
 Write-Host ''
 Write-Host ('=' * 70) -ForegroundColor Cyan
-Write-Host '  Idira Unified Scripts — CyberArk Integration Tests' -ForegroundColor White
+Write-Host '  Idira Unified Scripts - CyberArk Integration Tests' -ForegroundColor White
 Write-Host "  Suite: $Suite  |  Write tests: $(if ($IncludeWrite) { 'YES' } else { 'NO (read-only)' })" -ForegroundColor DarkGray
 Write-Host '  Excluded safe (never touched): Z_Template_Safe_Permissions' -ForegroundColor Yellow
 Write-Host ('=' * 70) -ForegroundColor Cyan
@@ -99,7 +99,7 @@ foreach ($suiteName in $suites) {
     $suitePath = Join-Path $scriptDir "Test-$suiteName.ps1"
 
     if (-not (Test-Path $suitePath)) {
-        Write-Host "  [SKIP] $suiteName — test file not found: $suitePath" -ForegroundColor Yellow
+        Write-Host "  [SKIP] $suiteName - test file not found: $suitePath" -ForegroundColor Yellow
         continue
     }
 

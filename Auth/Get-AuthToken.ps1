@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Retrieves authentication tokens from CyberArk ISPSS (Privilege Cloud) or Self-Hosted PAM.
@@ -1117,7 +1117,7 @@ function Update-AuthToken {
     )
 
     $ctx = $TokenObject._RefreshContext
-    if (-not $ctx) { throw "Token object missing _RefreshContext — cannot refresh." }
+    if (-not $ctx) { throw "Token object missing _RefreshContext - cannot refresh." }
 
     switch ($ctx.Method) {
         'ClientCredentials' {
@@ -1159,13 +1159,13 @@ function Update-AuthToken {
                 -ClientId $ctx.ClientId -ClientSecret $ctx.ClientSecret -BaseURL $ctx.BaseURL
         }
         'Interactive' {
-            Write-Host "Interactive session expired — please re-authenticate."
+            Write-Host "Interactive session expired - please re-authenticate."
             return Invoke-ISPSSInteractive -IdentityURL $ctx.IdentityURL `
                 -PCloudSubdomain $ctx.PCloudSubdomain -BaseURL $ctx.BaseURL `
                 -Username $ctx.Username -Credential $ctx.Credential
         }
         'SSO' {
-            Write-Host "SSO session expired — please re-authenticate via browser."
+            Write-Host "SSO session expired - please re-authenticate via browser."
             return Invoke-ISPSSSO -IdentityURL $ctx.IdentityURL `
                 -PCloudSubdomain $ctx.PCloudSubdomain -BaseURL $ctx.BaseURL `
                 -WebView2AssemblyPath $ctx.WebView2AssemblyPath
@@ -1188,13 +1188,13 @@ function Update-AuthToken {
                 -IgnoreSSL:([switch]::new($ctx.IgnoreSSL))
         }
         'SAML' {
-            Write-Host "SAML session expired — please re-authenticate via browser."
+            Write-Host "SAML session expired - please re-authenticate via browser."
             return Invoke-SelfHostedSAML -PVWAUrl $ctx.PVWAUrl `
                 -WebView2AssemblyPath $ctx.WebView2AssemblyPath `
                 -IgnoreSSL:([switch]::new($ctx.IgnoreSSL))
         }
         'OIDC' {
-            Write-Host "OIDC session expired — please re-authenticate via browser."
+            Write-Host "OIDC session expired - please re-authenticate via browser."
             return Invoke-SelfHostedOIDC -PVWAUrl $ctx.PVWAUrl `
                 -WebView2AssemblyPath $ctx.WebView2AssemblyPath `
                 -IgnoreSSL:([switch]::new($ctx.IgnoreSSL))
@@ -1287,8 +1287,8 @@ function Save-AuthToken {
         PCloudSubdomain       = $ctx['PCloudSubdomain']
         Username              = $ctx['Username']
         ClientId              = $ctx['ClientId']
-        ClientSecret          = $ctx['ClientSecret']       # SecureString — DPAPI via Export-Clixml
-        Credential            = $ctx['Credential']         # PSCredential — DPAPI via Export-Clixml
+        ClientSecret          = $ctx['ClientSecret']       # SecureString - DPAPI via Export-Clixml
+        Credential            = $ctx['Credential']         # PSCredential - DPAPI via Export-Clixml
         CertificateThumbprint = if ($ctx['Certificate']) { $ctx['Certificate'].Thumbprint }
                                 else { $ctx['CertificateThumbprint'] }
         ConcurrentSession     = $ctx['ConcurrentSession']
@@ -1519,7 +1519,7 @@ function Remove-AuthTokenProfile {
         }
         if (-not (Test-Path $resolvedPath)) {
             $label = if ($ProfileName) { "profile '$ProfileName'" } else { $resolvedPath }
-            Write-Warning "No profile file found for $label — nothing removed."
+            Write-Warning "No profile file found for $label - nothing removed."
             return
         }
         $label = if ($ProfileName) { $ProfileName } else { [System.IO.Path]::GetFileNameWithoutExtension($resolvedPath) }

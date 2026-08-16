@@ -175,7 +175,7 @@ function Invoke-AccountsUpdate {
 
     $currentAccount = $getResponse.Data
 
-    # Step 2: Merge — use input value when provided/non-empty, otherwise fall back to current account value
+    # Step 2: Merge - use input value when provided/non-empty, otherwise fall back to current account value
 
     $mergedName = if ($InputData.ContainsKey('Name') -and "$($InputData.Name)".Trim() -ne '') {
         "$($InputData.Name)".Trim()
@@ -213,7 +213,7 @@ function Invoke-AccountsUpdate {
         if ($currentAccount.secretManagement) { [bool]$currentAccount.secretManagement.automaticManagementEnabled } else { $false }
     }
 
-    # secretType is not updatable via this module — keep current value
+    # secretType is not updatable via this module - keep current value
     $currentSecretType = if ($currentAccount.secretType) { $currentAccount.secretType } else { 'password' }
 
     # Step 3: Build PUT body (id is in the URL, not the body; secret field excluded)

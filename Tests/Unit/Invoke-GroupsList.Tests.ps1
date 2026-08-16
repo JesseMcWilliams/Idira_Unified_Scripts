@@ -2,12 +2,12 @@
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Groups\Invoke-GroupsList.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-GroupsListInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -99,25 +99,25 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'GL01 — ModuleMeta.Name = ''List Groups''' {
+    It 'GL01 - ModuleMeta.Name = ''List Groups''' {
         $ModuleMeta.Name | Should -Be 'List Groups'
     }
 
-    It 'GL02 — ModuleMeta.Category = ''Groups''' {
+    It 'GL02 - ModuleMeta.Category = ''Groups''' {
         $ModuleMeta.Category | Should -Be 'Groups'
     }
 
-    It 'GL03 — ModuleMeta.SupportsWhatIf = $false' {
+    It 'GL03 - ModuleMeta.SupportsWhatIf = $false' {
         $ModuleMeta.SupportsWhatIf | Should -BeFalse
     }
 
-    It 'GL04 — ModuleMeta.ProducesOutput = $true' {
+    It 'GL04 - ModuleMeta.ProducesOutput = $true' {
         $ModuleMeta.ProducesOutput | Should -BeTrue
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsList — successful response' {
+Describe 'Invoke-GroupsList - successful response' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -126,13 +126,13 @@ Describe 'Invoke-GroupsList — successful response' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'GL05 — Successes=2, ItemsProcessed=2 when two groups returned' {
+    It 'GL05 - Successes=2, ItemsProcessed=2 when two groups returned' {
         $r = Invoke-GroupsList -Token $script:MockToken
         $r.Successes      | Should -Be 2
         $r.ItemsProcessed | Should -Be 2
     }
 
-    It 'GL06 — result entries have GroupID, GroupName, Description, Location, GroupType, DirectoryType' {
+    It 'GL06 - result entries have GroupID, GroupName, Description, Location, GroupType, DirectoryType' {
         $r = Invoke-GroupsList -Token $script:MockToken
         $r.Results[0].PSObject.Properties.Name | Should -Contain 'GroupID'
         $r.Results[0].PSObject.Properties.Name | Should -Contain 'GroupName'
@@ -142,31 +142,31 @@ Describe 'Invoke-GroupsList — successful response' {
         $r.Results[0].PSObject.Properties.Name | Should -Contain 'DirectoryType'
     }
 
-    It 'GL07 — GroupID matches id from response' {
+    It 'GL07 - GroupID matches id from response' {
         $r = Invoke-GroupsList -Token $script:MockToken
         $r.Results[0].GroupID | Should -Be 1
     }
 
-    It 'GL08 — GroupName matches groupName from response' {
+    It 'GL08 - GroupName matches groupName from response' {
         $r = Invoke-GroupsList -Token $script:MockToken
         $r.Results[0].GroupName | Should -Be 'VaultAdmins'
     }
 
-    It 'GL09 — DirectoryType mapped from directory.directoryType' {
+    It 'GL09 - DirectoryType mapped from directory.directoryType' {
         $r = Invoke-GroupsList -Token $script:MockToken
         $r.Results[1].DirectoryType | Should -Be 'MicrosoftADDomain'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsList — empty result' {
+Describe 'Invoke-GroupsList - empty result' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-GroupsApiResponse -Groups @() }
         Mock Write-CyberArkLog { }
     }
 
-    It 'GL10 — empty value array: Successes=0, Failures=0, IsFatal=$false' {
+    It 'GL10 - empty value array: Successes=0, Failures=0, IsFatal=$false' {
         $r = Invoke-GroupsList -Token $script:MockToken
         $r.Successes | Should -Be 0
         $r.Failures  | Should -Be 0
@@ -175,13 +175,13 @@ Describe 'Invoke-GroupsList — empty result' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsList — query parameter passing' {
+Describe 'Invoke-GroupsList - query parameter passing' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'GL11 — search param is passed as query param' {
+    It 'GL11 - search param is passed as query param' {
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters.QueryParams -Scope Script
@@ -191,7 +191,7 @@ Describe 'Invoke-GroupsList — query parameter passing' {
         $script:capturedParams['search'] | Should -Be 'Admins'
     }
 
-    It 'GL12 — groupType param is passed as query param' {
+    It 'GL12 - groupType param is passed as query param' {
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters.QueryParams -Scope Script
@@ -201,7 +201,7 @@ Describe 'Invoke-GroupsList — query parameter passing' {
         $script:capturedParams['groupType'] | Should -Be 'EPVGroup'
     }
 
-    It 'GL13 — no query params when InputData is empty' {
+    It 'GL13 - no query params when InputData is empty' {
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
             Set-Variable -Name capturedParams -Value $PSBoundParameters.QueryParams -Scope Script
@@ -214,20 +214,20 @@ Describe 'Invoke-GroupsList — query parameter passing' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsList — API errors' {
+Describe 'Invoke-GroupsList - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'GL14 — 401 response: IsFatal=$true, Failures=1' {
+    It 'GL14 - 401 response: IsFatal=$true, Failures=1' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-GroupsList -Token $script:MockToken
         $r.IsFatal  | Should -BeTrue
         $r.Failures | Should -Be 1
     }
 
-    It 'GL15 — status 0 (network error): IsFatal=$true' {
+    It 'GL15 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-GroupsList -Token $script:MockToken
         $r.IsFatal | Should -BeTrue
@@ -235,14 +235,14 @@ Describe 'Invoke-GroupsList — API errors' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsList — null InputData' {
+Describe 'Invoke-GroupsList - null InputData' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-GroupsApiResponse -Groups @() }
         Mock Write-CyberArkLog { }
     }
 
-    It 'GL16 — null InputData treated same as empty (no crash)' {
+    It 'GL16 - null InputData treated same as empty (no crash)' {
         { Invoke-GroupsList -Token $script:MockToken -InputData $null } | Should -Not -Throw
     }
 }

@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Safes\Invoke-SafesList.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-SafesListInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -90,11 +90,11 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'S01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'S01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'S02 — required fields are all present' {
+    It 'S02 - required fields are all present' {
         $ModuleMeta.Name             | Should -Not -BeNullOrEmpty
         $ModuleMeta.Category         | Should -Not -BeNullOrEmpty
         $ModuleMeta.Action           | Should -Not -BeNullOrEmpty
@@ -102,26 +102,26 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Version          | Should -Not -BeNullOrEmpty
     }
 
-    It 'S03 — SupportedSystems contains ISPSS and SelfHosted' {
+    It 'S03 - SupportedSystems contains ISPSS and SelfHosted' {
         $ModuleMeta.SupportedSystems | Should -Contain 'ISPSS'
         $ModuleMeta.SupportedSystems | Should -Contain 'SelfHosted'
     }
 
-    It 'S04 — SupportsWhatIf is $false (list operation)' {
+    It 'S04 - SupportsWhatIf is $false (list operation)' {
         $ModuleMeta.SupportsWhatIf | Should -BeFalse
     }
 
-    It 'S05 — HasCustomInput is $true' {
+    It 'S05 - HasCustomInput is $true' {
         $ModuleMeta.HasCustomInput | Should -BeTrue
     }
 
-    It 'S06 — AcceptsInputFile is $false' {
+    It 'S06 - AcceptsInputFile is $false' {
         $ModuleMeta.AcceptsInputFile | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesList — successful response' {
+Describe 'Invoke-SafesList - successful response' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -130,7 +130,7 @@ Describe 'Invoke-SafesList — successful response' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'S07 — returns a result object with all 9 required fields' {
+    It 'S07 - returns a result object with all 9 required fields' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -143,14 +143,14 @@ Describe 'Invoke-SafesList — successful response' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'S08 — single safe: Successes=1, ItemsProcessed=1, Failures=0' {
+    It 'S08 - single safe: Successes=1, ItemsProcessed=1, Failures=0' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
         $r.Failures       | Should -Be 0
     }
 
-    It 'S09 — multiple safes: count matches value array' {
+    It 'S09 - multiple safes: count matches value array' {
         $safe2 = $script:SampleSafe.PSObject.Copy()
         $safe2.safeName = 'Safe2'
         Mock Invoke-CyberArkAPI {
@@ -160,32 +160,32 @@ Describe 'Invoke-SafesList — successful response' {
         $r.Successes | Should -Be 2
     }
 
-    It 'S10 — safeName is mapped to SafeName' {
+    It 'S10 - safeName is mapped to SafeName' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 
-    It 'S11 — description is mapped to Description' {
+    It 'S11 - description is mapped to Description' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Results[0].Description | Should -Be 'A test safe'
     }
 
-    It 'S12 — managingCPM is mapped to ManagingCPM' {
+    It 'S12 - managingCPM is mapped to ManagingCPM' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Results[0].ManagingCPM | Should -Be 'PasswordManager'
     }
 
-    It 'S13 — creator.name is mapped to Creator' {
+    It 'S13 - creator.name is mapped to Creator' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Results[0].Creator | Should -Be 'Admin'
     }
 
-    It 'S14 — creationTime epoch is converted to a yyyy-MM-dd string' {
+    It 'S14 - creationTime epoch is converted to a yyyy-MM-dd string' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Results[0].Created | Should -Match '^\d{4}-\d{2}-\d{2}$'
     }
 
-    It 'S15 — missing creationTime does not throw and returns empty string' {
+    It 'S15 - missing creationTime does not throw and returns empty string' {
         $safeNoTime = [PSCustomObject]@{
             safeName = 'NoTime'; description = ''; location = '\'
             managingCPM = ''; numberOfVersionsRetention = 0; numberOfDaysRetention = 0
@@ -197,12 +197,12 @@ Describe 'Invoke-SafesList — successful response' {
         $r.Results[0].Created | Should -Be ''
     }
 
-    It 'S16 — IsFatal is $false on success' {
+    It 'S16 - IsFatal is $false on success' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'S17 — Search value is passed in QueryParams' {
+    It 'S17 - Search value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -213,7 +213,7 @@ Describe 'Invoke-SafesList — successful response' {
         $script:capturedParams.QueryParams['search'] | Should -Be 'myvault'
     }
 
-    It 'S18 — Filter value is passed in QueryParams' {
+    It 'S18 - Filter value is passed in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -224,7 +224,7 @@ Describe 'Invoke-SafesList — successful response' {
         $script:capturedParams.QueryParams['filter'] | Should -Be 'safeName eq X'
     }
 
-    It 'S19 — ExtendedDetails=$true sends extendedDetails=true' {
+    It 'S19 - ExtendedDetails=$true sends extendedDetails=true' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -235,7 +235,7 @@ Describe 'Invoke-SafesList — successful response' {
         $script:capturedParams.QueryParams['extendedDetails'] | Should -Be 'true'
     }
 
-    It 'S20 — empty Search string means no search key in QueryParams' {
+    It 'S20 - empty Search string means no search key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -246,7 +246,7 @@ Describe 'Invoke-SafesList — successful response' {
         $script:capturedParams.QueryParams.ContainsKey('search') | Should -BeFalse
     }
 
-    It 'S21 — empty Filter string means no filter key in QueryParams' {
+    It 'S21 - empty Filter string means no filter key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -257,7 +257,7 @@ Describe 'Invoke-SafesList — successful response' {
         $script:capturedParams.QueryParams.ContainsKey('filter') | Should -BeFalse
     }
 
-    It 'S22 — ExtendedDetails=$false means no extendedDetails key in QueryParams' {
+    It 'S22 - ExtendedDetails=$false means no extendedDetails key in QueryParams' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -268,27 +268,27 @@ Describe 'Invoke-SafesList — successful response' {
         $script:capturedParams.QueryParams.ContainsKey('extendedDetails') | Should -BeFalse
     }
 
-    It 'S23 — null InputData does not throw' {
+    It 'S23 - null InputData does not throw' {
         { Invoke-SafesList -Token $script:MockToken -InputData $null } | Should -Not -Throw
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesList — empty result' {
+Describe 'Invoke-SafesList - empty result' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-SafesApiResponse -Safes @() }
         Mock Write-CyberArkLog { }
     }
 
-    It 'S24 — empty value array: Successes=0, Failures=0, IsFatal=$false' {
+    It 'S24 - empty value array: Successes=0, Failures=0, IsFatal=$false' {
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Successes | Should -Be 0
         $r.Failures  | Should -Be 0
         $r.IsFatal   | Should -BeFalse
     }
 
-    It 'S25 — response with no value property does not throw' {
+    It 'S25 - response with no value property does not throw' {
         Mock Invoke-CyberArkAPI {
             [PSCustomObject]@{
                 IsSuccess = $true; StatusCode = 200; StatusMessage = 'OK'
@@ -301,13 +301,13 @@ Describe 'Invoke-SafesList — empty result' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesList — API errors' {
+Describe 'Invoke-SafesList - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'S26 — 403 Forbidden: error added, IsFatal=$false' {
+    It 'S26 - 403 Forbidden: error added, IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Failures        | Should -Be 1
@@ -315,31 +315,31 @@ Describe 'Invoke-SafesList — API errors' {
         $r.IsFatal         | Should -BeFalse
     }
 
-    It 'S27 — 401 Unauthorized: IsFatal=$true' {
+    It 'S27 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-SafesList -Token $script:MockToken
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'S28 — status 0 (network error): IsFatal=$true' {
+    It 'S28 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-SafesList -Token $script:MockToken
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'S29 — 404 Not Found: IsFatal=$false' {
+    It 'S29 - 404 Not Found: IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-SafesList -Token $script:MockToken
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'S30 — error entry ErrorMessage is not null or empty' {
+    It 'S30 - error entry ErrorMessage is not null or empty' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-SafesList -Token $script:MockToken
         $r.Errors[0].ErrorMessage | Should -Not -BeNullOrEmpty
     }
 
-    It 'S31 — ItemsProcessed incremented on failure' {
+    It 'S31 - ItemsProcessed incremented on failure' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 500 -ErrorMessage 'Server Error' }
         $r = Invoke-SafesList -Token $script:MockToken
         $r.ItemsProcessed | Should -Be 1

@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\SafeMembers\Invoke-SafeMembersList.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-SafeMembersListInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -108,11 +108,11 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'ML01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'ML01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'ML02 — required fields are all present' {
+    It 'ML02 - required fields are all present' {
         $ModuleMeta.Name             | Should -Not -BeNullOrEmpty
         $ModuleMeta.Category         | Should -Not -BeNullOrEmpty
         $ModuleMeta.Action           | Should -Not -BeNullOrEmpty
@@ -120,23 +120,23 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Version          | Should -Not -BeNullOrEmpty
     }
 
-    It 'ML03 — Category is SafeMembers and Action is List' {
+    It 'ML03 - Category is SafeMembers and Action is List' {
         $ModuleMeta.Category | Should -Be 'SafeMembers'
         $ModuleMeta.Action   | Should -Be 'List'
     }
 
-    It 'ML04 — SupportedSystems contains ISPSS and SelfHosted' {
+    It 'ML04 - SupportedSystems contains ISPSS and SelfHosted' {
         $ModuleMeta.SupportedSystems | Should -Contain 'ISPSS'
         $ModuleMeta.SupportedSystems | Should -Contain 'SelfHosted'
     }
 
-    It 'ML05 — SupportsWhatIf is $false (list operation)' {
+    It 'ML05 - SupportsWhatIf is $false (list operation)' {
         $ModuleMeta.SupportsWhatIf | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersList — successful response' {
+Describe 'Invoke-SafeMembersList - successful response' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -145,7 +145,7 @@ Describe 'Invoke-SafeMembersList — successful response' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'ML06 — returns a result object with all 9 required fields' {
+    It 'ML06 - returns a result object with all 9 required fields' {
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -158,14 +158,14 @@ Describe 'Invoke-SafeMembersList — successful response' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'ML07 — single member: Successes=1, ItemsProcessed=1, Failures=0' {
+    It 'ML07 - single member: Successes=1, ItemsProcessed=1, Failures=0' {
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
         $r.Failures       | Should -Be 0
     }
 
-    It 'ML08 — multiple members: count matches value array' {
+    It 'ML08 - multiple members: count matches value array' {
         $member2 = $script:SampleMember.PSObject.Copy()
         $member2.memberName = 'jane.doe'
         Mock Invoke-CyberArkAPI {
@@ -175,32 +175,32 @@ Describe 'Invoke-SafeMembersList — successful response' {
         $r.Successes | Should -Be 2
     }
 
-    It 'ML09 — memberName is mapped to MemberName' {
+    It 'ML09 - memberName is mapped to MemberName' {
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].MemberName | Should -Be 'john.doe'
     }
 
-    It 'ML10 — UseAccounts permission is mapped correctly' {
+    It 'ML10 - UseAccounts permission is mapped correctly' {
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].UseAccounts | Should -BeTrue
     }
 
-    It 'ML11 — ManageSafe permission is mapped correctly' {
+    It 'ML11 - ManageSafe permission is mapped correctly' {
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].ManageSafe | Should -BeFalse
     }
 
-    It 'ML12 — ViewAuditLog permission is mapped correctly' {
+    It 'ML12 - ViewAuditLog permission is mapped correctly' {
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].ViewAuditLog | Should -BeTrue
     }
 
-    It 'ML13 — safeName is mapped to SafeName on result' {
+    It 'ML13 - safeName is mapped to SafeName on result' {
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 
-    It 'ML14 — empty member list returns Successes=0, Failures=0, IsFatal=$false' {
+    It 'ML14 - empty member list returns Successes=0, Failures=0, IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-MembersApiResponse -Members @() }
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Successes | Should -Be 0
@@ -208,20 +208,20 @@ Describe 'Invoke-SafeMembersList — successful response' {
         $r.IsFatal   | Should -BeFalse
     }
 
-    It 'ML15 — IsFatal is $false on success' {
+    It 'ML15 - IsFatal is $false on success' {
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.IsFatal | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersList — validation' {
+Describe 'Invoke-SafeMembersList - validation' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'ML16 — empty SafeName: returns failure, does not call API' {
+    It 'ML16 - empty SafeName: returns failure, does not call API' {
         Mock Invoke-CyberArkAPI { throw 'Should not be called' }
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = '' }
         $r.Failures     | Should -Be 1
@@ -229,7 +229,7 @@ Describe 'Invoke-SafeMembersList — validation' {
         $r.IsFatal      | Should -BeFalse
     }
 
-    It 'ML17 — null InputData: returns failure, does not call API' {
+    It 'ML17 - null InputData: returns failure, does not call API' {
         Mock Invoke-CyberArkAPI { throw 'Should not be called' }
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData $null
         $r.Failures     | Should -Be 1
@@ -239,13 +239,13 @@ Describe 'Invoke-SafeMembersList — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersList — API errors' {
+Describe 'Invoke-SafeMembersList - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'ML18 — 401 Unauthorized: IsFatal=$true' {
+    It 'ML18 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.IsFatal      | Should -BeTrue
@@ -253,13 +253,13 @@ Describe 'Invoke-SafeMembersList — API errors' {
         $r.Errors.Count | Should -Be 1
     }
 
-    It 'ML19 — status 0 (network error): IsFatal=$true' {
+    It 'ML19 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'ML20 — 403 Forbidden: error added, IsFatal=$false' {
+    It 'ML20 - 403 Forbidden: error added, IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Failures        | Should -Be 1

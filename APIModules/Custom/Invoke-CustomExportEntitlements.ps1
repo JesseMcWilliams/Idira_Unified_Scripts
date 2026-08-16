@@ -125,8 +125,8 @@ function Invoke-CustomExportEntitlements {
             -IgnoreSSL:$ignoreSSL
 
         if (-not $membersResponse.IsSuccess) {
-            Write-Host " — skipped (HTTP $($membersResponse.StatusCode))" -ForegroundColor Yellow
-            Write-CyberArkLog -Level 'WARN' -Message "Export Entitlements: members for '$safeName' failed — $($membersResponse.ErrorMessage)"
+            Write-Host " - skipped (HTTP $($membersResponse.StatusCode))" -ForegroundColor Yellow
+            Write-CyberArkLog -Level 'WARN' -Message "Export Entitlements: members for '$safeName' failed - $($membersResponse.ErrorMessage)"
             if ($membersResponse.StatusCode -in @(401, 0)) {
                 $result.IsFatal = $true
                 $result.Failures++
@@ -142,7 +142,7 @@ function Invoke-CustomExportEntitlements {
             @($membersResponse.Data.value)
         } else { @() }
 
-        Write-Host " — $($members.Count) member$(if ($members.Count -ne 1) { 's' })" -ForegroundColor Green
+        Write-Host " - $($members.Count) member$(if ($members.Count -ne 1) { 's' })" -ForegroundColor Green
 
         foreach ($member in $members) {
             try {

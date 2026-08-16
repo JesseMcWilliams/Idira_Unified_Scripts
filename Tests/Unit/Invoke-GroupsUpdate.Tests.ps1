@@ -2,12 +2,12 @@
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Groups\Invoke-GroupsUpdate.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-GroupsUpdateInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -92,17 +92,17 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'GU01 — ModuleMeta.Name = ''Update Group''' {
+    It 'GU01 - ModuleMeta.Name = ''Update Group''' {
         $ModuleMeta.Name | Should -Be 'Update Group'
     }
 
-    It 'GU02 — ModuleMeta.SupportsWhatIf = $true' {
+    It 'GU02 - ModuleMeta.SupportsWhatIf = $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsUpdate — success' {
+Describe 'Invoke-GroupsUpdate - success' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -110,29 +110,29 @@ Describe 'Invoke-GroupsUpdate — success' {
         Mock Invoke-CyberArkAPI { script:New-GroupApiResponse -Group $script:MockGroupResponse }
     }
 
-    It 'GU03 — Successes=1, Failures=0, ItemsProcessed=1' {
+    It 'GU03 - Successes=1, Failures=0, ItemsProcessed=1' {
         $r = Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.Failures       | Should -Be 0
         $r.ItemsProcessed | Should -Be 1
     }
 
-    It 'GU04 — IsFatal=$false on success' {
+    It 'GU04 - IsFatal=$false on success' {
         $r = Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'GU05 — PUT method used' {
+    It 'GU05 - PUT method used' {
         Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Method -eq 'PUT' }
     }
 
-    It 'GU06 — endpoint contains GroupID' {
+    It 'GU06 - endpoint contains GroupID' {
         Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -like '*42*' }
     }
 
-    It 'GU07 — result entry GroupName from response' {
+    It 'GU07 - result entry GroupName from response' {
         $r = Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Results.Count           | Should -Be 1
         $r.Results[0].GroupName    | Should -Be 'UpdatedAdmins'
@@ -140,7 +140,7 @@ Describe 'Invoke-GroupsUpdate — success' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsUpdate — WhatIf' {
+Describe 'Invoke-GroupsUpdate - WhatIf' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -148,19 +148,19 @@ Describe 'Invoke-GroupsUpdate — WhatIf' {
         Mock Invoke-CyberArkAPI { script:New-GroupApiResponse -Group $script:MockGroupResponse }
     }
 
-    It 'GU08 — WhatIf: API NOT called' {
+    It 'GU08 - WhatIf: API NOT called' {
         Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'GU09 — WhatIf: Successes=1' {
+    It 'GU09 - WhatIf: Successes=1' {
         $r = Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsUpdate — validation' {
+Describe 'Invoke-GroupsUpdate - validation' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -168,7 +168,7 @@ Describe 'Invoke-GroupsUpdate — validation' {
         Mock Invoke-CyberArkAPI { }
     }
 
-    It 'GU10 — empty GroupID: Failures=1 and no API call' {
+    It 'GU10 - empty GroupID: Failures=1 and no API call' {
         $testInput = $script:ValidInput.Clone()
         $testInput.GroupID = ''
         $r = Invoke-GroupsUpdate -Token $script:MockToken -InputData $testInput
@@ -176,7 +176,7 @@ Describe 'Invoke-GroupsUpdate — validation' {
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'GU11 — null InputData: Failures=1 and no API call' {
+    It 'GU11 - null InputData: Failures=1 and no API call' {
         $r = Invoke-GroupsUpdate -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
@@ -184,20 +184,20 @@ Describe 'Invoke-GroupsUpdate — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsUpdate — errors' {
+Describe 'Invoke-GroupsUpdate - errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GU12 — 401 Unauthorized: IsFatal=$true' {
+    It 'GU12 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'GU13 — status 0 (network error): IsFatal=$true' {
+    It 'GU13 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-GroupsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
@@ -205,14 +205,14 @@ Describe 'Invoke-GroupsUpdate — errors' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsUpdate — body construction' {
+Describe 'Invoke-GroupsUpdate - body construction' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GU14 — body contains groupId as integer' {
+    It 'GU14 - body contains groupId as integer' {
         $script:capturedBody = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -225,7 +225,7 @@ Describe 'Invoke-GroupsUpdate — body construction' {
         $script:capturedBody['groupId'].GetType().Name  | Should -Be 'Int32'
     }
 
-    It 'GU15 — body does not include keys with empty values' {
+    It 'GU15 - body does not include keys with empty values' {
         $inputWithBlanks = @{
             GroupID     = '42'
             GroupName   = ''

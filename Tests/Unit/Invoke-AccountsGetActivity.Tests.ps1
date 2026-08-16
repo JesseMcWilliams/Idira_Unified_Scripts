@@ -55,6 +55,6 @@ Describe 'Invoke-AccountsGetActivity' {
             $result.Failures    | Should -Be 0
         }
     }
-    # GetActivity is a GET — SupportsWhatIf=$false; WhatIf does not suppress GET calls
+    # GetActivity is a GET - SupportsWhatIf=$false; WhatIf does not suppress GET calls
 
 }

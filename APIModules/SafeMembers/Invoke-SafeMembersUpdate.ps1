@@ -26,7 +26,7 @@ function Get-PermissionSet {
         based on the supplied role name, or prompts for each permission when role is 'Custom'.
 
         Parameters:
-            Role  — one of: ReadOnly, EndUser, PowerUser, SafeManager, Custom
+            Role  - one of: ReadOnly, EndUser, PowerUser, SafeManager, Custom
                     Any other / blank value defaults to ReadOnly.
     #>
     [CmdletBinding()]
@@ -243,7 +243,7 @@ function Invoke-SafeMembersUpdate {
     $encodedSafe   = [System.Uri]::EscapeDataString($safeName)
     $encodedMember = [System.Uri]::EscapeDataString($memberName)
 
-    # Resolve permissions — InputData.Permissions (hashtable) takes priority over PermissionRole
+    # Resolve permissions - InputData.Permissions (hashtable) takes priority over PermissionRole
     $permissions = if ($InputData['Permissions'] -and $InputData['Permissions'] -is [hashtable]) {
         $InputData['Permissions']
     } else {
@@ -251,7 +251,7 @@ function Invoke-SafeMembersUpdate {
         Get-PermissionSet -Role $role
     }
 
-    # Resolve expiration date — null when blank (API expects null for no expiration)
+    # Resolve expiration date - null when blank (API expects null for no expiration)
     $expirationDate = if ($InputData['ExpirationDate'] -and "$($InputData['ExpirationDate'])".Trim() -ne '') {
         "$($InputData['ExpirationDate'])".Trim()
     } else {

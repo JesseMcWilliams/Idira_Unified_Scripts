@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\SafeMembers\Invoke-SafeMembersUpdate.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-SafeMembersUpdateInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -115,11 +115,11 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'MU01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'MU01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'MU02 — required fields are all present' {
+    It 'MU02 - required fields are all present' {
         $ModuleMeta.Name             | Should -Not -BeNullOrEmpty
         $ModuleMeta.Category         | Should -Not -BeNullOrEmpty
         $ModuleMeta.Action           | Should -Not -BeNullOrEmpty
@@ -127,18 +127,18 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Version          | Should -Not -BeNullOrEmpty
     }
 
-    It 'MU03 — Category=SafeMembers and Action=Update' {
+    It 'MU03 - Category=SafeMembers and Action=Update' {
         $ModuleMeta.Category | Should -Be 'SafeMembers'
         $ModuleMeta.Action   | Should -Be 'Update'
     }
 
-    It 'MU04 — SupportsWhatIf is $true' {
+    It 'MU04 - SupportsWhatIf is $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersUpdate — successful response' {
+Describe 'Invoke-SafeMembersUpdate - successful response' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-UpdateApiResponse }
@@ -146,7 +146,7 @@ Describe 'Invoke-SafeMembersUpdate — successful response' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'MU05 — returns a result object with all 9 required fields' {
+    It 'MU05 - returns a result object with all 9 required fields' {
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -159,36 +159,36 @@ Describe 'Invoke-SafeMembersUpdate — successful response' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'MU06 — PUT method is used' {
+    It 'MU06 - PUT method is used' {
         Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Method -eq 'PUT' }
     }
 
-    It 'MU07 — Successes=1, Failures=0, ItemsProcessed=1' {
+    It 'MU07 - Successes=1, Failures=0, ItemsProcessed=1' {
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.Failures       | Should -Be 0
         $r.ItemsProcessed | Should -Be 1
     }
 
-    It 'MU08 — endpoint contains SafeName' {
+    It 'MU08 - endpoint contains SafeName' {
         Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -like '*TestSafe*' }
     }
 
-    It 'MU09 — endpoint contains MemberName' {
+    It 'MU09 - endpoint contains MemberName' {
         Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -like '*jsmith*' }
     }
 
-    It 'MU10 — IsFatal=$false on success' {
+    It 'MU10 - IsFatal=$false on success' {
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersUpdate — WhatIf' {
+Describe 'Invoke-SafeMembersUpdate - WhatIf' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-UpdateApiResponse }
@@ -196,12 +196,12 @@ Describe 'Invoke-SafeMembersUpdate — WhatIf' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'MU11 — WhatIf: API is NOT called' {
+    It 'MU11 - WhatIf: API is NOT called' {
         Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'MU12 — WhatIf: Successes=1 and result entry is returned' {
+    It 'MU12 - WhatIf: Successes=1 and result entry is returned' {
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes      | Should -Be 1
         $r.Results.Count  | Should -Be 1
@@ -209,7 +209,7 @@ Describe 'Invoke-SafeMembersUpdate — WhatIf' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersUpdate — validation' {
+Describe 'Invoke-SafeMembersUpdate - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-UpdateApiResponse }
@@ -217,13 +217,13 @@ Describe 'Invoke-SafeMembersUpdate — validation' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'MU13 — empty SafeName: Failures=1 and API not called' {
+    It 'MU13 - empty SafeName: Failures=1 and API not called' {
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData @{ SafeName = ''; MemberName = 'jsmith' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'MU14 — empty MemberName: Failures=1 and API not called' {
+    It 'MU14 - empty MemberName: Failures=1 and API not called' {
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData @{ SafeName = 'TestSafe'; MemberName = '' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
@@ -231,33 +231,33 @@ Describe 'Invoke-SafeMembersUpdate — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersUpdate — errors' {
+Describe 'Invoke-SafeMembersUpdate - errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'MU15 — 401 Unauthorized: IsFatal=$true' {
+    It 'MU15 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'MU16 — status 0 (network error): IsFatal=$true' {
+    It 'MU16 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'MU17 — 404 Not Found: IsFatal=$false and error added' {
+    It 'MU17 - 404 Not Found: IsFatal=$false and error added' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal      | Should -BeFalse
         $r.Errors.Count | Should -Be 1
     }
 
-    It 'MU18 — error entry ErrorMessage is not null or empty' {
+    It 'MU18 - error entry ErrorMessage is not null or empty' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-SafeMembersUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Errors[0].ErrorMessage | Should -Not -BeNullOrEmpty

@@ -2,12 +2,12 @@
 <#
 .SYNOPSIS
     Pester v6 unit tests for APIModules\Reports\Invoke-ReportsList.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-ReportsListInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -92,22 +92,22 @@ AfterAll {
 # -----------------------------------------------------------------
 Describe 'ModuleMeta' {
 
-    It 'RL01 — ModuleMeta.Name is ''List Reports''' {
+    It 'RL01 - ModuleMeta.Name is ''List Reports''' {
         $ModuleMeta.Name | Should -Be 'List Reports'
     }
 
-    It 'RL02 — Category is ''Reports''' {
+    It 'RL02 - Category is ''Reports''' {
         $ModuleMeta.Category | Should -Be 'Reports'
     }
 
-    It 'RL03 — SupportedSystems is SelfHosted only (ISPSS unconfirmed)' {
+    It 'RL03 - SupportedSystems is SelfHosted only (ISPSS unconfirmed)' {
         $ModuleMeta.SupportedSystems | Should -Contain 'SelfHosted'
         $ModuleMeta.SupportedSystems.Count | Should -Be 1
     }
 }
 
 # -----------------------------------------------------------------
-Describe 'Invoke-ReportsList — success' {
+Describe 'Invoke-ReportsList - success' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -116,29 +116,29 @@ Describe 'Invoke-ReportsList — success' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'RL04 — Successes=1, Failures=0, ItemsProcessed=1' {
+    It 'RL04 - Successes=1, Failures=0, ItemsProcessed=1' {
         $r = Invoke-ReportsList -Token $script:MockToken
         $r.Successes      | Should -Be 1
         $r.Failures       | Should -Be 0
         $r.ItemsProcessed | Should -Be 1
     }
 
-    It 'RL05 — IsFatal=$false on success' {
+    It 'RL05 - IsFatal=$false on success' {
         $r = Invoke-ReportsList -Token $script:MockToken
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'RL06 — GET method is used' {
+    It 'RL06 - GET method is used' {
         Invoke-ReportsList -Token $script:MockToken
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Method -eq 'GET' } -Times 1
     }
 
-    It 'RL07 — endpoint is /API/Reports' {
+    It 'RL07 - endpoint is /API/Reports' {
         Invoke-ReportsList -Token $script:MockToken
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/Reports' } -Times 1
     }
 
-    It 'RL08 — result entry maps ReportName and ReportType correctly' {
+    It 'RL08 - result entry maps ReportName and ReportType correctly' {
         $r = Invoke-ReportsList -Token $script:MockToken
         $r.Results[0].ReportName | Should -Be 'Privileged Accounts - Basic'
         $r.Results[0].ReportType | Should -Be 'PrivilegedAccounts'
@@ -146,9 +146,9 @@ Describe 'Invoke-ReportsList — success' {
 }
 
 # -----------------------------------------------------------------
-Describe 'Invoke-ReportsList — multiple results' {
+Describe 'Invoke-ReportsList - multiple results' {
 
-    It 'RL09 — two reports: Successes=2, Results.Count=2' {
+    It 'RL09 - two reports: Successes=2, Results.Count=2' {
         Mock Write-CyberArkLog { }
         Mock Invoke-CyberArkAPI {
             script:New-ReportsApiResponse -Reports @($script:SampleReport, $script:SampleReport2)
@@ -160,9 +160,9 @@ Describe 'Invoke-ReportsList — multiple results' {
 }
 
 # -----------------------------------------------------------------
-Describe 'Invoke-ReportsList — search parameter' {
+Describe 'Invoke-ReportsList - search parameter' {
 
-    It 'RL10 — search term is sent as query parameter' {
+    It 'RL10 - search term is sent as query parameter' {
         $script:capturedQuery = $null
         Mock Write-CyberArkLog { }
         Mock Invoke-CyberArkAPI {
@@ -176,9 +176,9 @@ Describe 'Invoke-ReportsList — search parameter' {
 }
 
 # -----------------------------------------------------------------
-Describe 'Invoke-ReportsList — empty result' {
+Describe 'Invoke-ReportsList - empty result' {
 
-    It 'RL11 — empty value array: Successes=0, no errors, IsFatal=$false' {
+    It 'RL11 - empty value array: Successes=0, no errors, IsFatal=$false' {
         Mock Write-CyberArkLog { }
         Mock Invoke-CyberArkAPI {
             [PSCustomObject]@{
@@ -201,25 +201,25 @@ Describe 'Invoke-ReportsList — empty result' {
 }
 
 # -----------------------------------------------------------------
-Describe 'Invoke-ReportsList — API errors' {
+Describe 'Invoke-ReportsList - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'RL12 — 401 Unauthorized: IsFatal=$true' {
+    It 'RL12 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-ReportsList -Token $script:MockToken
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'RL13 — status 0 (network error): IsFatal=$true' {
+    It 'RL13 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-ReportsList -Token $script:MockToken
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'RL14 — 403 Forbidden: IsFatal=$false, Failures=1' {
+    It 'RL14 - 403 Forbidden: IsFatal=$false, Failures=1' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-ReportsList -Token $script:MockToken
         $r.IsFatal  | Should -BeFalse
@@ -228,9 +228,9 @@ Describe 'Invoke-ReportsList — API errors' {
 }
 
 # -----------------------------------------------------------------
-Describe 'Invoke-ReportsList — null InputData' {
+Describe 'Invoke-ReportsList - null InputData' {
 
-    It 'RL15 — null InputData: no throw' {
+    It 'RL15 - null InputData: no throw' {
         Mock Write-CyberArkLog { }
         Mock Invoke-CyberArkAPI {
             script:New-ReportsApiResponse -Reports @($script:SampleReport)

@@ -2,12 +2,12 @@
 <#
 .SYNOPSIS
     Pester v6 unit tests for APIModules\Groups\Invoke-GroupsAddMember.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-GroupsAddMemberInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -75,17 +75,17 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'GAM01 — ModuleMeta.Name = Add Group Member' {
+    It 'GAM01 - ModuleMeta.Name = Add Group Member' {
         $ModuleMeta.Name | Should -Be 'Add Group Member'
     }
 
-    It 'GAM02 — ModuleMeta.SupportsWhatIf = $true' {
+    It 'GAM02 - ModuleMeta.SupportsWhatIf = $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAddMember — success (201)' {
+Describe 'Invoke-GroupsAddMember - success (201)' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-AddMemberApiResponse -StatusCode 201 }
@@ -93,34 +93,34 @@ Describe 'Invoke-GroupsAddMember — success (201)' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GAM03 — Successes=1, ItemsProcessed=1 on success' {
+    It 'GAM03 - Successes=1, ItemsProcessed=1 on success' {
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
     }
 
-    It 'GAM04 — IsFatal=$false on success' {
+    It 'GAM04 - IsFatal=$false on success' {
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'GAM05 — POST method used' {
+    It 'GAM05 - POST method used' {
         Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Method -eq 'POST' }
     }
 
-    It 'GAM06 — endpoint = /API/UserGroups/42/Members' {
+    It 'GAM06 - endpoint = /API/UserGroups/42/Members' {
         Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -eq '/API/UserGroups/42/Members' }
     }
 
-    It 'GAM07 — result entry has Added=$true, MemberID=7' {
+    It 'GAM07 - result entry has Added=$true, MemberID=7' {
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].Added    | Should -BeTrue
         $r.Results[0].MemberID | Should -Be '7'
     }
 
-    It 'GAM08 — body contains memberId=7 as integer' {
+    It 'GAM08 - body contains memberId=7 as integer' {
         $capturedBody = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -132,7 +132,7 @@ Describe 'Invoke-GroupsAddMember — success (201)' {
         $script:capturedBody.memberId.GetType().Name | Should -Be 'Int32'
     }
 
-    It 'GAM09 — body contains memberType=EPVUser' {
+    It 'GAM09 - body contains memberType=EPVUser' {
         $capturedBody = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -145,7 +145,7 @@ Describe 'Invoke-GroupsAddMember — success (201)' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAddMember — WhatIf' {
+Describe 'Invoke-GroupsAddMember - WhatIf' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { }
@@ -153,19 +153,19 @@ Describe 'Invoke-GroupsAddMember — WhatIf' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GAM10 — WhatIf — API NOT called (Times=0)' {
+    It 'GAM10 - WhatIf - API NOT called (Times=0)' {
         Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'GAM11 — WhatIf — Successes=1' {
+    It 'GAM11 - WhatIf - Successes=1' {
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAddMember — validation' {
+Describe 'Invoke-GroupsAddMember - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { }
@@ -173,7 +173,7 @@ Describe 'Invoke-GroupsAddMember — validation' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GAM12 — empty GroupID — Failures=1' {
+    It 'GAM12 - empty GroupID - Failures=1' {
         $testInput = $script:ValidInput.Clone()
         $testInput.GroupID = ''
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $testInput
@@ -181,7 +181,7 @@ Describe 'Invoke-GroupsAddMember — validation' {
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'GAM13 — empty MemberID — Failures=1' {
+    It 'GAM13 - empty MemberID - Failures=1' {
         $testInput = $script:ValidInput.Clone()
         $testInput.MemberID = ''
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $testInput
@@ -191,14 +191,14 @@ Describe 'Invoke-GroupsAddMember — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAddMember — API errors' {
+Describe 'Invoke-GroupsAddMember - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GAM14 — 401 — IsFatal=$true' {
+    It 'GAM14 - 401 - IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
@@ -206,14 +206,14 @@ Describe 'Invoke-GroupsAddMember — API errors' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAddMember — DomainName' {
+Describe 'Invoke-GroupsAddMember - DomainName' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GAM15 — domainName included in body when provided' {
+    It 'GAM15 - domainName included in body when provided' {
         $capturedBody = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)

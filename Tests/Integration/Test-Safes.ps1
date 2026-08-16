@@ -1,10 +1,10 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Integration tests for CyberArk Safes CRUD operations against a live PVWA 14.6 instance.
 
 .DESCRIPTION
-    This is NOT a Pester test — it is a plain sequential PowerShell script that exercises
+    This is NOT a Pester test - it is a plain sequential PowerShell script that exercises
     the five Safes API modules (List, Get, Add, Update, Delete) against a real PVWA and
     reports PASS / FAIL for each test case.
 
@@ -14,8 +14,8 @@
     PVWA : https://pvwa.company.com/PasswordVault
     Auth : CyberArk native, username ca_admin (password prompted at runtime)
 
-    PROTECTED SAFE — 'Z_Template_Safe_Permissions' is NEVER touched by any test.
-    TEST SAFE       — 'IDIRA_IntTest_Safes' is created and deleted during write tests.
+    PROTECTED SAFE - 'Z_Template_Safe_Permissions' is NEVER touched by any test.
+    TEST SAFE       - 'IDIRA_IntTest_Safes' is created and deleted during write tests.
                       The finally block guarantees cleanup even when a test fails mid-run.
 
 .PARAMETER SkipWrite
@@ -95,7 +95,7 @@ Write-Host ''
 Write-Host 'Read-Only Tests' -ForegroundColor Cyan
 Write-Host ('-' * 60) -ForegroundColor DarkGray
 
-# IT01 — List returns at least one safe
+# IT01 - List returns at least one safe
 Test-Case -ID 'IT01' -Name 'Invoke-SafesList returns at least one safe' -Block {
     $r = Invoke-SafesList -Token $token
     if ($r.Failures -gt 0 -and $r.IsFatal) {
@@ -106,7 +106,7 @@ Test-Case -ID 'IT01' -Name 'Invoke-SafesList returns at least one safe' -Block {
     }
 }
 
-# IT02 — List runs without error; if ExcludedSafe is present, note it (do not fail)
+# IT02 - List runs without error; if ExcludedSafe is present, note it (do not fail)
 Test-Case -ID 'IT02' -Name 'Invoke-SafesList completes without fatal error' -Block {
     $r = Invoke-SafesList -Token $token
     if ($r.IsFatal) {
@@ -114,16 +114,16 @@ Test-Case -ID 'IT02' -Name 'Invoke-SafesList completes without fatal error' -Blo
     }
     $excluded = $r.Results | Where-Object { $_.SafeName -eq $config.ExcludedSafe }
     if ($excluded) {
-        Write-Host "    (note: ExcludedSafe '$($config.ExcludedSafe)' is visible in the list — NOT touched by tests)" -ForegroundColor DarkGray
+        Write-Host "    (note: ExcludedSafe '$($config.ExcludedSafe)' is visible in the list - NOT touched by tests)" -ForegroundColor DarkGray
     }
 }
 
-# IT03 — List with Search returns filtered results
+# IT03 - List with Search returns filtered results
 Test-Case -ID 'IT03' -Name 'Invoke-SafesList with Search filters results' -Block {
     # Retrieve first safe from a plain list to use as the search term
     $baseList = Invoke-SafesList -Token $token
     if ($baseList.Successes -lt 1) {
-        throw "Cannot determine a search term — baseline list returned no safes."
+        throw "Cannot determine a search term - baseline list returned no safes."
     }
     $searchTerm = $baseList.Results[0].SafeName
 
@@ -140,10 +140,10 @@ Test-Case -ID 'IT03' -Name 'Invoke-SafesList with Search filters results' -Block
     }
 }
 
-# IT04 — Get retrieves a specific safe by name
+# IT04 - Get retrieves a specific safe by name
 Test-Case -ID 'IT04' -Name 'Invoke-SafesGet retrieves the first safe from the list' -Block {
     $list      = Invoke-SafesList -Token $token
-    if ($list.Successes -lt 1) { throw "Cannot get first safe — list returned no results." }
+    if ($list.Successes -lt 1) { throw "Cannot get first safe - list returned no results." }
     $firstName = $list.Results[0].SafeName
 
     $r = Invoke-SafesGet -Token $token -InputData @{ SafeName = $firstName }
@@ -155,7 +155,7 @@ Test-Case -ID 'IT04' -Name 'Invoke-SafesGet retrieves the first safe from the li
     }
 }
 
-# IT05 — Get with non-existent safe returns a non-fatal failure (404)
+# IT05 - Get with non-existent safe returns a non-fatal failure (404)
 Test-Case -ID 'IT05' -Name 'Invoke-SafesGet with non-existent safe returns non-fatal failure' -Block {
     $r = Invoke-SafesGet -Token $token -InputData @{ SafeName = 'IDIRA_NonExistentSafe_XYZ123' }
     if ($r.Failures -ne 1) {
@@ -172,7 +172,7 @@ Test-Case -ID 'IT05' -Name 'Invoke-SafesGet with non-existent safe returns non-f
 
 if ($SkipWrite) {
     Write-Host ''
-    Write-Host 'Write Tests — SKIPPED (-SkipWrite specified)' -ForegroundColor Yellow
+    Write-Host 'Write Tests - SKIPPED (-SkipWrite specified)' -ForegroundColor Yellow
 } else {
     Write-Host ''
     Write-Host 'Write Tests' -ForegroundColor Cyan
@@ -181,7 +181,7 @@ if ($SkipWrite) {
     # Wrap all write tests in a try/finally so the test safe is always cleaned up.
     try {
 
-        # IT06 — Add creates the test safe
+        # IT06 - Add creates the test safe
         Test-Case -ID 'IT06' -Name 'Invoke-SafesAdd creates test safe' -Block {
             Assert-SafeNotExcluded -SafeName $config.TestSafeName -ExcludedSafe $config.ExcludedSafe
             $r = Invoke-SafesAdd -Token $token -InputData @{
@@ -199,7 +199,7 @@ if ($SkipWrite) {
             }
         }
 
-        # IT07 — Get retrieves the newly created safe
+        # IT07 - Get retrieves the newly created safe
         Test-Case -ID 'IT07' -Name 'Invoke-SafesGet retrieves the newly created safe' -Block {
             $r = Invoke-SafesGet -Token $token -InputData @{ SafeName = $config.TestSafeName }
             if ($r.Successes -ne 1) {
@@ -210,7 +210,7 @@ if ($SkipWrite) {
             }
         }
 
-        # IT08 — Update changes the description and version retention
+        # IT08 - Update changes the description and version retention
         Test-Case -ID 'IT08' -Name 'Invoke-SafesUpdate updates the test safe description' -Block {
             $r = Invoke-SafesUpdate -Token $token -InputData @{
                 SafeName                  = $config.TestSafeName
@@ -226,7 +226,7 @@ if ($SkipWrite) {
             }
         }
 
-        # IT09 — Verify the updated values were persisted
+        # IT09 - Verify the updated values were persisted
         Test-Case -ID 'IT09' -Name 'Invoke-SafesGet confirms updated description or version retention' -Block {
             $r = Invoke-SafesGet -Token $token -InputData @{ SafeName = $config.TestSafeName }
             if ($r.Successes -ne 1) {
@@ -240,7 +240,7 @@ if ($SkipWrite) {
             }
         }
 
-        # IT10 — Delete removes the test safe
+        # IT10 - Delete removes the test safe
         Test-Case -ID 'IT10' -Name 'Invoke-SafesDelete deletes the test safe' -Block {
             Assert-SafeNotExcluded -SafeName $config.TestSafeName -ExcludedSafe $config.ExcludedSafe
             $r = Invoke-SafesDelete -Token $token -InputData @{ SafeName = $config.TestSafeName }
@@ -249,7 +249,7 @@ if ($SkipWrite) {
             }
         }
 
-        # IT11 — Verify the deleted safe no longer exists (404, non-fatal)
+        # IT11 - Verify the deleted safe no longer exists (404, non-fatal)
         Test-Case -ID 'IT11' -Name 'Deleted safe no longer exists (non-fatal 404)' -Block {
             $r = Invoke-SafesGet -Token $token -InputData @{ SafeName = $config.TestSafeName }
             if ($r.Failures -ne 1) {
@@ -261,13 +261,13 @@ if ($SkipWrite) {
         }
 
     } finally {
-        # Cleanup — attempt to delete the test safe if it might still exist.
+        # Cleanup - attempt to delete the test safe if it might still exist.
         # This runs whether the tests passed, failed, or threw an unhandled exception.
         # Errors are suppressed so cleanup does not mask test results.
         try {
             $checkResult = Invoke-SafesGet -Token $token -InputData @{ SafeName = $config.TestSafeName }
             if ($checkResult.Successes -eq 1) {
-                Write-Host "  [cleanup] Test safe '$($config.TestSafeName)' still exists — deleting." -ForegroundColor DarkYellow
+                Write-Host "  [cleanup] Test safe '$($config.TestSafeName)' still exists - deleting." -ForegroundColor DarkYellow
                 Invoke-SafesDelete -Token $token -InputData @{ SafeName = $config.TestSafeName } | Out-Null
                 Write-Host "  [cleanup] Delete complete." -ForegroundColor DarkYellow
             }

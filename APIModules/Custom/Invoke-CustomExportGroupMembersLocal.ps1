@@ -146,11 +146,11 @@ function Invoke-CustomExportGroupMembersLocal {
                     $result.IsFatal = $true
                     $result.Failures++
                     $result.ItemsProcessed++
-                    Write-Host ' — 401 fatal error.' -ForegroundColor Red
+                    Write-Host ' - 401 fatal error.' -ForegroundColor Red
                     return $result
                 }
-                # Non-fatal — group may have restricted access
-                Write-CyberArkLog -Level 'WARN' -Message "Export Local Group Members: members for group '$cid' failed — $($membersResponse.ErrorMessage)"
+                # Non-fatal - group may have restricted access
+                Write-CyberArkLog -Level 'WARN' -Message "Export Local Group Members: members for group '$cid' failed - $($membersResponse.ErrorMessage)"
                 continue
             }
 
@@ -169,7 +169,7 @@ function Invoke-CustomExportGroupMembersLocal {
                                  ($userType -match '(?i)group' -and -not $isLdapMember)
 
                 if ($isLdapMember) {
-                    # LDAP groups nested inside local groups — list as leaf, do not recurse
+                    # LDAP groups nested inside local groups - list as leaf, do not recurse
                     $nestedName = if ($groupIdToName.ContainsKey($memberId)) { $groupIdToName[$memberId] } else { $memberName }
                     $result.Results.Add([PSCustomObject]@{
                         RootGroupName = $rootGroup.GroupName
@@ -224,7 +224,7 @@ function Invoke-CustomExportGroupMembersLocal {
             }
         }
 
-        Write-Host " — $memberCount row$(if ($memberCount -ne 1) { 's' })" -ForegroundColor Green
+        Write-Host " - $memberCount row$(if ($memberCount -ne 1) { 's' })" -ForegroundColor Green
     }
 
     Write-Host ''

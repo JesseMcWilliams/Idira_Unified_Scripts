@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Unit tests for Driver.ps1 — profile management functions.
+    Unit tests for Driver.ps1 - profile management functions.
 
 .DESCRIPTION
     Exercises the profile management loop as a user would: create a profile,
@@ -53,28 +53,28 @@ AfterAll {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver — New-BlankProfile' {
+Describe 'Driver - New-BlankProfile' {
 
-    It 'DP01 — creates a profile with the supplied name' {
+    It 'DP01 - creates a profile with the supplied name' {
         $p = New-BlankProfile -Name 'Dev'
         $p.ProfileName      | Should -Be 'Dev'
         $p.AuthTokenProfile | Should -Be 'Dev'
     }
 
-    It 'DP02 — default flags are false' {
+    It 'DP02 - default flags are false' {
         $p = New-BlankProfile -Name 'X'
         $p.IgnoreSSL     | Should -Be $false
         $p.WhatIfDefault | Should -Be $false
     }
 
-    It 'DP03 — folders are empty strings' {
+    It 'DP03 - folders are empty strings' {
         $p = New-BlankProfile -Name 'X'
         $p.LogFolder    | Should -Be ''
         $p.InputFolder  | Should -Be ''
         $p.OutputFolder | Should -Be ''
     }
 
-    It 'DP04 — Created and Modified are populated' {
+    It 'DP04 - Created and Modified are populated' {
         $p = New-BlankProfile -Name 'X'
         $p.Created  | Should -Not -BeNullOrEmpty
         $p.Modified | Should -Not -BeNullOrEmpty
@@ -82,7 +82,7 @@ Describe 'Driver — New-BlankProfile' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver — Profile persistence (Save / Read / GetAll)' {
+Describe 'Driver - Profile persistence (Save / Read / GetAll)' {
 
     BeforeEach {
         # Clear the temp directory before each test for isolation
@@ -90,14 +90,14 @@ Describe 'Driver — Profile persistence (Save / Read / GetAll)' {
             Remove-Item -Force
     }
 
-    It 'DP05 — Save-DriverProfile writes a JSON file named after the profile to the profile directory' {
+    It 'DP05 - Save-DriverProfile writes a JSON file named after the profile to the profile directory' {
         $p = New-BlankProfile -Name 'SaveTest'
         Save-DriverProfile -currentProfile $p
         $expected = Join-Path $script:TempDir 'SaveTest.json'
         Test-Path -LiteralPath $expected | Should -Be $true
     }
 
-    It 'DP06 — Read-DriverProfile returns the saved profile' {
+    It 'DP06 - Read-DriverProfile returns the saved profile' {
         $p = New-BlankProfile -Name 'ReadTest'
         $p.LogFolder = 'C:\Logs'
         Save-DriverProfile -currentProfile $p
@@ -106,16 +106,16 @@ Describe 'Driver — Profile persistence (Save / Read / GetAll)' {
         $loaded.LogFolder   | Should -Be 'C:\Logs'
     }
 
-    It 'DP07 — Read-DriverProfile returns null for a non-existent profile name' {
+    It 'DP07 - Read-DriverProfile returns null for a non-existent profile name' {
         Read-DriverProfile -Name 'DoesNotExist' | Should -BeNullOrEmpty
     }
 
-    It 'DP08 — Get-AllDriverProfiles returns an empty array when no profiles exist' {
+    It 'DP08 - Get-AllDriverProfiles returns an empty array when no profiles exist' {
         $list = @(Get-AllDriverProfiles)
         $list.Count | Should -Be 0
     }
 
-    It 'DP09 — Get-AllDriverProfiles returns one summary entry after saving a profile' {
+    It 'DP09 - Get-AllDriverProfiles returns one summary entry after saving a profile' {
         $p = New-BlankProfile -Name 'ListTest'
         Save-DriverProfile -currentProfile $p
         $list = @(Get-AllDriverProfiles)
@@ -124,7 +124,7 @@ Describe 'Driver — Profile persistence (Save / Read / GetAll)' {
         $list[0].TokenStatus     | Should -Be 'No Token'
     }
 
-    It 'DP10 — Get-AllDriverProfiles returns entries sorted by ProfileName' {
+    It 'DP10 - Get-AllDriverProfiles returns entries sorted by ProfileName' {
         foreach ($name in 'Zebra', 'Alpha', 'Mango') {
             Save-DriverProfile -currentProfile (New-BlankProfile -Name $name)
         }
@@ -132,7 +132,7 @@ Describe 'Driver — Profile persistence (Save / Read / GetAll)' {
         $names | Should -Be @('Alpha', 'Mango', 'Zebra')
     }
 
-    It 'DP11 — Remove-DriverProfile deletes the JSON file' {
+    It 'DP11 - Remove-DriverProfile deletes the JSON file' {
         Save-DriverProfile -currentProfile (New-BlankProfile -Name 'ToDelete')
         Remove-DriverProfile -Name 'ToDelete'
         $jsonPath = Join-Path $script:TempDir 'ToDelete.json'
@@ -141,7 +141,7 @@ Describe 'Driver — Profile persistence (Save / Read / GetAll)' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver — Invoke-ProfileManagementLoop (Q = quit immediately)' {
+Describe 'Driver - Invoke-ProfileManagementLoop (Q = quit immediately)' {
 
     BeforeAll {
         Mock Write-Host  { }
@@ -156,14 +156,14 @@ Describe 'Driver — Invoke-ProfileManagementLoop (Q = quit immediately)' {
             Remove-Item -Force
     }
 
-    It 'DP12 — returns $null when the user quits at the profile list' {
+    It 'DP12 - returns $null when the user quits at the profile list' {
         $result = Invoke-ProfileManagementLoop
         $result | Should -BeNullOrEmpty
     }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' {
+Describe 'Driver - Invoke-ProfileManagementLoop (create a profile then quit)' {
 
     BeforeAll {
         Mock Write-Host  { }
@@ -194,7 +194,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
         }
     }
 
-    It 'DP13 — creates profile and returns null when user then quits' {
+    It 'DP13 - creates profile and returns null when user then quits' {
         'N', '2', '1', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
         'CreatedProfile', 'https://pvwa.test.com', '', '', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
 
@@ -205,7 +205,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
         Test-Path -LiteralPath $jsonPath | Should -Be $true
     }
 
-    It 'DP14 — profile saved with correct ProfileName' {
+    It 'DP14 - profile saved with correct ProfileName' {
         'N', '2', '1', 'Q' | ForEach-Object { $script:MenuQ.Enqueue($_) }
         'VerifyName', 'https://pvwa.test.com', '', '', '', '', '', 'N', 'N' | ForEach-Object { $script:FieldQ.Enqueue($_) }
 
@@ -225,7 +225,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (create a profile then quit)' 
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver — Invoke-ProfileManagementLoop (select profile then go back then quit)' {
+Describe 'Driver - Invoke-ProfileManagementLoop (select profile then go back then quit)' {
 
     BeforeAll {
         Mock Write-Host  { }
@@ -248,7 +248,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (select profile then go back t
         }
     }
 
-    It 'DP15 — select a profile by number then go back then quit' {
+    It 'DP15 - select a profile by number then go back then quit' {
         # Seed one profile on disk
         Save-DriverProfile -currentProfile (New-BlankProfile -Name 'SelectMe')
 
@@ -259,7 +259,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (select profile then go back t
         $result | Should -BeNullOrEmpty
     }
 
-    It 'DP16 — selecting an out-of-range number does not crash and loops back' {
+    It 'DP16 - selecting an out-of-range number does not crash and loops back' {
         Save-DriverProfile -currentProfile (New-BlankProfile -Name 'OnlyOne')
 
         # '9' is out of range for a one-item list; then 'Q' to exit
@@ -269,7 +269,7 @@ Describe 'Driver — Invoke-ProfileManagementLoop (select profile then go back t
         $result | Should -BeNullOrEmpty
     }
 
-    It 'DP17 — delete a profile and verify it is removed from disk' {
+    It 'DP17 - delete a profile and verify it is removed from disk' {
         Save-DriverProfile -currentProfile (New-BlankProfile -Name 'DeleteMe')
 
         # Select '1', press 'D' (delete), confirm 'Y', then 'Q'

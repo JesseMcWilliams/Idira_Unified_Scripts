@@ -133,7 +133,7 @@ function Invoke-SafesDelete {
         return $result
     }
 
-    # Success — 204 No Content or 200 OK
+    # Success - 204 No Content or 200 OK
     $result.Results.Add([PSCustomObject]@{
         SafeName = $safeName
         Deleted  = $true

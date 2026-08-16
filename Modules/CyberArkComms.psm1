@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Shared REST communications module for CyberArk PAS Scripts.
@@ -77,7 +77,7 @@ function script:Parse-CyberArkError {
 
 function script:New-WhatIfResponse {
     param([string]$Method, [string]$Uri)
-    $msg = "[WhatIf] $Method $Uri — request suppressed, no changes made."
+    $msg = "[WhatIf] $Method $Uri - request suppressed, no changes made."
     if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
         Write-CyberArkLog -Message $msg -Level 'INFO' -FunctionName 'Invoke-CyberArkAPI'
     }
@@ -115,7 +115,7 @@ function New-CyberArkQuery {
     .PARAMETER Params
         Hashtable of parameter names and values. Null/empty values are omitted.
     .OUTPUTS
-        String — a query string including the leading '?' or empty string if no params.
+        String - a query string including the leading '?' or empty string if no params.
     .EXAMPLE
         New-CyberArkQuery @{ search = 'vault'; filter = 'safeName eq MyVault'; limit = 25 }
         # Returns: ?search=vault&filter=safeName+eq+MyVault&limit=25
@@ -250,7 +250,7 @@ function Invoke-CyberArkAPI {
         Number of items per page. Default: 1000. Set to 0 to disable pagination.
 
     .OUTPUTS
-        PSCustomObject — standard API response object (see Interfaces.md).
+        PSCustomObject - standard API response object (see Interfaces.md).
     #>
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
@@ -378,7 +378,7 @@ function Invoke-CyberArkAPI {
                 continue
             }
 
-            # Non-429 HTTP error — fall through to response building below
+            # Non-429 HTTP error - fall through to response building below
             $errDetails = script:Parse-CyberArkError -Body $rawBody
             $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode $($webEx.Message)" }
             if ($statusCode -ge 400) { $errMsg = "$errMsg  [$Method $fullUri]" }
@@ -402,7 +402,7 @@ function Invoke-CyberArkAPI {
                 $data     = $rawBody | ConvertFrom-Json
                 $dataType = 'JSON'
             } catch {
-                # Not JSON — treat as binary/file content
+                # Not JSON - treat as binary/file content
                 $data     = $rawBody
                 $dataType = 'Binary'
             }
@@ -442,7 +442,7 @@ function Invoke-CyberArkAPI {
             }
         }
 
-        # --- Single-page or final page — build the response ---
+        # --- Single-page or final page - build the response ---
         if ($paginate -and $allItems.Count -gt 0) {
             # Merge all accumulated items back onto the last data object
             # Use the first property that held the collection
@@ -458,7 +458,7 @@ function Invoke-CyberArkAPI {
 
         if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
             $itemsNote = if ($allItems.Count -gt 0) { "$($allItems.Count) total items (paginated)" } else { $dataType }
-            $logMsg = "Response $statusCode — $itemsNote"
+            $logMsg = "Response $statusCode - $itemsNote"
             Write-CyberArkLog -Message $logMsg -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI'
         }
 

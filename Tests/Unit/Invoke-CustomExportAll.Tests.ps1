@@ -14,7 +14,7 @@ BeforeAll {
     . $script:ModulePath
     Initialize-CyberArkLog -Destination 'Console' -ProfileName 'CustomExportAllTests' -MinLevel 'ERROR'
 
-    # Stub for Driver helper — not available outside Driver.ps1
+    # Stub for Driver helper - not available outside Driver.ps1
     function global:Get-CsvSavePath { param([string]$DefaultFolder, [string]$ModuleName) return $null }
 }
 

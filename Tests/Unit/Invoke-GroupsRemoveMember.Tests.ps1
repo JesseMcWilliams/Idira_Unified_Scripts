@@ -2,12 +2,12 @@
 <#
 .SYNOPSIS
     Pester v6 unit tests for APIModules\Groups\Invoke-GroupsRemoveMember.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-GroupsRemoveMemberInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -75,17 +75,17 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'GRM01 — ModuleMeta.Name = Remove Group Member' {
+    It 'GRM01 - ModuleMeta.Name = Remove Group Member' {
         $ModuleMeta.Name | Should -Be 'Remove Group Member'
     }
 
-    It 'GRM02 — ModuleMeta.SupportsWhatIf = $true' {
+    It 'GRM02 - ModuleMeta.SupportsWhatIf = $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsRemoveMember — success' {
+Describe 'Invoke-GroupsRemoveMember - success' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -93,28 +93,28 @@ Describe 'Invoke-GroupsRemoveMember — success' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GRM03 — Successes=1, ItemsProcessed=1' {
+    It 'GRM03 - Successes=1, ItemsProcessed=1' {
         $r = Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
     }
 
-    It 'GRM04 — IsFatal=$false' {
+    It 'GRM04 - IsFatal=$false' {
         $r = Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'GRM05 — DELETE method used' {
+    It 'GRM05 - DELETE method used' {
         Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Method -eq 'DELETE' }
     }
 
-    It 'GRM06 — endpoint contains both GroupID and MemberID' {
+    It 'GRM06 - endpoint contains both GroupID and MemberID' {
         Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -like '*UserGroups/42/Members/7*' }
     }
 
-    It 'GRM07 — result entry has Removed=$true' {
+    It 'GRM07 - result entry has Removed=$true' {
         $r = Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput
         $r.Results.Count      | Should -Be 1
         $r.Results[0].Removed | Should -BeTrue
@@ -122,7 +122,7 @@ Describe 'Invoke-GroupsRemoveMember — success' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsRemoveMember — WhatIf' {
+Describe 'Invoke-GroupsRemoveMember - WhatIf' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -130,19 +130,19 @@ Describe 'Invoke-GroupsRemoveMember — WhatIf' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GRM08 — WhatIf — API NOT called (Times=0)' {
+    It 'GRM08 - WhatIf - API NOT called (Times=0)' {
         Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'GRM09 — WhatIf — Successes=1' {
+    It 'GRM09 - WhatIf - Successes=1' {
         $r = Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsRemoveMember — validation' {
+Describe 'Invoke-GroupsRemoveMember - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -150,13 +150,13 @@ Describe 'Invoke-GroupsRemoveMember — validation' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GRM10 — empty GroupID — Failures=1' {
+    It 'GRM10 - empty GroupID - Failures=1' {
         $r = Invoke-GroupsRemoveMember -Token $script:MockToken -InputData @{ GroupID = ''; MemberID = '7' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'GRM11 — empty MemberID — Failures=1' {
+    It 'GRM11 - empty MemberID - Failures=1' {
         $r = Invoke-GroupsRemoveMember -Token $script:MockToken -InputData @{ GroupID = '42'; MemberID = '' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
@@ -164,20 +164,20 @@ Describe 'Invoke-GroupsRemoveMember — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsRemoveMember — API errors' {
+Describe 'Invoke-GroupsRemoveMember - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GRM12 — 401 — IsFatal=$true' {
+    It 'GRM12 - 401 - IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'GRM13 — status 0 — IsFatal=$true' {
+    It 'GRM13 - status 0 - IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-GroupsRemoveMember -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
@@ -185,14 +185,14 @@ Describe 'Invoke-GroupsRemoveMember — API errors' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsRemoveMember — URL encoding' {
+Describe 'Invoke-GroupsRemoveMember - URL encoding' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GRM14 — GroupID and MemberID URL-encoded in endpoint' {
+    It 'GRM14 - GroupID and MemberID URL-encoded in endpoint' {
         $capturedEndpoint = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)

@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\SafeMembers\Invoke-SafeMembersRemove.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-SafeMembersRemoveInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -75,26 +75,26 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'MR01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'MR01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'MR02 — ProducesOutput is $false' {
+    It 'MR02 - ProducesOutput is $false' {
         $ModuleMeta.ProducesOutput | Should -BeFalse
     }
 
-    It 'MR03 — SupportsWhatIf is $true' {
+    It 'MR03 - SupportsWhatIf is $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 
-    It 'MR04 — Category=SafeMembers and Action=Remove' {
+    It 'MR04 - Category=SafeMembers and Action=Remove' {
         $ModuleMeta.Category | Should -Be 'SafeMembers'
         $ModuleMeta.Action   | Should -Be 'Remove'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersRemove — success' {
+Describe 'Invoke-SafeMembersRemove - success' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -102,29 +102,29 @@ Describe 'Invoke-SafeMembersRemove — success' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'MR05 — Successes=1, Failures=0, ItemsProcessed=1' {
+    It 'MR05 - Successes=1, Failures=0, ItemsProcessed=1' {
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.Failures       | Should -Be 0
         $r.ItemsProcessed | Should -Be 1
     }
 
-    It 'MR06 — DELETE method is used' {
+    It 'MR06 - DELETE method is used' {
         Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Method -eq 'DELETE' }
     }
 
-    It 'MR07 — endpoint contains SafeName' {
+    It 'MR07 - endpoint contains SafeName' {
         Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -like '*TestSafe*' }
     }
 
-    It 'MR08 — endpoint contains MemberName' {
+    It 'MR08 - endpoint contains MemberName' {
         Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -like '*john.doe*' }
     }
 
-    It 'MR09 — result entry has Removed=$true and correct SafeName and MemberName' {
+    It 'MR09 - result entry has Removed=$true and correct SafeName and MemberName' {
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput
         $r.Results.Count          | Should -Be 1
         $r.Results[0].Removed     | Should -BeTrue
@@ -132,14 +132,14 @@ Describe 'Invoke-SafeMembersRemove — success' {
         $r.Results[0].MemberName  | Should -Be 'john.doe'
     }
 
-    It 'MR10 — IsFatal=$false on success' {
+    It 'MR10 - IsFatal=$false on success' {
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersRemove — WhatIf' {
+Describe 'Invoke-SafeMembersRemove - WhatIf' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -147,19 +147,19 @@ Describe 'Invoke-SafeMembersRemove — WhatIf' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'MR11 — WhatIf: API is NOT called' {
+    It 'MR11 - WhatIf: API is NOT called' {
         Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'MR12 — WhatIf: Successes=1' {
+    It 'MR12 - WhatIf: Successes=1' {
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersRemove — validation' {
+Describe 'Invoke-SafeMembersRemove - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -167,39 +167,39 @@ Describe 'Invoke-SafeMembersRemove — validation' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'MR13 — empty SafeName: Failures=1 and API not called' {
+    It 'MR13 - empty SafeName: Failures=1 and API not called' {
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData @{ SafeName = ''; MemberName = 'john.doe' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'MR14 — empty MemberName: Failures=1 and API not called' {
+    It 'MR14 - empty MemberName: Failures=1 and API not called' {
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData @{ SafeName = 'TestSafe'; MemberName = '' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'MR15 — null InputData: Failures=1' {
+    It 'MR15 - null InputData: Failures=1' {
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafeMembersRemove — errors' {
+Describe 'Invoke-SafeMembersRemove - errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'MR16 — 401 Unauthorized: IsFatal=$true' {
+    It 'MR16 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'MR17 — 404 Not Found: IsFatal=$false and error added' {
+    It 'MR17 - 404 Not Found: IsFatal=$false and error added' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-SafeMembersRemove -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal      | Should -BeFalse

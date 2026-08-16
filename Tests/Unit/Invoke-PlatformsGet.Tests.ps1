@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Platforms\Invoke-PlatformsGet.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-PlatformsGetInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -82,11 +82,11 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'PG01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'PG01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'PG02 — required fields are all present' {
+    It 'PG02 - required fields are all present' {
         $ModuleMeta.Name             | Should -Not -BeNullOrEmpty
         $ModuleMeta.Category         | Should -Not -BeNullOrEmpty
         $ModuleMeta.Action           | Should -Not -BeNullOrEmpty
@@ -94,27 +94,27 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Version          | Should -Not -BeNullOrEmpty
     }
 
-    It 'PG03 — Category is Platforms and Action is Get' {
+    It 'PG03 - Category is Platforms and Action is Get' {
         $ModuleMeta.Category | Should -Be 'Platforms'
         $ModuleMeta.Action   | Should -Be 'Get'
     }
 
-    It 'PG04 — AcceptsInputFile is $true' {
+    It 'PG04 - AcceptsInputFile is $true' {
         $ModuleMeta.AcceptsInputFile | Should -BeTrue
     }
 
-    It 'PG05 — SupportsWhatIf is $false' {
+    It 'PG05 - SupportsWhatIf is $false' {
         $ModuleMeta.SupportsWhatIf | Should -BeFalse
     }
 
-    It 'PG06 — SupportedSystems contains ISPSS and SelfHosted' {
+    It 'PG06 - SupportedSystems contains ISPSS and SelfHosted' {
         $ModuleMeta.SupportedSystems | Should -Contain 'ISPSS'
         $ModuleMeta.SupportedSystems | Should -Contain 'SelfHosted'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-PlatformsGet — success' {
+Describe 'Invoke-PlatformsGet - success' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -123,7 +123,7 @@ Describe 'Invoke-PlatformsGet — success' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'PG07 — returns result object with all 9 required fields' {
+    It 'PG07 - returns result object with all 9 required fields' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -136,46 +136,46 @@ Describe 'Invoke-PlatformsGet — success' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'PG08 — Successes=1, ItemsProcessed=1, Failures=0' {
+    It 'PG08 - Successes=1, ItemsProcessed=1, Failures=0' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
         $r.Failures       | Should -Be 0
     }
 
-    It 'PG09 — id is mapped to PlatformID' {
+    It 'PG09 - id is mapped to PlatformID' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.Results[0].PlatformID | Should -Be 'WinServerLocal'
     }
 
-    It 'PG10 — name is mapped to Name' {
+    It 'PG10 - name is mapped to Name' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.Results[0].Name | Should -Be 'Windows Server Local'
     }
 
-    It 'PG11 — description is mapped to Description' {
+    It 'PG11 - description is mapped to Description' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.Results[0].Description | Should -Be 'Manages local accounts on Windows servers.'
     }
 
-    It 'PG12 — active is mapped to Active' {
+    It 'PG12 - active is mapped to Active' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.Results[0].Active | Should -BeTrue
     }
 
-    It 'PG13 — platformType is mapped to PlatformType' {
+    It 'PG13 - platformType is mapped to PlatformType' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.Results[0].PlatformType | Should -Be 'Regular'
     }
 
-    It 'PG14 — IsFatal=$false on success' {
+    It 'PG14 - IsFatal=$false on success' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.IsFatal | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-PlatformsGet — validation' {
+Describe 'Invoke-PlatformsGet - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -184,13 +184,13 @@ Describe 'Invoke-PlatformsGet — validation' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'PG15 — empty PlatformID: Failures=1 and no API call made' {
+    It 'PG15 - empty PlatformID: Failures=1 and no API call made' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = '' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0 -Exactly
     }
 
-    It 'PG16 — null InputData: Failures=1 and no API call made' {
+    It 'PG16 - null InputData: Failures=1 and no API call made' {
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0 -Exactly
@@ -198,25 +198,25 @@ Describe 'Invoke-PlatformsGet — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-PlatformsGet — errors' {
+Describe 'Invoke-PlatformsGet - errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'PG17 — 401 Unauthorized: IsFatal=$true' {
+    It 'PG17 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'PG18 — status 0 (network error): IsFatal=$true' {
+    It 'PG18 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'PG17b — 403 Forbidden: IsFatal=$false and error added' {
+    It 'PG17b - 403 Forbidden: IsFatal=$false and error added' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.IsFatal      | Should -BeFalse
@@ -224,7 +224,7 @@ Describe 'Invoke-PlatformsGet — errors' {
         $r.Errors.Count | Should -Be 1
     }
 
-    It 'PG18b — 404 Not Found: IsFatal=$false and error added' {
+    It 'PG18b - 404 Not Found: IsFatal=$false and error added' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-PlatformsGet -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal' }
         $r.IsFatal      | Should -BeFalse

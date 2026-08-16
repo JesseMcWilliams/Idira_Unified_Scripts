@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Delete Application Authentication Method'
@@ -30,7 +30,7 @@ function Get-ApplicationsDeleteAuthMethodInput {
     Write-Host '  Delete Application Authentication Method' -ForegroundColor DarkGray
     Write-Host ''
 
-    # Step 1 — resolve AppID
+    # Step 1 - resolve AppID
     $appId = Show-FieldPrompt -Label 'App ID' `
         -Default $(if ($Defaults['AppID']) { $Defaults['AppID'] } else { '' }) `
         -Description 'Application ID, or leave blank to search by name.'
@@ -53,7 +53,7 @@ function Get-ApplicationsDeleteAuthMethodInput {
         if (-not $appId) { return $null }
     }
 
-    # Step 2 — list auth methods inline so user can pick
+    # Step 2 - list auth methods inline so user can pick
     $authId = ''
 
     if ($Defaults['AuthID']) {

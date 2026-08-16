@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Shared helper for CyberArk PAS integration test scripts.
@@ -7,7 +7,7 @@
     This file is dot-sourced by integration test scripts at the top of each file:
         . "$PSScriptRoot\IntegrationTestHelper.ps1"
 
-    Credentials are collected at runtime via Read-Host — never stored in files.
+    Credentials are collected at runtime via Read-Host - never stored in files.
     Tests create and delete the safe named in Config.psd1 (TestSafeName).
     The safe named in Config.psd1 (ExcludedSafe) is NEVER touched by any test operation.
 
@@ -43,7 +43,7 @@ function Get-IntegrationConfig {
     .SYNOPSIS
         Reads Config.psd1 from the Integration test directory and returns the config hashtable.
     .OUTPUTS
-        Hashtable — the contents of Config.psd1.
+        Hashtable - the contents of Config.psd1.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -70,7 +70,7 @@ function Get-IntegrationToken {
         never stored as plaintext in a variable beyond the scope of this function.
 
         For CyberArk self-hosted, the API returns a bare token string. That string is
-        placed directly in the Authorization header — it is NOT prefixed with "Bearer".
+        placed directly in the Authorization header - it is NOT prefixed with "Bearer".
 
     .PARAMETER Config
         The config hashtable returned by Get-IntegrationConfig.
@@ -79,7 +79,7 @@ function Get-IntegrationToken {
         Optional PSCredential. If omitted, the user is prompted for the password.
 
     .OUTPUTS
-        PSCustomObject — token object stored in $script:TestToken and returned to the caller.
+        PSCustomObject - token object stored in $script:TestToken and returned to the caller.
     #>
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
@@ -231,7 +231,7 @@ function Invoke-LogoffIfToken {
         Write-CyberArkLog -Message 'Logoff successful.' `
                           -Level 'INFO' -FunctionName 'Invoke-LogoffIfToken'
     } catch {
-        # Suppress errors — this is a cleanup function called in finally blocks.
+        # Suppress errors - this is a cleanup function called in finally blocks.
         # A failed logoff must not mask test results.
         Write-CyberArkLog -Message "Logoff failed (suppressed): $_" `
                           -Level 'WARN' -FunctionName 'Invoke-LogoffIfToken'

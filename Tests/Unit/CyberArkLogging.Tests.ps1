@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for CyberArkLogging.psm1.
@@ -9,7 +9,7 @@ BeforeAll {
     $modulePath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
     Import-Module $modulePath -Force -ErrorAction Stop
 
-    # Shared temp directory — one per test run, cleaned up in AfterAll
+    # Shared temp directory - one per test run, cleaned up in AfterAll
     $script:TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "CyberArkLogging_Tests_$PID"
     New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
 
@@ -40,45 +40,45 @@ Describe 'Initialize-CyberArkLog' {
         Get-ChildItem $script:TempDir -Filter '*.log' -File | Remove-Item -Force
     }
 
-    It 'L01 — creates a log file under the specified folder' {
+    It 'L01 - creates a log file under the specified folder' {
         Initialize-CyberArkLog -LogFolder $script:TempDir -ProfileName 'TestProfile'
         $files = Get-ChildItem $script:TempDir -Filter '*.log' -File
         @($files).Count | Should -BeGreaterThan 0
     }
 
-    It 'L02 — log filename contains the profile name and PID' {
+    It 'L02 - log filename contains the profile name and PID' {
         Initialize-CyberArkLog -LogFolder $script:TempDir -ProfileName 'MyProfile'
         $f = Get-LatestLog
         $f.Name | Should -Match 'MyProfile'
         $f.Name | Should -Match "$PID"
     }
 
-    It 'L03 — first line of log is exactly 40 asterisks' {
+    It 'L03 - first line of log is exactly 40 asterisks' {
         Initialize-CyberArkLog -LogFolder $script:TempDir -ProfileName 'StarTest'
         $lines = Get-Content (Get-LatestLog).FullName
         $lines[0] | Should -Be ('*' * 40)
     }
 
-    It 'L04 — header line contains PID and profile name' {
+    It 'L04 - header line contains PID and profile name' {
         Initialize-CyberArkLog -LogFolder $script:TempDir -ProfileName 'HeaderProfile'
         $content = Get-LatestLogContent
         $content | Should -Match "PID $PID"
         $content | Should -Match 'HeaderProfile'
     }
 
-    It 'L05 — WhatIf note appears in header when WhatIfMode is true' {
+    It 'L05 - WhatIf note appears in header when WhatIfMode is true' {
         Initialize-CyberArkLog -LogFolder $script:TempDir -ProfileName 'WITest' -WhatIfMode $true
         $content = Get-LatestLogContent
         $content | Should -Match '\[WhatIf ON\]'
     }
 
-    It 'L06 — creates the log folder if it does not exist' {
+    It 'L06 - creates the log folder if it does not exist' {
         $newFolder = Join-Path $script:TempDir 'SubFolder_L06'
         Initialize-CyberArkLog -LogFolder $newFolder -ProfileName 'FolderTest'
         Test-Path $newFolder | Should -BeTrue
     }
 
-    It 'L07 — Destination=Console creates no log file' {
+    It 'L07 - Destination=Console creates no log file' {
         Close-CyberArkLog -ErrorAction SilentlyContinue
         Get-ChildItem $script:TempDir -Filter '*.log' | Remove-Item -Force
         Initialize-CyberArkLog -Destination 'Console' -ProfileName 'NoFile'
@@ -86,12 +86,12 @@ Describe 'Initialize-CyberArkLog' {
         @($files).Count | Should -Be 0
     }
 
-    It 'L08 — invalid MinLevel throws' {
+    It 'L08 - invalid MinLevel throws' {
         { Initialize-CyberArkLog -LogFolder $script:TempDir -MinLevel 'BOGUS' } |
             Should -Throw
     }
 
-    It 'L09 — invalid Destination throws' {
+    It 'L09 - invalid Destination throws' {
         { Initialize-CyberArkLog -LogFolder $script:TempDir -Destination 'Nowhere' } |
             Should -Throw
     }
@@ -108,33 +108,33 @@ Describe 'Write-CyberArkLog' {
 
     AfterEach { Close-CyberArkLog -ErrorAction SilentlyContinue }
 
-    It 'L10 — INFO at INFO minimum is written' {
+    It 'L10 - INFO at INFO minimum is written' {
         Write-CyberArkLog -Message 'Info message' -Level 'INFO'
         Get-LatestLogContent | Should -Match 'Info message'
     }
 
-    It 'L11 — DEBUG at INFO minimum is NOT written' {
+    It 'L11 - DEBUG at INFO minimum is NOT written' {
         Write-CyberArkLog -Message 'Debug message' -Level 'DEBUG'
         Get-LatestLogContent | Should -Not -Match 'Debug message'
     }
 
-    It 'L12 — VERBOSE at DEBUG minimum is NOT written' {
+    It 'L12 - VERBOSE at DEBUG minimum is NOT written' {
         Set-CyberArkLogLevel -Level 'DEBUG'
         Write-CyberArkLog -Message 'Verbose message' -Level 'VERBOSE'
         Get-LatestLogContent | Should -Not -Match 'Verbose message'
     }
 
-    It 'L13 — WARN is written when minimum is INFO' {
+    It 'L13 - WARN is written when minimum is INFO' {
         Write-CyberArkLog -Message 'Warn message' -Level 'WARN'
         Get-LatestLogContent | Should -Match 'Warn message'
     }
 
-    It 'L14 — ERROR is always written' {
+    It 'L14 - ERROR is always written' {
         Write-CyberArkLog -Message 'Error message' -Level 'ERROR'
         Get-LatestLogContent | Should -Match 'Error message'
     }
 
-    It 'L15 — bare mode writes message only (no pipe separators)' {
+    It 'L15 - bare mode writes message only (no pipe separators)' {
         Write-CyberArkLog -Message 'Bare line content' -Bare
         $content = Get-LatestLogContent
         # The bare line should appear and contain no pipe characters from the prefix
@@ -144,7 +144,7 @@ Describe 'Write-CyberArkLog' {
         $bareLine.Trim() | Should -Be 'Bare line content'
     }
 
-    It 'L16 — PID field is right-aligned to width 7' {
+    It 'L16 - PID field is right-aligned to width 7' {
         Write-CyberArkLog -Message 'PID width test' -Level 'INFO'
         $line = (Get-LatestLogContent) -split "`n" |
                 Where-Object { $_ -match 'PID width test' } |
@@ -154,7 +154,7 @@ Describe 'Write-CyberArkLog' {
         $pidField.TrimEnd().Length | Should -Be 7
     }
 
-    It 'L17 — LEVEL field is centered at width 7' {
+    It 'L17 - LEVEL field is centered at width 7' {
         Write-CyberArkLog -Message 'Level width test' -Level 'WARN'
         $line = (Get-LatestLogContent) -split "`n" |
                 Where-Object { $_ -match 'Level width test' } |
@@ -165,7 +165,7 @@ Describe 'Write-CyberArkLog' {
         $levelField.Trim() | Should -Be 'WARN'
     }
 
-    It 'L18 — FunctionName field is padded to width 24' {
+    It 'L18 - FunctionName field is padded to width 24' {
         Write-CyberArkLog -Message 'Fn width test' -Level 'INFO' -FunctionName 'ShortName'
         $line = (Get-LatestLogContent) -split "`n" |
                 Where-Object { $_ -match 'Fn width test' } |
@@ -175,7 +175,7 @@ Describe 'Write-CyberArkLog' {
         ($fnField.Length - 2) | Should -Be 24
     }
 
-    It 'L19 — long FunctionName is truncated with ellipsis' {
+    It 'L19 - long FunctionName is truncated with ellipsis' {
         $longName = 'A' * 30
         Write-CyberArkLog -Message 'Long fn test' -Level 'INFO' -FunctionName $longName
         $line = (Get-LatestLogContent) -split "`n" |
@@ -186,33 +186,33 @@ Describe 'Write-CyberArkLog' {
         $fnField.Contains([char]0x2026) | Should -BeTrue   # ellipsis character
     }
 
-    It 'L20 — masks Bearer token in Authorization header' {
+    It 'L20 - masks Bearer token in Authorization header' {
         Write-CyberArkLog -Message 'Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.secret' -Level 'INFO'
         $content = Get-LatestLogContent
         $content | Should -Not -Match 'eyJhbGciOiJSUzI1NiJ9'
         $content | Should -Match '\*\*\*'
     }
 
-    It 'L21 — masks password= pattern' {
+    It 'L21 - masks password= pattern' {
         Write-CyberArkLog -Message 'password=SuperSecret123' -Level 'INFO'
         $content = Get-LatestLogContent
         $content | Should -Not -Match 'SuperSecret123'
         $content | Should -Match '\*\*\*'
     }
 
-    It 'L22 — masks access_token JSON value' {
+    It 'L22 - masks access_token JSON value' {
         Write-CyberArkLog -Message '"access_token":"eyTokenValue"' -Level 'INFO'
         $content = Get-LatestLogContent
         $content | Should -Not -Match 'eyTokenValue'
         $content | Should -Match '\*\*\*'
     }
 
-    It 'L23 — non-sensitive message is unchanged' {
+    It 'L23 - non-sensitive message is unchanged' {
         Write-CyberArkLog -Message 'SafeName is MySafe location is root' -Level 'INFO'
         Get-LatestLogContent | Should -Match 'SafeName is MySafe location is root'
     }
 
-    It 'L24 — FunctionName auto-detected from call stack' {
+    It 'L24 - FunctionName auto-detected from call stack' {
         function Test-CallerDetection {
             Write-CyberArkLog -Message 'AutoDetect' -Level 'INFO'
         }
@@ -221,7 +221,7 @@ Describe 'Write-CyberArkLog' {
         $content | Should -Match 'Test-CallerDetection'
     }
 
-    It 'L25 — explicit FunctionName overrides call stack' {
+    It 'L25 - explicit FunctionName overrides call stack' {
         Write-CyberArkLog -Message 'ExplicitFn' -Level 'INFO' -FunctionName 'MyExplicitFunction'
         Get-LatestLogContent | Should -Match 'MyExplicitFunction'
     }
@@ -236,19 +236,19 @@ Describe 'Add-CyberArkLogSummaryEntry and Close-CyberArkLog' {
         Initialize-CyberArkLog -LogFolder $script:TempDir -ProfileName 'SummaryTests' -Destination 'File'
     }
 
-    It 'L26 — no summary block when no entries added' {
+    It 'L26 - no summary block when no entries added' {
         Close-CyberArkLog
         Get-LatestLogContent | Should -Not -Match 'Session Summary'
     }
 
-    It 'L27 — summary block present when one entry added' {
+    It 'L27 - summary block present when one entry added' {
         Add-CyberArkLogSummaryEntry -ModuleName 'List Safes' -ItemsProcessed 10 -Successes 9 -Failures 1
         Close-CyberArkLog
         Get-LatestLogContent | Should -Match 'Session Summary'
         Get-LatestLogContent | Should -Match 'List Safes'
     }
 
-    It 'L28 — multiple entries each appear in summary' {
+    It 'L28 - multiple entries each appear in summary' {
         Add-CyberArkLogSummaryEntry -ModuleName 'Add Safe'    -ItemsProcessed 5  -Successes 5  -Failures 0
         Add-CyberArkLogSummaryEntry -ModuleName 'Delete Safe' -ItemsProcessed 3  -Successes 2  -Failures 1
         Close-CyberArkLog
@@ -257,7 +257,7 @@ Describe 'Add-CyberArkLogSummaryEntry and Close-CyberArkLog' {
         $content | Should -Match 'Delete Safe'
     }
 
-    It 'L29 — totals are sum of all entries' {
+    It 'L29 - totals are sum of all entries' {
         Add-CyberArkLogSummaryEntry -ModuleName 'ModA' -ItemsProcessed 10 -Successes 8 -Failures 2
         Add-CyberArkLogSummaryEntry -ModuleName 'ModB' -ItemsProcessed 5  -Successes 5 -Failures 0
         Close-CyberArkLog
@@ -267,7 +267,7 @@ Describe 'Add-CyberArkLogSummaryEntry and Close-CyberArkLog' {
         $content | Should -Match 'Failures:\s+2'
     }
 
-    It 'L30 — divider lines are 40 dashes' {
+    It 'L30 - divider lines are 40 dashes' {
         Add-CyberArkLogSummaryEntry -ModuleName 'X' -ItemsProcessed 1 -Successes 1 -Failures 0
         Close-CyberArkLog
         Get-LatestLogContent | Should -Match ('-' * 40)
@@ -286,7 +286,7 @@ Describe 'Remove-OldCyberArkLogs' {
         Get-ChildItem $script:LogCleanDir -Filter '*.log' | Remove-Item -Force
     }
 
-    It 'L31 — deletes log files older than retention window' {
+    It 'L31 - deletes log files older than retention window' {
         $oldFile = Join-Path $script:LogCleanDir 'old.log'
         New-Item -ItemType File -Path $oldFile -Force | Out-Null
         (Get-Item $oldFile).LastWriteTime = (Get-Date).AddDays(-40)
@@ -295,7 +295,7 @@ Describe 'Remove-OldCyberArkLogs' {
         Test-Path $oldFile | Should -BeFalse
     }
 
-    It 'L32 — keeps log files within retention window' {
+    It 'L32 - keeps log files within retention window' {
         $newFile = Join-Path $script:LogCleanDir 'new.log'
         New-Item -ItemType File -Path $newFile -Force | Out-Null
 
@@ -303,12 +303,12 @@ Describe 'Remove-OldCyberArkLogs' {
         Test-Path $newFile | Should -BeTrue
     }
 
-    It 'L33 — non-existent folder does not throw' {
+    It 'L33 - non-existent folder does not throw' {
         { Remove-OldCyberArkLogs -LogFolder 'C:\NonExistentFolder_L33_Test' -RetentionDays 30 } |
             Should -Not -Throw
     }
 
-    It 'L34 — WhatIf does not delete files' {
+    It 'L34 - WhatIf does not delete files' {
         $oldFile = Join-Path $script:LogCleanDir 'whatif.log'
         New-Item -ItemType File -Path $oldFile -Force | Out-Null
         (Get-Item $oldFile).LastWriteTime = (Get-Date).AddDays(-40)
@@ -329,13 +329,13 @@ Describe 'Set-CyberArkLogLevel and Set-CyberArkLogDestination' {
 
     AfterEach { Close-CyberArkLog -ErrorAction SilentlyContinue }
 
-    It 'L35 — setting level to VERBOSE allows VERBOSE messages through' {
+    It 'L35 - setting level to VERBOSE allows VERBOSE messages through' {
         Set-CyberArkLogLevel -Level 'VERBOSE'
         Write-CyberArkLog -Message 'VerboseMsg' -Level 'VERBOSE'
         Get-LatestLogContent | Should -Match 'VerboseMsg'
     }
 
-    It 'L36 — setting level to ERROR blocks WARN messages' {
+    It 'L36 - setting level to ERROR blocks WARN messages' {
         Set-CyberArkLogLevel -Level 'ERROR'
         Write-CyberArkLog -Message 'WarnShouldBeBlocked' -Level 'WARN'
         Get-LatestLogContent | Should -Not -Match 'WarnShouldBeBlocked'

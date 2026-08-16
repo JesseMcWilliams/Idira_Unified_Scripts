@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Safes\Invoke-SafesGet.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-SafesGetInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -87,11 +87,11 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'G01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'G01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'G02 — required fields are all present' {
+    It 'G02 - required fields are all present' {
         $ModuleMeta.Name             | Should -Not -BeNullOrEmpty
         $ModuleMeta.Category         | Should -Not -BeNullOrEmpty
         $ModuleMeta.Action           | Should -Not -BeNullOrEmpty
@@ -99,22 +99,22 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Version          | Should -Not -BeNullOrEmpty
     }
 
-    It 'G03 — Category is Safes and Action is Get' {
+    It 'G03 - Category is Safes and Action is Get' {
         $ModuleMeta.Category | Should -Be 'Safes'
         $ModuleMeta.Action   | Should -Be 'Get'
     }
 
-    It 'G04 — AcceptsInputFile is $true' {
+    It 'G04 - AcceptsInputFile is $true' {
         $ModuleMeta.AcceptsInputFile | Should -BeTrue
     }
 
-    It 'G05 — SupportsWhatIf is $false' {
+    It 'G05 - SupportsWhatIf is $false' {
         $ModuleMeta.SupportsWhatIf | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesGet — success' {
+Describe 'Invoke-SafesGet - success' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -123,7 +123,7 @@ Describe 'Invoke-SafesGet — success' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'G06 — returns result object with all 9 required fields' {
+    It 'G06 - returns result object with all 9 required fields' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -136,34 +136,34 @@ Describe 'Invoke-SafesGet — success' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'G07 — Successes=1, ItemsProcessed=1, Failures=0' {
+    It 'G07 - Successes=1, ItemsProcessed=1, Failures=0' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
         $r.Failures       | Should -Be 0
     }
 
-    It 'G08 — safeName mapped correctly to SafeName' {
+    It 'G08 - safeName mapped correctly to SafeName' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 
-    It 'G09 — description mapped correctly to Description' {
+    It 'G09 - description mapped correctly to Description' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].Description | Should -Be 'A test safe'
     }
 
-    It 'G10 — creator.name mapped to Creator' {
+    It 'G10 - creator.name mapped to Creator' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].Creator | Should -Be 'Admin'
     }
 
-    It 'G11 — creationTime epoch converted to yyyy-MM-dd string' {
+    It 'G11 - creationTime epoch converted to yyyy-MM-dd string' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.Results[0].Created | Should -Match '^\d{4}-\d{2}-\d{2}$'
     }
 
-    It 'G12 — null creationTime returns empty string for Created' {
+    It 'G12 - null creationTime returns empty string for Created' {
         $safeNoTime = [PSCustomObject]@{
             safeName                  = 'NoTime'
             description               = ''
@@ -181,12 +181,12 @@ Describe 'Invoke-SafesGet — success' {
         $r.Results[0].Created | Should -Be ''
     }
 
-    It 'G13 — IsFatal=$false on success' {
+    It 'G13 - IsFatal=$false on success' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'G14 — null creator returns empty string for Creator' {
+    It 'G14 - null creator returns empty string for Creator' {
         $safeNoCreator = [PSCustomObject]@{
             safeName                  = 'NoCreator'
             description               = ''
@@ -206,20 +206,20 @@ Describe 'Invoke-SafesGet — success' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesGet — validation' {
+Describe 'Invoke-SafesGet - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-SafeApiResponse -Safe $script:SampleSafe }
         Mock Write-CyberArkLog { }
     }
 
-    It 'G15 — empty SafeName: Failures=1 and no API call made' {
+    It 'G15 - empty SafeName: Failures=1 and no API call made' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = '' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0 -Exactly
     }
 
-    It 'G16 — null InputData: Failures=1 and no API call made' {
+    It 'G16 - null InputData: Failures=1 and no API call made' {
         $r = Invoke-SafesGet -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0 -Exactly
@@ -227,31 +227,31 @@ Describe 'Invoke-SafesGet — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesGet — errors' {
+Describe 'Invoke-SafesGet - errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'G17 — 401 Unauthorized: IsFatal=$true' {
+    It 'G17 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'G18 — status 0 (network error): IsFatal=$true' {
+    It 'G18 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'G19 — 403 Forbidden: IsFatal=$false' {
+    It 'G19 - 403 Forbidden: IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'G20 — 404 Not Found: IsFatal=$false and error added' {
+    It 'G20 - 404 Not Found: IsFatal=$false and error added' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-SafesGet -Token $script:MockToken -InputData @{ SafeName = 'TestSafe' }
         $r.IsFatal      | Should -BeFalse

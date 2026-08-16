@@ -2,12 +2,12 @@
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Groups\Invoke-GroupsAdd.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-GroupsAddInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -91,17 +91,17 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'GA01 — ModuleMeta.Name is ''Add Group''' {
+    It 'GA01 - ModuleMeta.Name is ''Add Group''' {
         $ModuleMeta.Name | Should -Be 'Add Group'
     }
 
-    It 'GA02 — SupportsWhatIf is $true' {
+    It 'GA02 - SupportsWhatIf is $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAdd — success (201)' {
+Describe 'Invoke-GroupsAdd - success (201)' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -111,35 +111,35 @@ Describe 'Invoke-GroupsAdd — success (201)' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GA03 — Successes=1, Failures=0, ItemsProcessed=1 on success' {
+    It 'GA03 - Successes=1, Failures=0, ItemsProcessed=1 on success' {
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.Failures       | Should -Be 0
         $r.ItemsProcessed | Should -Be 1
     }
 
-    It 'GA04 — IsFatal=$false on success' {
+    It 'GA04 - IsFatal=$false on success' {
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'GA05 — POST method is used' {
+    It 'GA05 - POST method is used' {
         Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Method -eq 'POST' } -Times 1
     }
 
-    It 'GA06 — endpoint is /API/UserGroups' {
+    It 'GA06 - endpoint is /API/UserGroups' {
         Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/UserGroups' } -Times 1
     }
 
-    It 'GA07 — result entry has GroupID=99 and GroupName=''VaultAdmins''' {
+    It 'GA07 - result entry has GroupID=99 and GroupName=''VaultAdmins''' {
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].GroupID   | Should -Be 99
         $r.Results[0].GroupName | Should -Be 'VaultAdmins'
     }
 
-    It 'GA08 — request body contains groupName=''VaultAdmins''' {
+    It 'GA08 - request body contains groupName=''VaultAdmins''' {
         $script:CapturedBody = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -152,7 +152,7 @@ Describe 'Invoke-GroupsAdd — success (201)' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAdd — WhatIf' {
+Describe 'Invoke-GroupsAdd - WhatIf' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -171,24 +171,24 @@ Describe 'Invoke-GroupsAdd — WhatIf' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GA09 — WhatIf: API is NOT called' {
+    It 'GA09 - WhatIf: API is NOT called' {
         Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'GA10 — WhatIf: Successes=1 (synthetic result counted)' {
+    It 'GA10 - WhatIf: Successes=1 (synthetic result counted)' {
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
     }
 
-    It 'GA11 — WhatIf: result entry GroupName matches input' {
+    It 'GA11 - WhatIf: result entry GroupName matches input' {
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Results[0].GroupName | Should -Be $script:ValidInput.GroupName
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAdd — validation' {
+Describe 'Invoke-GroupsAdd - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { }
@@ -196,7 +196,7 @@ Describe 'Invoke-GroupsAdd — validation' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GA12 — empty GroupName: Failures=1, no API call' {
+    It 'GA12 - empty GroupName: Failures=1, no API call' {
         $testInput = $script:ValidInput.Clone()
         $testInput.GroupName = ''
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $testInput
@@ -204,7 +204,7 @@ Describe 'Invoke-GroupsAdd — validation' {
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'GA13 — null InputData: Failures=1, no API call' {
+    It 'GA13 - null InputData: Failures=1, no API call' {
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
@@ -212,26 +212,26 @@ Describe 'Invoke-GroupsAdd — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-GroupsAdd — errors' {
+Describe 'Invoke-GroupsAdd - errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'GA14 — 401 Unauthorized: IsFatal=$true' {
+    It 'GA14 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'GA15 — status 0 (network error): IsFatal=$true' {
+    It 'GA15 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'GA16 — 409 Conflict: IsFatal=$false, Errors.Count=1' {
+    It 'GA16 - 409 Conflict: IsFatal=$false, Errors.Count=1' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 409 -ErrorMessage 'Group already exists' }
         $r = Invoke-GroupsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal      | Should -BeFalse

@@ -92,7 +92,7 @@ Describe 'Invoke-CustomExportGroupMembersLDAP' {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $groupsData }
             }
 
-            # Run — will attempt ADSI lookup and fail gracefully (group not found in AD)
+            # Run - will attempt ADSI lookup and fail gracefully (group not found in AD)
             { $result = Invoke-CustomExportGroupMembersLDAP -Token $token -InputData @{} } | Should -Not -Throw
 
             $result = Invoke-CustomExportGroupMembersLDAP -Token $token -InputData @{}

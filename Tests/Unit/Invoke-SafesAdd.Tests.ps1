@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Safes\Invoke-SafesAdd.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-SafesAddInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -101,24 +101,24 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'A01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'A01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'A02 — SupportsWhatIf is $true' {
+    It 'A02 - SupportsWhatIf is $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 
-    It 'A03 — AcceptsInputFile is $true' {
+    It 'A03 - AcceptsInputFile is $true' {
         $ModuleMeta.AcceptsInputFile | Should -BeTrue
     }
 
-    It 'A04 — Category is Safes and Action is Add' {
+    It 'A04 - Category is Safes and Action is Add' {
         $ModuleMeta.Category | Should -Be 'Safes'
         $ModuleMeta.Action   | Should -Be 'Add'
     }
 
-    It 'A05 — InputSchema contains SafeName with Required=$true' {
+    It 'A05 - InputSchema contains SafeName with Required=$true' {
         $safeNameField = $ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'SafeName' }
         $safeNameField           | Should -Not -BeNullOrEmpty
         $safeNameField.Required  | Should -BeTrue
@@ -126,7 +126,7 @@ Describe 'ModuleMeta' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesAdd — success (201)' {
+Describe 'Invoke-SafesAdd - success (201)' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -136,7 +136,7 @@ Describe 'Invoke-SafesAdd — success (201)' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'A06 — returns a result object with all 9 required fields' {
+    It 'A06 - returns a result object with all 9 required fields' {
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -149,36 +149,36 @@ Describe 'Invoke-SafesAdd — success (201)' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'A07 — Successes=1, ItemsProcessed=1, Failures=0' {
+    It 'A07 - Successes=1, ItemsProcessed=1, Failures=0' {
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
         $r.Failures       | Should -Be 0
     }
 
-    It 'A08 — result SafeName matches input' {
+    It 'A08 - result SafeName matches input' {
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 
-    It 'A09 — IsFatal is $false on success' {
+    It 'A09 - IsFatal is $false on success' {
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'A10 — POST method is used' {
+    It 'A10 - POST method is used' {
         Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Method -eq 'POST' } -Times 1
     }
 
-    It 'A11 — endpoint is /API/Safes' {
+    It 'A11 - endpoint is /API/Safes' {
         Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/Safes' } -Times 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesAdd — WhatIf' {
+Describe 'Invoke-SafesAdd - WhatIf' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -197,24 +197,24 @@ Describe 'Invoke-SafesAdd — WhatIf' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'A12 — WhatIf: API is NOT called' {
+    It 'A12 - WhatIf: API is NOT called' {
         Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'A13 — WhatIf: Successes=1 (synthetic result counted)' {
+    It 'A13 - WhatIf: Successes=1 (synthetic result counted)' {
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
     }
 
-    It 'A14 — WhatIf: IsFatal=$false' {
+    It 'A14 - WhatIf: IsFatal=$false' {
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.IsFatal | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesAdd — validation' {
+Describe 'Invoke-SafesAdd - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { }
@@ -222,7 +222,7 @@ Describe 'Invoke-SafesAdd — validation' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'A15 — empty SafeName: Failures=1, no API call' {
+    It 'A15 - empty SafeName: Failures=1, no API call' {
         $testInput = $script:ValidInput.Clone()
         $testInput.SafeName = ''
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $testInput
@@ -230,7 +230,7 @@ Describe 'Invoke-SafesAdd — validation' {
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'A16 — null InputData: Failures=1, no API call' {
+    It 'A16 - null InputData: Failures=1, no API call' {
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
@@ -238,33 +238,33 @@ Describe 'Invoke-SafesAdd — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesAdd — errors' {
+Describe 'Invoke-SafesAdd - errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'A17 — 401 Unauthorized: IsFatal=$true' {
+    It 'A17 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'A18 — status 0 (network error): IsFatal=$true' {
+    It 'A18 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'A19 — 409 Conflict: IsFatal=$false, error added' {
+    It 'A19 - 409 Conflict: IsFatal=$false, error added' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 409 -ErrorMessage 'Safe already exists' }
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal      | Should -BeFalse
         $r.Errors.Count | Should -Be 1
     }
 
-    It 'A20 — error entry ErrorMessage is not null or empty' {
+    It 'A20 - error entry ErrorMessage is not null or empty' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 409 -ErrorMessage 'Safe already exists' }
         $r = Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.Errors[0].ErrorMessage | Should -Not -BeNullOrEmpty

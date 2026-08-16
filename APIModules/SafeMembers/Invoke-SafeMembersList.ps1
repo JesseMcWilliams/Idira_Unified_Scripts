@@ -128,7 +128,7 @@ function Invoke-SafeMembersList {
 
     if ((-not $members) -or $members.Count -eq 0) {
         Write-CyberArkLog -Level 'WARN' -Message "No members returned for safe: $safeName"
-        # Not a failure — a valid empty result
+        # Not a failure - a valid empty result
         return $result
     }
 

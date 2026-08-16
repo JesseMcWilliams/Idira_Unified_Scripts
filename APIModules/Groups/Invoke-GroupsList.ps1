@@ -75,7 +75,7 @@ function Invoke-GroupsList {
     $search    = if ($InputData['Search'])    { "$($InputData['Search'])".Trim()    } else { $null }
     $groupType = if ($InputData['GroupType']) { "$($InputData['GroupType'])".Trim() } else { $null }
 
-    # Build query parameters — only include keys that have a value
+    # Build query parameters - only include keys that have a value
     $queryParams = @{}
     if ($search)    { $queryParams['search']    = $search    }
     if ($groupType) { $queryParams['groupType'] = $groupType }
@@ -118,7 +118,7 @@ function Invoke-GroupsList {
 
     if ((-not $groups) -or $groups.Count -eq 0) {
         Write-CyberArkLog -Level 'WARN' -Message 'No groups returned for the given criteria.'
-        # Not a failure — a valid empty result
+        # Not a failure - a valid empty result
         return $result
     }
 

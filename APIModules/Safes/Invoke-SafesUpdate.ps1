@@ -158,7 +158,7 @@ function Invoke-SafesUpdate {
 
     $currentSafe = $getResponse.Data
 
-    # Step 2: Merge — use input value when provided/non-empty, otherwise fall back to current safe value
+    # Step 2: Merge - use input value when provided/non-empty, otherwise fall back to current safe value
 
     $mergedDescription = if ($InputData.ContainsKey('Description') -and "$($InputData.Description)".Trim() -ne '') {
         "$($InputData.Description)".Trim()
@@ -196,7 +196,7 @@ function Invoke-SafesUpdate {
         [bool]$currentSafe.olacEnabled
     }
 
-    # Location is not updatable via PUT — keep current value as-is
+    # Location is not updatable via PUT - keep current value as-is
     $currentLocation = if ($currentSafe.location) { $currentSafe.location } else { '' }
 
     # Step 3: Build PUT body (SafeName is in the URL, not the body)

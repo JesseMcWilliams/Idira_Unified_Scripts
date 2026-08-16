@@ -75,7 +75,7 @@ function Invoke-PlatformsList {
     $search     = if ($InputData['Search'])     { "$($InputData['Search'])".Trim() } else { $null }
     $activeOnly = [bool]$InputData['ActiveOnly']
 
-    # Build query parameters — only include keys that have a value
+    # Build query parameters - only include keys that have a value
     $queryParams = @{}
     if ($search)     { $queryParams['Search'] = $search  }
     if ($activeOnly) { $queryParams['Active'] = 'true'   }
@@ -118,7 +118,7 @@ function Invoke-PlatformsList {
 
     if ((-not $platforms) -or $platforms.Count -eq 0) {
         Write-CyberArkLog -Level 'WARN' -Message 'No platforms returned for the given criteria.'
-        # Not a failure — a valid empty result
+        # Not a failure - a valid empty result
         return $result
     }
 

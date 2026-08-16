@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Accounts\Invoke-AccountsAdd.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-AccountsAddInput is NOT tested here because it depends on Show-FieldPrompt
     and Read-Host, which require interactive input. That function is covered by
-    manual integration tests (Driver.ps1 — D-series in Testing-Plan.md).
+    manual integration tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -111,11 +111,11 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'AA01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'AA01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'AA02 — required fields are all present' {
+    It 'AA02 - required fields are all present' {
         $ModuleMeta.Name             | Should -Not -BeNullOrEmpty
         $ModuleMeta.Category         | Should -Not -BeNullOrEmpty
         $ModuleMeta.Action           | Should -Not -BeNullOrEmpty
@@ -123,21 +123,21 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Version          | Should -Not -BeNullOrEmpty
     }
 
-    It 'AA03 — SupportsWhatIf is $true (write operation)' {
+    It 'AA03 - SupportsWhatIf is $true (write operation)' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 
-    It 'AA04 — AcceptsInputFile is $true' {
+    It 'AA04 - AcceptsInputFile is $true' {
         $ModuleMeta.AcceptsInputFile | Should -BeTrue
     }
 
-    It 'AA05 — Action is Add' {
+    It 'AA05 - Action is Add' {
         $ModuleMeta.Action | Should -Be 'Add'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsAdd — successful response' {
+Describe 'Invoke-AccountsAdd - successful response' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -147,7 +147,7 @@ Describe 'Invoke-AccountsAdd — successful response' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'AA06 — returns a result object with all 9 required fields' {
+    It 'AA06 - returns a result object with all 9 required fields' {
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -160,14 +160,14 @@ Describe 'Invoke-AccountsAdd — successful response' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'AA07 — success: Successes=1, ItemsProcessed=1, Failures=0' {
+    It 'AA07 - success: Successes=1, ItemsProcessed=1, Failures=0' {
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
         $r.Failures       | Should -Be 0
     }
 
-    It 'AA08 — POST method is used' {
+    It 'AA08 - POST method is used' {
         $capturedParams = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -178,22 +178,22 @@ Describe 'Invoke-AccountsAdd — successful response' {
         $script:capturedParams.Method | Should -Be 'POST'
     }
 
-    It 'AA09 — AccountID is mapped from response id' {
+    It 'AA09 - AccountID is mapped from response id' {
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].AccountID | Should -Be '12345'
     }
 
-    It 'AA10 — SafeName is mapped from response safeName' {
+    It 'AA10 - SafeName is mapped from response safeName' {
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 
-    It 'AA11 — IsFatal is $false on success' {
+    It 'AA11 - IsFatal is $false on success' {
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'AA12 — account name is auto-generated as UserName@Address when Name is blank' {
+    It 'AA12 - account name is auto-generated as UserName@Address when Name is blank' {
         $testInput = $script:ValidInput.Clone()
         $testInput.Name = ''
         $capturedParams = $null
@@ -208,32 +208,32 @@ Describe 'Invoke-AccountsAdd — successful response' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsAdd — WhatIf' {
+Describe 'Invoke-AccountsAdd - WhatIf' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'AA13 — WhatIf: Invoke-CyberArkAPI is not called' {
+    It 'AA13 - WhatIf: Invoke-CyberArkAPI is not called' {
         Mock Invoke-CyberArkAPI { throw 'Should not be called' }
         { Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf } | Should -Not -Throw
         Should -Not -Invoke Invoke-CyberArkAPI
     }
 
-    It 'AA14 — WhatIf: Successes=1' {
+    It 'AA14 - WhatIf: Successes=1' {
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
     }
 
-    It 'AA15 — WhatIf: result entry contains SafeName from input' {
+    It 'AA15 - WhatIf: result entry contains SafeName from input' {
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsAdd — input validation' {
+Describe 'Invoke-AccountsAdd - input validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { throw 'Should not be called in validation tests' }
@@ -241,7 +241,7 @@ Describe 'Invoke-AccountsAdd — input validation' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'AA16 — empty Address: Failures=1, no API call' {
+    It 'AA16 - empty Address: Failures=1, no API call' {
         $testInput = $script:ValidInput.Clone()
         $testInput.Address = ''
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
@@ -249,7 +249,7 @@ Describe 'Invoke-AccountsAdd — input validation' {
         Should -Not -Invoke Invoke-CyberArkAPI
     }
 
-    It 'AA17 — empty UserName: Failures=1, no API call' {
+    It 'AA17 - empty UserName: Failures=1, no API call' {
         $testInput = $script:ValidInput.Clone()
         $testInput.UserName = ''
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
@@ -257,7 +257,7 @@ Describe 'Invoke-AccountsAdd — input validation' {
         Should -Not -Invoke Invoke-CyberArkAPI
     }
 
-    It 'AA18 — empty PlatformID: Failures=1, no API call' {
+    It 'AA18 - empty PlatformID: Failures=1, no API call' {
         $testInput = $script:ValidInput.Clone()
         $testInput.PlatformID = ''
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
@@ -265,7 +265,7 @@ Describe 'Invoke-AccountsAdd — input validation' {
         Should -Not -Invoke Invoke-CyberArkAPI
     }
 
-    It 'AA19 — empty SafeName: Failures=1, no API call' {
+    It 'AA19 - empty SafeName: Failures=1, no API call' {
         $testInput = $script:ValidInput.Clone()
         $testInput.SafeName = ''
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $testInput
@@ -275,28 +275,28 @@ Describe 'Invoke-AccountsAdd — input validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsAdd — API errors' {
+Describe 'Invoke-AccountsAdd - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'AA20 — 401 Unauthorized: IsFatal=$true' {
+    It 'AA20 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal  | Should -BeTrue
         $r.Failures | Should -Be 1
     }
 
-    It 'AA21 — status 0 (network error): IsFatal=$true' {
+    It 'AA21 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal  | Should -BeTrue
         $r.Failures | Should -Be 1
     }
 
-    It 'AA22 — 409 Conflict: IsFatal=$false, Failures=1' {
+    It 'AA22 - 409 Conflict: IsFatal=$false, Failures=1' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 409 -ErrorMessage 'Account already exists' }
         $r = Invoke-AccountsAdd -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal  | Should -BeFalse

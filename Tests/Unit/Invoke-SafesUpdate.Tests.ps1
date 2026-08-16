@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Safes\Invoke-SafesUpdate.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-SafesUpdateInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -35,7 +35,7 @@ BeforeAll {
         BaseURL    = 'https://test.cyberark.local'
     }
 
-    # Standard valid input — Description provided, ManagingCPM left blank (falls back to current)
+    # Standard valid input - Description provided, ManagingCPM left blank (falls back to current)
     $script:ValidInput = @{
         SafeName                  = 'TestSafe'
         Description               = 'Updated'
@@ -118,26 +118,26 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'U01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'U01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'U02 — SupportsWhatIf is $true' {
+    It 'U02 - SupportsWhatIf is $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 
-    It 'U03 — AcceptsInputFile is $true' {
+    It 'U03 - AcceptsInputFile is $true' {
         $ModuleMeta.AcceptsInputFile | Should -BeTrue
     }
 
-    It 'U04 — Category is Safes and Action is Update' {
+    It 'U04 - Category is Safes and Action is Update' {
         $ModuleMeta.Category | Should -Be 'Safes'
         $ModuleMeta.Action   | Should -Be 'Update'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesUpdate — success' {
+Describe 'Invoke-SafesUpdate - success' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -147,21 +147,21 @@ Describe 'Invoke-SafesUpdate — success' {
         Mock Invoke-CyberArkAPI {
             $script:CallCount++
             if ($script:CallCount -eq 1) {
-                # GET — return current safe
+                # GET - return current safe
                 script:New-SafeApiResponse -Safe $script:CurrentSafe
             } else {
-                # PUT — return updated safe
+                # PUT - return updated safe
                 script:New-SafeApiResponse -Safe $script:UpdatedSafe
             }
         }
     }
 
-    It 'U05 — two API calls made total (GET then PUT)' {
+    It 'U05 - two API calls made total (GET then PUT)' {
         Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 2 -Exactly
     }
 
-    It 'U06 — second API call uses PUT method' {
+    It 'U06 - second API call uses PUT method' {
         $capturedCalls = [System.Collections.Generic.List[hashtable]]::new()
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -178,25 +178,25 @@ Describe 'Invoke-SafesUpdate — success' {
         $capturedCalls[1].Method | Should -Be 'PUT'
     }
 
-    It 'U07 — Successes=1 and Failures=0' {
+    It 'U07 - Successes=1 and Failures=0' {
         $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes | Should -Be 1
         $r.Failures  | Should -Be 0
     }
 
-    It 'U08 — IsFatal is $false on success' {
+    It 'U08 - IsFatal is $false on success' {
         $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'U09 — result entry SafeName matches input' {
+    It 'U09 - result entry SafeName matches input' {
         $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesUpdate — WhatIf' {
+Describe 'Invoke-SafesUpdate - WhatIf' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -210,20 +210,20 @@ Describe 'Invoke-SafesUpdate — WhatIf' {
         }
     }
 
-    It 'U10 — WhatIf: Successes=1 and IsFatal=$false' {
+    It 'U10 - WhatIf: Successes=1 and IsFatal=$false' {
         $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
         $r.IsFatal   | Should -BeFalse
     }
 
-    It 'U11 — WhatIf: result entry exists in Results' {
+    It 'U11 - WhatIf: result entry exists in Results' {
         $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Results.Count | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesUpdate — validation' {
+Describe 'Invoke-SafesUpdate - validation' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -231,7 +231,7 @@ Describe 'Invoke-SafesUpdate — validation' {
         Mock Invoke-CyberArkAPI { }
     }
 
-    It 'U12 — empty SafeName: Failures=1 and no API call made' {
+    It 'U12 - empty SafeName: Failures=1 and no API call made' {
         $testInput = $script:ValidInput.Clone()
         $testInput.SafeName = ''
         $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $testInput
@@ -239,21 +239,21 @@ Describe 'Invoke-SafesUpdate — validation' {
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'U13 — null InputData: Failures=1' {
+    It 'U13 - null InputData: Failures=1' {
         $r = Invoke-SafesUpdate -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesUpdate — GET phase errors' {
+Describe 'Invoke-SafesUpdate - GET phase errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'U14 — GET 401: IsFatal=$true and no PUT attempted' {
+    It 'U14 - GET 401: IsFatal=$true and no PUT attempted' {
         $script:CallCount = 0
         Mock Invoke-CyberArkAPI {
             $script:CallCount++
@@ -265,7 +265,7 @@ Describe 'Invoke-SafesUpdate — GET phase errors' {
         Should -Invoke Invoke-CyberArkAPI -Times 1 -Exactly
     }
 
-    It 'U15 — GET status 0 (network error): IsFatal=$true' {
+    It 'U15 - GET status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI {
             script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure'
         }
@@ -275,14 +275,14 @@ Describe 'Invoke-SafesUpdate — GET phase errors' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesUpdate — PUT phase errors' {
+Describe 'Invoke-SafesUpdate - PUT phase errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'U16 — PUT 400 Bad Request: IsFatal=$false and Failures=1' {
+    It 'U16 - PUT 400 Bad Request: IsFatal=$false and Failures=1' {
         $script:CallCount = 0
         Mock Invoke-CyberArkAPI {
             $script:CallCount++
@@ -297,7 +297,7 @@ Describe 'Invoke-SafesUpdate — PUT phase errors' {
         $r.Failures | Should -Be 1
     }
 
-    It 'U17 — PUT 401 Unauthorized: IsFatal=$true' {
+    It 'U17 - PUT 401 Unauthorized: IsFatal=$true' {
         $script:CallCount = 0
         Mock Invoke-CyberArkAPI {
             $script:CallCount++

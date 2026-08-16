@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Accounts\Invoke-AccountsUpdate.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-AccountsUpdateInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -35,7 +35,7 @@ BeforeAll {
         BaseURL    = 'https://test.privilegecloud.cyberark.cloud'
     }
 
-    # Standard valid input — Address updated; other optional fields blank (fall back to current)
+    # Standard valid input - Address updated; other optional fields blank (fall back to current)
     $script:ValidInput = @{
         AccountID  = '123_456'
         Name       = ''
@@ -124,26 +124,26 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'AU01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'AU01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'AU02 — SupportsWhatIf is $true' {
+    It 'AU02 - SupportsWhatIf is $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 
-    It 'AU03 — AcceptsInputFile is $true' {
+    It 'AU03 - AcceptsInputFile is $true' {
         $ModuleMeta.AcceptsInputFile | Should -BeTrue
     }
 
-    It 'AU04 — Category is Accounts and Action is Update' {
+    It 'AU04 - Category is Accounts and Action is Update' {
         $ModuleMeta.Category | Should -Be 'Accounts'
         $ModuleMeta.Action   | Should -Be 'Update'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsUpdate — success' {
+Describe 'Invoke-AccountsUpdate - success' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -153,21 +153,21 @@ Describe 'Invoke-AccountsUpdate — success' {
         Mock Invoke-CyberArkAPI {
             $script:CallCount++
             if ($script:CallCount -eq 1) {
-                # GET — return current account
+                # GET - return current account
                 script:New-AccountApiResponse -Account $script:CurrentAccount
             } else {
-                # PUT — return updated account
+                # PUT - return updated account
                 script:New-AccountApiResponse -Account $script:UpdatedAccount -StatusCode 200
             }
         }
     }
 
-    It 'AU05 — two API calls made total (GET then PUT)' {
+    It 'AU05 - two API calls made total (GET then PUT)' {
         Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 2 -Exactly
     }
 
-    It 'AU06 — second API call uses PUT method' {
+    It 'AU06 - second API call uses PUT method' {
         $capturedCalls = [System.Collections.Generic.List[hashtable]]::new()
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -184,28 +184,28 @@ Describe 'Invoke-AccountsUpdate — success' {
         $capturedCalls[1].Method | Should -Be 'PUT'
     }
 
-    It 'AU07 — Successes=1 and Failures=0' {
+    It 'AU07 - Successes=1 and Failures=0' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes | Should -Be 1
         $r.Failures  | Should -Be 0
     }
 
-    It 'AU08 — IsFatal is $false on success' {
+    It 'AU08 - IsFatal is $false on success' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'AU09 — result entry AccountID matches input' {
+    It 'AU09 - result entry AccountID matches input' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].AccountID | Should -Be '123_456'
     }
 
-    It 'AU10 — result entry Address reflects the updated value from PUT response' {
+    It 'AU10 - result entry Address reflects the updated value from PUT response' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].Address | Should -Be '10.0.0.99'
     }
 
-    It 'AU11 — result entry has all expected fields' {
+    It 'AU11 - result entry has all expected fields' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].PSObject.Properties.Name | Should -Contain 'AccountID'
         $r.Results[0].PSObject.Properties.Name | Should -Contain 'AccountName'
@@ -219,12 +219,12 @@ Describe 'Invoke-AccountsUpdate — success' {
         $r.Results[0].PSObject.Properties.Name | Should -Contain 'Created'
     }
 
-    It 'AU12 — createdTime epoch is converted to a yyyy-MM-dd string' {
+    It 'AU12 - createdTime epoch is converted to a yyyy-MM-dd string' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].Created | Should -Match '^\d{4}-\d{2}-\d{2}$'
     }
 
-    It 'AU13 — blank optional field falls back to current account value (UserName)' {
+    It 'AU13 - blank optional field falls back to current account value (UserName)' {
         $capturedCalls = [System.Collections.Generic.List[hashtable]]::new()
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -238,13 +238,13 @@ Describe 'Invoke-AccountsUpdate — success' {
         }
         $script:CallCount = 0
         Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
-        # UserName was blank in input — should have been carried forward from CurrentAccount
+        # UserName was blank in input - should have been carried forward from CurrentAccount
         $capturedCalls[1].Body.userName | Should -Be 'svcuser'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsUpdate — WhatIf' {
+Describe 'Invoke-AccountsUpdate - WhatIf' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -258,20 +258,20 @@ Describe 'Invoke-AccountsUpdate — WhatIf' {
         }
     }
 
-    It 'AU14 — WhatIf: Successes=1 and IsFatal=$false' {
+    It 'AU14 - WhatIf: Successes=1 and IsFatal=$false' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
         $r.IsFatal   | Should -BeFalse
     }
 
-    It 'AU15 — WhatIf: result entry exists in Results' {
+    It 'AU15 - WhatIf: result entry exists in Results' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Results.Count | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsUpdate — validation' {
+Describe 'Invoke-AccountsUpdate - validation' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
@@ -279,7 +279,7 @@ Describe 'Invoke-AccountsUpdate — validation' {
         Mock Invoke-CyberArkAPI { }
     }
 
-    It 'AU16 — empty AccountID: Failures=1 and no API call made' {
+    It 'AU16 - empty AccountID: Failures=1 and no API call made' {
         $testInput = $script:ValidInput.Clone()
         $testInput.AccountID = ''
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $testInput
@@ -287,21 +287,21 @@ Describe 'Invoke-AccountsUpdate — validation' {
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'AU17 — null InputData: Failures=1' {
+    It 'AU17 - null InputData: Failures=1' {
         $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsUpdate — GET phase errors' {
+Describe 'Invoke-AccountsUpdate - GET phase errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'AU18 — GET 401: IsFatal=$true and no PUT attempted' {
+    It 'AU18 - GET 401: IsFatal=$true and no PUT attempted' {
         $script:CallCount = 0
         Mock Invoke-CyberArkAPI {
             $script:CallCount++
@@ -315,14 +315,14 @@ Describe 'Invoke-AccountsUpdate — GET phase errors' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsUpdate — PUT phase errors' {
+Describe 'Invoke-AccountsUpdate - PUT phase errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'AU19 — PUT 400 Bad Request: IsFatal=$false and Failures=1' {
+    It 'AU19 - PUT 400 Bad Request: IsFatal=$false and Failures=1' {
         $script:CallCount = 0
         Mock Invoke-CyberArkAPI {
             $script:CallCount++
@@ -337,7 +337,7 @@ Describe 'Invoke-AccountsUpdate — PUT phase errors' {
         $r.Failures | Should -Be 1
     }
 
-    It 'AU20 — PUT 401 Unauthorized: IsFatal=$true' {
+    It 'AU20 - PUT 401 Unauthorized: IsFatal=$true' {
         $script:CallCount = 0
         Mock Invoke-CyberArkAPI {
             $script:CallCount++

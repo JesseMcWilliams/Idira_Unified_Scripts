@@ -149,7 +149,7 @@ function Invoke-GroupsDelete {
         return $result
     }
 
-    # Success — 204 No Content
+    # Success - 204 No Content
     $result.Results.Add([PSCustomObject]@{
         GroupID = $groupId
         Deleted = $true

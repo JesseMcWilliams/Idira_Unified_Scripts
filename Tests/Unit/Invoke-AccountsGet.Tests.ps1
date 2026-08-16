@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Accounts\Invoke-AccountsGet.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-AccountsGetInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -93,11 +93,11 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'AG01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'AG01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'AG02 — required fields are all present' {
+    It 'AG02 - required fields are all present' {
         $ModuleMeta.Name             | Should -Not -BeNullOrEmpty
         $ModuleMeta.Category         | Should -Not -BeNullOrEmpty
         $ModuleMeta.Action           | Should -Not -BeNullOrEmpty
@@ -105,20 +105,20 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Version          | Should -Not -BeNullOrEmpty
     }
 
-    It 'AG03 — Category is Accounts and Action is Get' {
+    It 'AG03 - Category is Accounts and Action is Get' {
         $ModuleMeta.Category | Should -Be 'Accounts'
         $ModuleMeta.Action   | Should -Be 'Get'
     }
 
-    It 'AG04 — AcceptsInputFile is $true' {
+    It 'AG04 - AcceptsInputFile is $true' {
         $ModuleMeta.AcceptsInputFile | Should -BeTrue
     }
 
-    It 'AG05 — SupportsWhatIf is $false' {
+    It 'AG05 - SupportsWhatIf is $false' {
         $ModuleMeta.SupportsWhatIf | Should -BeFalse
     }
 
-    It 'AG06 — InputSchema contains AccountID column marked Required' {
+    It 'AG06 - InputSchema contains AccountID column marked Required' {
         $col = $ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'AccountID' }
         $col           | Should -Not -BeNullOrEmpty
         $col.Required  | Should -BeTrue
@@ -126,7 +126,7 @@ Describe 'ModuleMeta' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsGet — success' {
+Describe 'Invoke-AccountsGet - success' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI {
@@ -135,7 +135,7 @@ Describe 'Invoke-AccountsGet — success' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'AG07 — returns result object with all 9 required fields' {
+    It 'AG07 - returns result object with all 9 required fields' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.PSObject.Properties.Name | Should -Contain 'ModuleName'
         $r.PSObject.Properties.Name | Should -Contain 'Category'
@@ -148,49 +148,49 @@ Describe 'Invoke-AccountsGet — success' {
         $r.PSObject.Properties.Name | Should -Contain 'Errors'
     }
 
-    It 'AG08 — Successes=1, ItemsProcessed=1, Failures=0' {
+    It 'AG08 - Successes=1, ItemsProcessed=1, Failures=0' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Successes      | Should -Be 1
         $r.ItemsProcessed | Should -Be 1
         $r.Failures       | Should -Be 0
     }
 
-    It 'AG09 — id is mapped to AccountID' {
+    It 'AG09 - id is mapped to AccountID' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Results[0].AccountID | Should -Be '123_456'
     }
 
-    It 'AG10 — userName is mapped to UserName' {
+    It 'AG10 - userName is mapped to UserName' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Results[0].UserName | Should -Be 'svc-account'
     }
 
-    It 'AG11 — safeName is mapped to SafeName' {
+    It 'AG11 - safeName is mapped to SafeName' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Results[0].SafeName | Should -Be 'TestSafe'
     }
 
-    It 'AG12 — automaticManagementEnabled is mapped to AutoManaged' {
+    It 'AG12 - automaticManagementEnabled is mapped to AutoManaged' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Results[0].AutoManaged | Should -BeTrue
     }
 
-    It 'AG13 — status is mapped to CPMStatus' {
+    It 'AG13 - status is mapped to CPMStatus' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Results[0].CPMStatus | Should -Be 'success'
     }
 
-    It 'AG14 — manualManagementReason is mapped to ManualReason' {
+    It 'AG14 - manualManagementReason is mapped to ManualReason' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Results[0].ManualReason | Should -Be ''
     }
 
-    It 'AG15 — createdTime epoch is converted to a yyyy-MM-dd string' {
+    It 'AG15 - createdTime epoch is converted to a yyyy-MM-dd string' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Results[0].Created | Should -Match '^\d{4}-\d{2}-\d{2}$'
     }
 
-    It 'AG16 — missing createdTime does not throw and returns empty string' {
+    It 'AG16 - missing createdTime does not throw and returns empty string' {
         $acctNoTime = [PSCustomObject]@{
             id               = '999'
             name             = 'no-time@domain.com'
@@ -207,7 +207,7 @@ Describe 'Invoke-AccountsGet — success' {
         $r.Results[0].Created | Should -Be ''
     }
 
-    It 'AG17 — null secretManagement returns $false for AutoManaged and empty string for CPMStatus and ManualReason' {
+    It 'AG17 - null secretManagement returns $false for AutoManaged and empty string for CPMStatus and ManualReason' {
         $acctNoMgmt = [PSCustomObject]@{
             id               = '777'
             name             = 'no-mgmt@domain.com'
@@ -226,27 +226,27 @@ Describe 'Invoke-AccountsGet — success' {
         $r.Results[0].ManualReason | Should -Be ''
     }
 
-    It 'AG18 — IsFatal is $false on success' {
+    It 'AG18 - IsFatal is $false on success' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.IsFatal | Should -BeFalse
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsGet — validation' {
+Describe 'Invoke-AccountsGet - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-AccountApiResponse -Account $script:SampleAccount }
         Mock Write-CyberArkLog { }
     }
 
-    It 'AG19 — empty AccountID: Failures=1 and no API call made' {
+    It 'AG19 - empty AccountID: Failures=1 and no API call made' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0 -Exactly
     }
 
-    It 'AG20 — null InputData: Failures=1 and no API call made' {
+    It 'AG20 - null InputData: Failures=1 and no API call made' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0 -Exactly
@@ -254,31 +254,31 @@ Describe 'Invoke-AccountsGet — validation' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-AccountsGet — API errors' {
+Describe 'Invoke-AccountsGet - API errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
     }
 
-    It 'AG21 — 401 Unauthorized: IsFatal=$true' {
+    It 'AG21 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'AG22 — status 0 (network error): IsFatal=$true' {
+    It 'AG22 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'AG23 — 403 Forbidden: IsFatal=$false' {
+    It 'AG23 - 403 Forbidden: IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'AG24 — 404 Not Found: IsFatal=$false and error added' {
+    It 'AG24 - 404 Not Found: IsFatal=$false and error added' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.IsFatal      | Should -BeFalse
@@ -286,13 +286,13 @@ Describe 'Invoke-AccountsGet — API errors' {
         $r.Errors.Count | Should -Be 1
     }
 
-    It 'AG25 — error entry ErrorMessage is not null or empty' {
+    It 'AG25 - error entry ErrorMessage is not null or empty' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Errors[0].ErrorMessage | Should -Not -BeNullOrEmpty
     }
 
-    It 'AG26 — ItemsProcessed incremented on API failure' {
+    It 'AG26 - ItemsProcessed incremented on API failure' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 500 -ErrorMessage 'Server Error' }
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.ItemsProcessed | Should -Be 1

@@ -66,7 +66,7 @@ function Invoke-CustomExportGroupMembersLDAP {
     $domainController = if ($InputData['DomainController']) { "$($InputData['DomainController'])".Trim() } else { '' }
     $ignoreSSL        = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
 
-    # Step 1 — retrieve all CyberArk groups and filter to LDAP/Directory types
+    # Step 1 - retrieve all CyberArk groups and filter to LDAP/Directory types
     Write-Host '  Retrieving CyberArk LDAP/Directory groups...' -ForegroundColor Cyan
     Write-CyberArkLog -Level 'INFO' -Message 'Export LDAP Group Members: retrieving group list.'
 
@@ -123,7 +123,7 @@ function Invoke-CustomExportGroupMembersLDAP {
     Write-Host "  Found $($ldapGroups.Count) LDAP/Directory group$(if ($ldapGroups.Count -ne 1) { 's' })." -ForegroundColor Cyan
     Write-Host ''
 
-    # Build ADSI searcher root — use provided DC or default (current domain)
+    # Build ADSI searcher root - use provided DC or default (current domain)
     $searchRoot = $null
     try {
         if ($domainController) {
@@ -220,7 +220,7 @@ function Invoke-CustomExportGroupMembersLDAP {
         $adGroupDN = & $fnFindGroupDN -GroupSAM $adGroupSAM -Root $searchRoot
 
         if (-not $adGroupDN) {
-            Write-Host ' — AD group not found.' -ForegroundColor Yellow
+            Write-Host ' - AD group not found.' -ForegroundColor Yellow
             Write-CyberArkLog -Level 'WARN' -Message "Export LDAP Group Members: AD group '$adGroupSAM' not found."
             $result.Errors.Add([PSCustomObject]@{
                 InputData    = @{ CyberArkGroupName = $cyGroupName; ADGroupSAM = $adGroupSAM }
@@ -257,7 +257,7 @@ function Invoke-CustomExportGroupMembersLDAP {
                 $adObj = & $fnGetADObject -DN $memberDN
 
                 if (-not $adObj) {
-                    # Could not resolve — include as unknown
+                    # Could not resolve - include as unknown
                     $result.Results.Add([PSCustomObject]@{
                         CyberArkGroupName = $cyGroupName
                         ADGroupPath       = $current['GroupSAM']
@@ -315,7 +315,7 @@ function Invoke-CustomExportGroupMembersLDAP {
             }
         }
 
-        Write-Host " — $memberCount row$(if ($memberCount -ne 1) { 's' })" -ForegroundColor Green
+        Write-Host " - $memberCount row$(if ($memberCount -ne 1) { 's' })" -ForegroundColor Green
         $result.ItemsProcessed++  # Count the CyberArk group itself as one processed item
     }
 

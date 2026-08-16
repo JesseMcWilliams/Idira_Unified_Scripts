@@ -40,7 +40,7 @@ function Invoke-CustomExportAll {
         Errors         = [System.Collections.Generic.List[PSCustomObject]]::new()
     }
 
-    # Enumerate list modules — skip other Custom modules to avoid recursion
+    # Enumerate list modules - skip other Custom modules to avoid recursion
     $listModules = @()
     if ($null -ne $script:LoadedModules) {
         $listModules = @($script:LoadedModules | Where-Object {
@@ -79,7 +79,7 @@ function Invoke-CustomExportAll {
             }
 
             if ($recordCount -gt 0) {
-                Write-Host " — $recordCount record$(if ($recordCount -ne 1) { 's' })" -ForegroundColor Green
+                Write-Host " - $recordCount record$(if ($recordCount -ne 1) { 's' })" -ForegroundColor Green
 
                 $csvPath = Get-CsvSavePath -DefaultFolder $defaultFolder -ModuleName $modName
                 if ($csvPath) {
@@ -101,7 +101,7 @@ function Invoke-CustomExportAll {
                     })
                 }
             } else {
-                Write-Host ' — no records returned.' -ForegroundColor DarkGray
+                Write-Host ' - no records returned.' -ForegroundColor DarkGray
                 $result.Results.Add([PSCustomObject]@{
                     Module    = $modName
                     Records   = 0
@@ -111,7 +111,7 @@ function Invoke-CustomExportAll {
             }
             $result.Successes++
         } catch {
-            Write-Host " — ERROR: $_" -ForegroundColor Red
+            Write-Host " - ERROR: $_" -ForegroundColor Red
             $msg = "Export All failed for module '$modName': $_"
             Write-CyberArkLog -Level 'ERROR' -Message $msg
             $result.Errors.Add([PSCustomObject]@{

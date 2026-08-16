@@ -149,7 +149,7 @@ function Invoke-AccountsDelete {
         return $result
     }
 
-    # Success — 204 No Content
+    # Success - 204 No Content
     $result.Results.Add([PSCustomObject]@{
         AccountID = $accountId
         Deleted   = $true

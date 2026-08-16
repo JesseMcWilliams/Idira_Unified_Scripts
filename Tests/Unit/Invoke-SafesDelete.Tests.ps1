@@ -1,13 +1,13 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Pester v5 unit tests for APIModules\Safes\Invoke-SafesDelete.ps1.
-    No CyberArk connection required — Invoke-CyberArkAPI is fully mocked.
+    No CyberArk connection required - Invoke-CyberArkAPI is fully mocked.
 
 .NOTES
     Get-SafesDeleteInput is NOT tested here because it depends on Show-FieldPrompt,
     which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 — D-series in Testing-Plan.md).
+    tests (Driver.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -75,30 +75,30 @@ AfterAll {
 # ─────────────────────────────────────────────────────────────────
 Describe 'ModuleMeta' {
 
-    It 'D01 — $ModuleMeta is defined after dot-sourcing' {
+    It 'D01 - $ModuleMeta is defined after dot-sourcing' {
         $ModuleMeta | Should -Not -BeNullOrEmpty
     }
 
-    It 'D02 — SupportsWhatIf is $true' {
+    It 'D02 - SupportsWhatIf is $true' {
         $ModuleMeta.SupportsWhatIf | Should -BeTrue
     }
 
-    It 'D03 — AcceptsInputFile is $true' {
+    It 'D03 - AcceptsInputFile is $true' {
         $ModuleMeta.AcceptsInputFile | Should -BeTrue
     }
 
-    It 'D04 — ProducesOutput is $false' {
+    It 'D04 - ProducesOutput is $false' {
         $ModuleMeta.ProducesOutput | Should -BeFalse
     }
 
-    It 'D05 — Category=Safes and Action=Delete' {
+    It 'D05 - Category=Safes and Action=Delete' {
         $ModuleMeta.Category | Should -Be 'Safes'
         $ModuleMeta.Action   | Should -Be 'Delete'
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesDelete — success' {
+Describe 'Invoke-SafesDelete - success' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -106,29 +106,29 @@ Describe 'Invoke-SafesDelete — success' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'D06 — Successes=1, Failures=0, ItemsProcessed=1' {
+    It 'D06 - Successes=1, Failures=0, ItemsProcessed=1' {
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes      | Should -Be 1
         $r.Failures       | Should -Be 0
         $r.ItemsProcessed | Should -Be 1
     }
 
-    It 'D07 — IsFatal=$false on success' {
+    It 'D07 - IsFatal=$false on success' {
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
     }
 
-    It 'D08 — DELETE method is used' {
+    It 'D08 - DELETE method is used' {
         Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Method -eq 'DELETE' }
     }
 
-    It 'D09 — endpoint contains SafeName' {
+    It 'D09 - endpoint contains SafeName' {
         Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -like '*TestSafe*' }
     }
 
-    It 'D10 — result entry has Deleted=$true' {
+    It 'D10 - result entry has Deleted=$true' {
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         $r.Results.Count       | Should -Be 1
         $r.Results[0].Deleted  | Should -BeTrue
@@ -137,7 +137,7 @@ Describe 'Invoke-SafesDelete — success' {
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesDelete — WhatIf' {
+Describe 'Invoke-SafesDelete - WhatIf' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -145,19 +145,19 @@ Describe 'Invoke-SafesDelete — WhatIf' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'D11 — WhatIf: API is NOT called' {
+    It 'D11 - WhatIf: API is NOT called' {
         Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'D12 — WhatIf: Successes=1' {
+    It 'D12 - WhatIf: Successes=1' {
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Successes | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesDelete — validation' {
+Describe 'Invoke-SafesDelete - validation' {
 
     BeforeEach {
         Mock Invoke-CyberArkAPI { script:New-DeleteApiResponse }
@@ -165,46 +165,46 @@ Describe 'Invoke-SafesDelete — validation' {
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'D13 — empty SafeName: Failures=1 and API not called' {
+    It 'D13 - empty SafeName: Failures=1 and API not called' {
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData @{ SafeName = '' }
         $r.Failures | Should -Be 1
         Should -Invoke Invoke-CyberArkAPI -Times 0
     }
 
-    It 'D14 — null InputData: Failures=1' {
+    It 'D14 - null InputData: Failures=1' {
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $null
         $r.Failures | Should -Be 1
     }
 }
 
 # ─────────────────────────────────────────────────────────────────
-Describe 'Invoke-SafesDelete — errors' {
+Describe 'Invoke-SafesDelete - errors' {
 
     BeforeEach {
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
 
-    It 'D15 — 401 Unauthorized: IsFatal=$true' {
+    It 'D15 - 401 Unauthorized: IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'D16 — status 0 (network error): IsFatal=$true' {
+    It 'D16 - status 0 (network error): IsFatal=$true' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 0 -ErrorMessage 'Network failure' }
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeTrue
     }
 
-    It 'D17 — 403 Forbidden: IsFatal=$false and error added' {
+    It 'D17 - 403 Forbidden: IsFatal=$false and error added' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal      | Should -BeFalse
         $r.Errors.Count | Should -Be 1
     }
 
-    It 'D18 — 404 Not Found: IsFatal=$false' {
+    It 'D18 - 404 Not Found: IsFatal=$false' {
         Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
         $r = Invoke-SafesDelete -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal | Should -BeFalse
