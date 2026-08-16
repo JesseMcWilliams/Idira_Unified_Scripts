@@ -580,11 +580,32 @@ function Invoke-ProfileTestConnection {
                 Write-Host "    Expires : $($existing.Expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm'))" -ForegroundColor Gray
                 Write-Host ''
                 if (-not $isExpired) {
-                    Write-Host '  Token is valid — no re-authentication needed.' -ForegroundColor Green
-                    Write-Host ''
-                    Write-Host '  Press Enter to return.' -ForegroundColor DarkGray
-                    Read-Host | Out-Null
-                    return
+                    Write-Host '  Verifying with server...' -ForegroundColor DarkGray
+                    $valResp = Invoke-TokenValidate -Token $existing -IgnoreSSL:$Summary.currentProfile.IgnoreSSL
+                    if ($valResp -and $valResp.IsSuccess) {
+                        $logonUser = if ($valResp.Data -and $valResp.Data.PSObject.Properties['username']) {
+                            " — logged on as $($valResp.Data.username)"
+                        } else { '' }
+                        Write-Host "  Token verified$logonUser." -ForegroundColor Green
+                        Write-Host ''
+                        Write-Host '  Press Enter to return.' -ForegroundColor DarkGray
+                        Read-Host | Out-Null
+                        return
+                    } elseif ($valResp -and $valResp.StatusCode -eq 401) {
+                        Write-Host '  Server rejected token (401). Clearing saved token.' -ForegroundColor Red
+                        Remove-Item -LiteralPath $tokenPath -Force -ErrorAction SilentlyContinue
+                        Write-Host '  Re-authenticating...' -ForegroundColor Yellow
+                        Write-Host ''
+                        # Fall through to the re-auth block below
+                    } else {
+                        $errDetail = if ($valResp) { " ($($valResp.StatusCode): $($valResp.ErrorMessage))" } else { ' (server unreachable)' }
+                        Write-Host "  Could not verify with server$errDetail." -ForegroundColor Yellow
+                        Write-Host '  Proceeding with locally-valid token.' -ForegroundColor DarkGray
+                        Write-Host ''
+                        Write-Host '  Press Enter to return.' -ForegroundColor DarkGray
+                        Read-Host | Out-Null
+                        return
+                    }
                 }
                 Write-Host '  Token is expired. Re-authenticating...' -ForegroundColor Yellow
                 Write-Host ''
@@ -762,6 +783,23 @@ function Invoke-ProfileManagementLoop {
                             # No Token / Unreadable: skip Import-AuthToken, go straight to Get-AuthToken
                         } catch {
                             Write-CyberArkLog -Message "Failed to load saved token: $_" -Level 'WARN'
+                        }
+
+                        # Validate the loaded token against the server before trusting it
+                        if ($token) {
+                            Write-Host '  Validating token...' -ForegroundColor DarkGray
+                            $valResp = Invoke-TokenValidate -Token $token -IgnoreSSL:$selectedProfile.IgnoreSSL
+                            if ($valResp -and $valResp.IsSuccess) {
+                                $logonUser = if ($valResp.Data -and $valResp.Data.PSObject.Properties['username']) {
+                                    " (as $($valResp.Data.username))"
+                                } else { '' }
+                                Write-Host "  Token verified$logonUser." -ForegroundColor Green
+                            } elseif ($valResp -and $valResp.StatusCode -eq 401) {
+                                Write-Host '  Server rejected saved token (401). Please re-authenticate.' -ForegroundColor Yellow
+                                Remove-Item -LiteralPath $xmlPath -Force -ErrorAction SilentlyContinue
+                                $token = $null
+                            }
+                            # Non-401 errors (network unreachable, etc.) — proceed with the loaded token
                         }
                     }
 
@@ -1059,6 +1097,37 @@ function Invoke-SessionLogoff {
     $script:SessionToken = $null
 }
 
+function Invoke-TokenValidate {
+    # Calls GET /API/LoggedOnUser to confirm the server still accepts the token.
+    # Returns the API response object, or $null if the call throws.
+    param(
+        [Parameter(Mandatory = $true)]  [PSCustomObject]$Token,
+        [Parameter(Mandatory = $false)] [bool]$IgnoreSSL = $false
+    )
+    try {
+        return Invoke-CyberArkAPI -Token $Token -Method 'GET' `
+            -Endpoint '/API/LoggedOnUser' -IgnoreSSL:$IgnoreSSL
+    } catch {
+        Write-CyberArkLog -Message "Token validation call failed: $_" -Level 'WARN'
+        return $null
+    }
+}
+
+function Invoke-TokenInvalidate {
+    # Deletes the saved .cred file and force-expires the in-memory token so the
+    # session loop immediately triggers re-authentication on its next iteration.
+    if ($script:ActiveProfile) {
+        $tokenPath = Get-ProfileTokenPath -Name $script:ActiveProfile.AuthTokenProfile
+        if (Test-Path -LiteralPath $tokenPath) {
+            Remove-Item -LiteralPath $tokenPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if ($script:SessionToken) {
+        $script:SessionToken.Expiry = [DateTime]::UtcNow.AddHours(-1)
+    }
+    Write-CyberArkLog -Message '401 Unauthorized — session token invalidated and file removed.' -Level 'WARN'
+}
+
 #endregion
 
 #region --- Input and CSV Processing ---
@@ -1189,6 +1258,11 @@ function Invoke-CsvProcessing {
 
             if ($result.IsFatal) {
                 Write-CyberArkLog -Message "IsFatal returned by module — aborting CSV loop." -Level 'ERROR'
+                $errText = ($result.Errors | ForEach-Object { $_.ErrorMessage }) -join ' '
+                if ($errText -match '\b401\b' -or $errText -match 'Unauthorized') {
+                    Write-Host '  Session rejected by server (401 Unauthorized) — token invalidated.' -ForegroundColor Red
+                    Invoke-TokenInvalidate
+                }
                 $fatal = $true
                 break
             }
@@ -1332,6 +1406,16 @@ function Invoke-ActionModule {
                 Write-Host "    Code:  $($err.ErrorDetails.ErrorCode)" -ForegroundColor DarkGray
             }
         }
+    }
+
+    if ($result.IsFatal) {
+        $errText = ($result.Errors | ForEach-Object { $_.ErrorMessage }) -join ' '
+        if ($errText -match '\b401\b' -or $errText -match 'Unauthorized') {
+            Write-Host ''
+            Write-Host '  Session rejected by server (401 Unauthorized) — token invalidated.' -ForegroundColor Red
+            Invoke-TokenInvalidate
+        }
+        return
     }
 
     if ($meta.ProducesOutput -and $result.Results.Count -gt 0) {
