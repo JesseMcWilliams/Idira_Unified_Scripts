@@ -1282,20 +1282,20 @@ function Save-AuthToken {
     $ctx = $TokenObject._RefreshContext
 
     $ctxSerial = @{
-        Method                = $ctx.Method
-        IdentityURL           = $ctx.IdentityURL
-        PCloudSubdomain       = $ctx.PCloudSubdomain
-        Username              = $ctx.Username
-        ClientId              = $ctx.ClientId
-        ClientSecret          = $ctx.ClientSecret       # SecureString — DPAPI via Export-Clixml
-        Credential            = $ctx.Credential         # PSCredential — DPAPI via Export-Clixml
-        CertificateThumbprint = if ($ctx.Certificate) { $ctx.Certificate.Thumbprint }
-                                else { $ctx.CertificateThumbprint }
-        ConcurrentSession     = $ctx.ConcurrentSession
-        IgnoreSSL             = $ctx.IgnoreSSL
-        PVWAUrl               = $ctx.PVWAUrl
-        BaseURL               = $ctx.BaseURL
-        WebView2AssemblyPath  = $ctx.WebView2AssemblyPath
+        Method                = $ctx['Method']
+        IdentityURL           = $ctx['IdentityURL']
+        PCloudSubdomain       = $ctx['PCloudSubdomain']
+        Username              = $ctx['Username']
+        ClientId              = $ctx['ClientId']
+        ClientSecret          = $ctx['ClientSecret']       # SecureString — DPAPI via Export-Clixml
+        Credential            = $ctx['Credential']         # PSCredential — DPAPI via Export-Clixml
+        CertificateThumbprint = if ($ctx['Certificate']) { $ctx['Certificate'].Thumbprint }
+                                else { $ctx['CertificateThumbprint'] }
+        ConcurrentSession     = $ctx['ConcurrentSession']
+        IgnoreSSL             = $ctx['IgnoreSSL']
+        PVWAUrl               = $ctx['PVWAUrl']
+        BaseURL               = $ctx['BaseURL']
+        WebView2AssemblyPath  = $ctx['WebView2AssemblyPath']
     }
 
     [PSCustomObject]@{
@@ -1330,7 +1330,7 @@ function Import-AuthToken {
 
     .PARAMETER ProfileName
         Name of the profile to load (e.g. 'Development'). Resolves to
-        %APPDATA%\CyberArkPAS\<ProfileName>.xml.
+        %APPDATA%\CyberArkPAS\<ProfileName>.cred.
 
     .PARAMETER Path
         Explicit path to a profile file. Takes precedence over -ProfileName.
@@ -1377,29 +1377,29 @@ function Import-AuthToken {
 
     $ctx  = $saved.RefreshContext
     $cert = $null
-    if ($ctx.CertificateThumbprint) {
+    if ($ctx['CertificateThumbprint']) {
         try {
-            $cert = Get-FilteredClientCertificate -Thumbprint $ctx.CertificateThumbprint
+            $cert = Get-FilteredClientCertificate -Thumbprint $ctx['CertificateThumbprint']
         } catch {
-            Write-Warning "Could not reload certificate (thumbprint: $($ctx.CertificateThumbprint)): $_"
+            Write-Warning "Could not reload certificate (thumbprint: $($ctx['CertificateThumbprint'])): $_"
         }
     }
 
     $refreshContext = @{
-        Method                = $ctx.Method
-        IdentityURL           = $ctx.IdentityURL
-        PCloudSubdomain       = $ctx.PCloudSubdomain
-        Username              = $ctx.Username
-        ClientId              = $ctx.ClientId
-        ClientSecret          = $ctx.ClientSecret
-        Credential            = $ctx.Credential
+        Method                = $ctx['Method']
+        IdentityURL           = $ctx['IdentityURL']
+        PCloudSubdomain       = $ctx['PCloudSubdomain']
+        Username              = $ctx['Username']
+        ClientId              = $ctx['ClientId']
+        ClientSecret          = $ctx['ClientSecret']
+        Credential            = $ctx['Credential']
         Certificate           = $cert
-        CertificateThumbprint = $ctx.CertificateThumbprint
-        ConcurrentSession     = $ctx.ConcurrentSession
-        IgnoreSSL             = $ctx.IgnoreSSL
-        PVWAUrl               = $ctx.PVWAUrl
-        BaseURL               = $ctx.BaseURL
-        WebView2AssemblyPath  = $ctx.WebView2AssemblyPath
+        CertificateThumbprint = $ctx['CertificateThumbprint']
+        ConcurrentSession     = $ctx['ConcurrentSession']
+        IgnoreSSL             = $ctx['IgnoreSSL']
+        PVWAUrl               = $ctx['PVWAUrl']
+        BaseURL               = $ctx['BaseURL']
+        WebView2AssemblyPath  = $ctx['WebView2AssemblyPath']
     }
 
     $headers = if ($saved.TokenType -eq 'Bearer') {

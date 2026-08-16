@@ -131,9 +131,9 @@ function Invoke-UsersList {
                 UserType      = $user.userType
                 Source        = $user.source
                 ComponentUser = $user.componentUser
-                Email         = if ($details) { $details.email     } else { '' }
-                FirstName     = if ($details) { $details.firstName } else { '' }
-                LastName      = if ($details) { $details.lastName  } else { '' }
+                Email         = if ($details -and $details.PSObject.Properties['email'])     { $details.email     } else { '' }
+                FirstName     = if ($details -and $details.PSObject.Properties['firstName']) { $details.firstName } else { '' }
+                LastName      = if ($details -and $details.PSObject.Properties['lastName'])  { $details.lastName  } else { '' }
             })
             $result.Successes++
             $result.ItemsProcessed++

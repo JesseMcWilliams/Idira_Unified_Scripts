@@ -124,7 +124,8 @@ function Invoke-GroupsList {
 
     foreach ($group in $groups) {
         try {
-            $directoryType = if ($group.PSObject.Properties['directory'] -and $group.directory) {
+            $directoryType = if ($group.PSObject.Properties['directory'] -and $group.directory -and
+                                $group.directory.PSObject.Properties['directoryType']) {
                 $group.directory.directoryType
             } else { '' }
 

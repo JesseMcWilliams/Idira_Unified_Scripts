@@ -140,7 +140,8 @@ function Invoke-AccountsList {
             $autoManaged = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement) {
                 $acct.secretManagement.automaticManagementEnabled
             } else { $false }
-            $cpmStatus = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement) {
+            $cpmStatus = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
+                            $acct.secretManagement.PSObject.Properties['status']) {
                 $acct.secretManagement.status
             } else { '' }
 
