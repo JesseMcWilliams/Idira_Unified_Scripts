@@ -248,7 +248,7 @@ function Resolve-IdentityTenantURL {
 
     foreach ($candidate in $candidates) {
         try {
-            $resp         = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 8 -TimeoutSec 20 -ErrorAction Stop -UseBasicParsing
+            $resp         = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 0 -TimeoutSec 20 -ErrorAction Stop -UseBasicParsing
             $responseHost = Get-WebResponseHost -Response $resp
             if ($responseHost -match '\.id\.cyberark\.cloud$') {
                 $url = "https://$responseHost"
