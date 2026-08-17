@@ -662,9 +662,17 @@ function Invoke-IdentityChallengeLoop {
             throw "Authentication failed: $($resp.Message)"
         }
 
-        # Final success: Result is an object (not a plain string) containing the token
-        if ($resp -and ($resp.Result -isnot [string]) -and $resp.Result.Token) {
-            return $resp.Result.Token
+        # Final success: Result is an object containing the token.
+        # CyberArk Identity uses 'Token' or 'Auth' depending on tenant version.
+        if ($resp -and ($resp.Result -isnot [string])) {
+            Write-Verbose "AdvanceAuthentication result properties: $($resp.Result.PSObject.Properties.Name -join ', ')"
+            $authToken = $null
+            if ($resp.Result.PSObject.Properties['Token'] -and $resp.Result.Token) {
+                $authToken = $resp.Result.Token
+            } elseif ($resp.Result.PSObject.Properties['Auth'] -and $resp.Result.Auth) {
+                $authToken = $resp.Result.Auth
+            }
+            if ($authToken) { return $authToken }
         }
     }
 
