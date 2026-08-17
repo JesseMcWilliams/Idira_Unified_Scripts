@@ -125,20 +125,37 @@ function Invoke-PlatformsGet {
 
     $platform = $response.Data
 
-    # CyberArk v12+ nests platform detail inside 'general'; single-GET may have fields at root level.
-    # Check both the 'general' sub-object and the root object so either response shape works.
-    $gen = if ($platform.PSObject.Properties['general'] -and $platform.general) { $platform.general } else { $platform }
+    # Log actual response fields for diagnostics when debugging response shape issues.
+    Write-CyberArkLog -Level 'DEBUG' -Message "Platform GET root fields: $($platform.PSObject.Properties.Name -join ', ')"
+
+    # v12+ nests fields inside 'general'; older/Privilege Cloud responses may have fields at root
+    # with alternate names (e.g. 'PlatformID' instead of 'id', 'SystemType' instead of 'platformType').
+    $gen = if ($platform.PSObject.Properties['general'] -and $platform.general) {
+        Write-CyberArkLog -Level 'DEBUG' -Message "Platform GET general fields: $($platform.general.PSObject.Properties.Name -join ', ')"
+        $platform.general
+    } else { $platform }
+
     $result.Results.Add([PSCustomObject]@{
-        PlatformID   = if ($gen.PSObject.Properties['id'])              { $gen.id              }
-                       elseif ($platform.PSObject.Properties['id'])     { $platform.id         } else { '' }
-        Name         = if ($gen.PSObject.Properties['name'])            { $gen.name            }
-                       elseif ($platform.PSObject.Properties['name'])   { $platform.name       } else { '' }
-        Description  = if ($gen.PSObject.Properties['description'])     { $gen.description     }
-                       elseif ($platform.PSObject.Properties['description']) { $platform.description } else { '' }
-        Active       = if ($gen.PSObject.Properties['active'])          { $gen.active          }
-                       elseif ($platform.PSObject.Properties['active']) { $platform.active     } else { $false }
-        PlatformType = if ($gen.PSObject.Properties['platformType'])    { $gen.platformType    }
-                       elseif ($platform.PSObject.Properties['platformType']) { $platform.platformType } else { '' }
+        PlatformID   = if ($gen.PSObject.Properties['id'])                { $gen.id                }
+                       elseif ($gen.PSObject.Properties['PlatformID'])    { $gen.PlatformID        }
+                       elseif ($platform.PSObject.Properties['id'])       { $platform.id           }
+                       elseif ($platform.PSObject.Properties['PlatformID']) { $platform.PlatformID } else { $platformID }
+        Name         = if ($gen.PSObject.Properties['name'])              { $gen.name              }
+                       elseif ($gen.PSObject.Properties['Name'])          { $gen.Name              }
+                       elseif ($platform.PSObject.Properties['name'])     { $platform.name         }
+                       elseif ($platform.PSObject.Properties['Name'])     { $platform.Name         } else { '' }
+        Description  = if ($gen.PSObject.Properties['description'])       { $gen.description       }
+                       elseif ($gen.PSObject.Properties['Description'])   { $gen.Description       }
+                       elseif ($platform.PSObject.Properties['description']) { $platform.description }
+                       elseif ($platform.PSObject.Properties['Description']) { $platform.Description } else { '' }
+        Active       = if ($gen.PSObject.Properties['active'])            { $gen.active            }
+                       elseif ($gen.PSObject.Properties['Active'])        { $gen.Active            }
+                       elseif ($platform.PSObject.Properties['active'])   { $platform.active       }
+                       elseif ($platform.PSObject.Properties['Active'])   { $platform.Active       } else { $false }
+        PlatformType = if ($gen.PSObject.Properties['platformType'])      { $gen.platformType      }
+                       elseif ($gen.PSObject.Properties['SystemType'])    { $gen.SystemType        }
+                       elseif ($platform.PSObject.Properties['platformType']) { $platform.platformType }
+                       elseif ($platform.PSObject.Properties['SystemType']) { $platform.SystemType } else { '' }
     })
     $result.Successes++
     $result.ItemsProcessed++
