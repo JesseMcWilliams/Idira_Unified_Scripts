@@ -1835,6 +1835,12 @@ function Invoke-SessionLoop {
                                     Start-Sleep -Seconds 1
                                 } else {
                                     Invoke-ActionModule -ModuleEntry $catModules[$actNum - 1]
+                                    # A 401 during the module call force-expires the token via
+                                    # Invoke-TokenInvalidate. Re-check immediately so the re-auth
+                                    # prompt appears now, not only after the user presses [B].
+                                    if ((Test-TokenExpiry) -eq 'Expired' -and -not (Invoke-TokenRefresh)) {
+                                        return 'Exit'
+                                    }
                                 }
                             }
                             { $_ -match '^B\d*$' } { break }
