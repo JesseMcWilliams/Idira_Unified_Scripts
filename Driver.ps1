@@ -671,6 +671,14 @@ function Invoke-ProfileTestConnection {
                 Write-Host "    Expires : $($existing.Expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm'))" -ForegroundColor Gray
                 Write-Host ''
                 if (-not $isExpired) {
+                    if ($existing.SystemType -eq 'ISPSS') {
+                        Write-Host '  Privilege Cloud: no server validation endpoint.' -ForegroundColor DarkGray
+                        Write-Host '  Token accepted based on local expiry.' -ForegroundColor DarkGray
+                        Write-Host ''
+                        Write-Host '  Press Enter to return.' -ForegroundColor DarkGray
+                        Read-Host | Out-Null
+                        return
+                    }
                     Write-Host '  Verifying with server...' -ForegroundColor DarkGray
                     $valResp = Invoke-TokenValidate -Token $existing -IgnoreSSL:$Summary.currentProfile.IgnoreSSL
                     if ($valResp -and $valResp.IsSuccess) {
@@ -878,19 +886,23 @@ function Invoke-ProfileManagementLoop {
 
                         # Validate the loaded token against the server before trusting it
                         if ($token) {
-                            Write-Host '  Validating token...' -ForegroundColor DarkGray
-                            $valResp = Invoke-TokenValidate -Token $token -IgnoreSSL:$selectedProfile.IgnoreSSL
-                            if ($valResp -and $valResp.IsSuccess) {
-                                $logonUser = if ($valResp.Data -and $valResp.Data.PSObject.Properties['username']) {
-                                    " (as $($valResp.Data.username))"
-                                } else { '' }
-                                Write-Host "  Token verified$logonUser." -ForegroundColor Green
-                            } elseif ($valResp -and $valResp.StatusCode -eq 401) {
-                                Write-Host '  Server rejected saved token (401). Please re-authenticate.' -ForegroundColor Yellow
-                                Remove-Item -LiteralPath $xmlPath -Force -ErrorAction SilentlyContinue
-                                $token = $null
+                            if ($token.SystemType -eq 'ISPSS') {
+                                Write-Host '  Privilege Cloud: token accepted based on local expiry.' -ForegroundColor DarkGray
+                            } else {
+                                Write-Host '  Validating token...' -ForegroundColor DarkGray
+                                $valResp = Invoke-TokenValidate -Token $token -IgnoreSSL:$selectedProfile.IgnoreSSL
+                                if ($valResp -and $valResp.IsSuccess) {
+                                    $logonUser = if ($valResp.Data -and $valResp.Data.PSObject.Properties['username']) {
+                                        " (as $($valResp.Data.username))"
+                                    } else { '' }
+                                    Write-Host "  Token verified$logonUser." -ForegroundColor Green
+                                } elseif ($valResp -and $valResp.StatusCode -eq 401) {
+                                    Write-Host '  Server rejected saved token (401). Please re-authenticate.' -ForegroundColor Yellow
+                                    Remove-Item -LiteralPath $xmlPath -Force -ErrorAction SilentlyContinue
+                                    $token = $null
+                                }
+                                # Non-401 errors (network unreachable, etc.) - proceed with the loaded token
                             }
-                            # Non-401 errors (network unreachable, etc.) - proceed with the loaded token
                         }
                     }
 
@@ -1312,11 +1324,13 @@ function Invoke-SessionLogoff {
 
 function Invoke-TokenValidate {
     # Calls GET /API/LoggedOnUser to confirm the server still accepts the token.
-    # Returns the API response object, or $null if the call throws.
+    # Returns the API response object, or $null if the call throws or is unsupported.
+    # Privilege Cloud (ISPSS) does not expose a token validation endpoint — returns $null immediately.
     param(
         [Parameter(Mandatory = $true)]  [PSCustomObject]$Token,
         [Parameter(Mandatory = $false)] [bool]$IgnoreSSL = $false
     )
+    if ($Token.SystemType -eq 'ISPSS') { return $null }
     try {
         return Invoke-CyberArkAPI -Token $Token -Method 'GET' `
             -Endpoint '/API/LoggedOnUser' -IgnoreSSL:$IgnoreSSL
