@@ -146,13 +146,13 @@ function Invoke-AccountsList {
             } else { '' }
 
             $result.Results.Add([PSCustomObject]@{
-                AccountID   = $acct.id
-                AccountName = $acct.name
-                Address     = $acct.address
-                UserName    = $acct.userName
-                PlatformID  = $acct.platformId
-                SafeName    = $acct.safeName
-                SecretType  = $acct.secretType
+                AccountID   = if ($acct.PSObject.Properties['id'])         { $acct.id }         else { '' }
+                AccountName = if ($acct.PSObject.Properties['name'])       { $acct.name }       else { '' }
+                Address     = if ($acct.PSObject.Properties['address'])    { $acct.address }    else { '' }
+                UserName    = if ($acct.PSObject.Properties['userName'])   { $acct.userName }   else { '' }
+                PlatformID  = if ($acct.PSObject.Properties['platformId']) { $acct.platformId } else { '' }
+                SafeName    = if ($acct.PSObject.Properties['safeName'])   { $acct.safeName }   else { '' }
+                SecretType  = if ($acct.PSObject.Properties['secretType']) { $acct.secretType } else { '' }
                 AutoManaged = $autoManaged
                 CPMStatus   = $cpmStatus
                 Created     = $createdDate
