@@ -162,7 +162,6 @@ function Get-CsvSavePath {
         $dialog.DefaultExt       = 'csv'
         $dialog.FileName         = $defaultName
         $dialog.InitialDirectory = $defaultDir
-        $dialog.AutoUpgradeEnabled = $false   # Vista-style dialog ignores InitialDirectory; XP-style respects it
         if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             return $dialog.FileName
         }
