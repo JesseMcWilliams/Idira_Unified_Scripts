@@ -736,6 +736,14 @@ function Invoke-ProfileTestConnection {
             }
         }
         $token = Get-AuthToken @params
+        # Patch ISPSS BaseURL to include AppName (Get-AuthToken returns the bare hostname only)
+        if ($token -and $token.SystemType -eq 'ISPSS' -and $token.BaseURL) {
+            $tcAppName = if ($Summary.currentProfile.AppName) { $Summary.currentProfile.AppName.Trim('/') } else { 'PasswordVault' }
+            $tcUri = [Uri]$token.BaseURL
+            if (-not $tcUri.AbsolutePath -or $tcUri.AbsolutePath -eq '/') {
+                $token.BaseURL = "$($token.BaseURL.TrimEnd('/'))/$tcAppName"
+            }
+        }
         if ($token -and $token.Token) {
             Write-Host '  Connection successful.' -ForegroundColor Green
             Write-Host "    System  : $($token.SystemType)"   -ForegroundColor Gray
@@ -904,6 +912,14 @@ function Invoke-ProfileManagementLoop {
                                 # Non-401 errors (network unreachable, etc.) - proceed with the loaded token
                             }
                         }
+                        # Ensure ISPSS BaseURL includes AppName (pre-fix saved tokens may lack it)
+                        if ($token -and $token.SystemType -eq 'ISPSS' -and $token.BaseURL) {
+                            $diskUri = [Uri]$token.BaseURL
+                            if (-not $diskUri.AbsolutePath -or $diskUri.AbsolutePath -eq '/') {
+                                $diskAppName = if ($selectedProfile.AppName) { $selectedProfile.AppName.Trim('/') } else { 'PasswordVault' }
+                                $token.BaseURL = "$($token.BaseURL.TrimEnd('/'))/$diskAppName"
+                            }
+                        }
                     }
 
                     if (-not $token) {
@@ -933,9 +949,12 @@ function Invoke-ProfileManagementLoop {
                                 }
                             }
                             $token = Get-AuthToken @authParams
-                            # For Privilege Cloud, patch token.BaseURL to include AppName for subsequent API calls
-                            if ($token -and $selectedProfile.SystemType -eq 'Privilege Cloud' -and $token.BaseURL) {
-                                $token.BaseURL = "$($token.BaseURL.TrimEnd('/'))/$appName"
+                            # Patch ISPSS BaseURL to include AppName (Get-AuthToken returns the bare hostname only)
+                            if ($token -and $token.SystemType -eq 'ISPSS' -and $token.BaseURL) {
+                                $caUri = [Uri]$token.BaseURL
+                                if (-not $caUri.AbsolutePath -or $caUri.AbsolutePath -eq '/') {
+                                    $token.BaseURL = "$($token.BaseURL.TrimEnd('/'))/$appName"
+                                }
                             }
                             # If user entered credentials, save username back to profile for next-login pre-fill
                             if ($token -and $token._RefreshContext -and $token._RefreshContext['Credential']) {
