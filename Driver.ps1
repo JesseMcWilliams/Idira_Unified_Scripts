@@ -377,6 +377,9 @@ function New-BlankProfile {
         OutputFolder     = ''
         IgnoreSSL        = $false
         WhatIfDefault    = $false
+        TenantPortal     = ''
+        TenantVault      = ''
+        TenantAuth       = ''
         LastUsed         = $null
         Created          = (Get-Date).ToUniversalTime().ToString('o')
         Modified         = (Get-Date).ToUniversalTime().ToString('o')
@@ -462,6 +465,11 @@ function Show-ProfileDetail {
     Field 'Auth Method'     $(if ($p.AuthMethod)  { $p.AuthMethod }  else { '(Not Set)' }) $(if ($p.AuthMethod) { 'Cyan' } else { 'Yellow' })
     Field 'Username'        $(if ($p.Username)     { $p.Username }   else { '(Not Set)' }) $(if ($p.Username)   { 'Cyan' } else { 'Yellow' })
     Field 'Base URL'        $(if ($p.BaseURL)      { $p.BaseURL } else { '(Not Set)' })
+    if ($p.SystemType -eq 'Privilege Cloud') {
+        if ($p.PSObject.Properties['TenantPortal'] -and $p.TenantPortal) { Field 'Tenant Portal' $p.TenantPortal }
+        if ($p.PSObject.Properties['TenantVault']  -and $p.TenantVault)  { Field 'Tenant Vault'  $p.TenantVault  }
+        if ($p.PSObject.Properties['TenantAuth']   -and $p.TenantAuth)   { Field 'Tenant Auth'   $p.TenantAuth   }
+    }
     Field 'Application'     $(if ($p.AppName)      { $p.AppName } else { 'PasswordVault' })
     Field 'Log Folder'      $(if ($p.LogFolder)    { $p.LogFolder    } else { '(launch directory)' })
     Field 'Input Folder'    $(if ($p.InputFolder)  { $p.InputFolder  } else { '(launch directory)' })
@@ -594,7 +602,24 @@ function Invoke-ProfileEditFlow {
             $subdomain = Show-FieldPrompt -Label 'Privilege Cloud Subdomain' -Default $subdomain `
                 -Description 'Subdomain of your tenant URL. For acme.privilegecloud.cyberark.cloud, enter: acme'
             if ($subdomain) {
-                $currentProfile.BaseURL = $pcloudTemplate -f $subdomain.Trim()
+                $cleanSub = $subdomain.Trim()
+                $currentProfile.BaseURL      = $pcloudTemplate -f $cleanSub
+                $currentProfile.TenantPortal = "$cleanSub.cyberark.com"
+                $currentProfile.TenantVault  = "vault-$cleanSub.privilegecloud.cyberark.com"
+                Write-Host "    Tenant Portal : $($currentProfile.TenantPortal)" -ForegroundColor DarkGray
+                Write-Host "    Tenant Vault  : $($currentProfile.TenantVault)"  -ForegroundColor DarkGray
+                Write-Host '    Discovering identity URL...' -ForegroundColor DarkGray
+                try {
+                    $resolved = Resolve-IdentityTenantURL -PCloudSubdomain $cleanSub
+                    if ($resolved) {
+                        $currentProfile.TenantAuth = $resolved
+                        Write-Host "    Tenant Auth   : $resolved" -ForegroundColor DarkGray
+                    } else {
+                        Write-Host '    Tenant Auth   : (not discovered - will resolve at login)' -ForegroundColor Yellow
+                    }
+                } catch {
+                    Write-Host '    Tenant Auth   : (discovery failed - will resolve at login)' -ForegroundColor Yellow
+                }
             }
         }
         'Self-Hosted' {
@@ -735,6 +760,9 @@ function Invoke-ProfileTestConnection {
                 } else { $null }
             }
         }
+        if ($Summary.currentProfile.PSObject.Properties['TenantAuth'] -and $Summary.currentProfile.TenantAuth) {
+            $params['IdentityTenantURL'] = $Summary.currentProfile.TenantAuth
+        }
         $token = Get-AuthToken @params
         # Patch ISPSS BaseURL to include AppName (Get-AuthToken returns the bare hostname only)
         if ($token -and $token.SystemType -eq 'ISPSS' -and $token.BaseURL) {
@@ -750,6 +778,13 @@ function Invoke-ProfileTestConnection {
             Write-Host "    Method  : $($token.AuthMethod)"   -ForegroundColor Gray
             Write-Host "    Base URL: $($token.BaseURL)"      -ForegroundColor Gray
             Write-Host "    Expires : $($token.Expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm'))" -ForegroundColor Gray
+
+            # Persist discovered identity URL back to the profile so future logins skip rediscovery
+            if ($token.SystemType -eq 'ISPSS' -and $token.IdentityURL -and
+                $token.IdentityURL -ne $Summary.currentProfile.TenantAuth) {
+                $Summary.currentProfile.TenantAuth = $token.IdentityURL
+                Save-DriverProfile -currentProfile $Summary.currentProfile
+            }
 
             if (Confirm-Action 'Save this token to the profile?') {
                 $null = Save-AuthToken -TokenObject $token -ProfileName $Summary.currentProfile.AuthTokenProfile
@@ -942,6 +977,9 @@ function Invoke-ProfileManagementLoop {
                                 if ($selectedProfile.BaseURL -match '^https://(.+)\.privilegecloud\.cyberark\.cloud') {
                                     $authParams['PCloudSubdomain'] = $Matches[1]
                                 }
+                                if ($selectedProfile.PSObject.Properties['TenantAuth'] -and $selectedProfile.TenantAuth) {
+                                    $authParams['IdentityTenantURL'] = $selectedProfile.TenantAuth
+                                }
                             } elseif ($selectedProfile.SystemType -eq 'Self-Hosted') {
                                 $authParams['SystemType'] = 'SelfHosted'
                                 if ($selectedProfile.BaseURL) {
@@ -1023,6 +1061,13 @@ function Invoke-ProfileManagementLoop {
                         $script:SessionToken  = $token
                         $script:ActiveProfile = $selectedProfile
                         $script:WhatIfMode    = $selectedProfile.WhatIfDefault -or $script:WhatIfMode
+
+                        # Persist discovered identity URL back to profile so future logins skip rediscovery
+                        if ($token.SystemType -eq 'ISPSS' -and $token.IdentityURL -and
+                            $token.IdentityURL -ne $selectedProfile.TenantAuth) {
+                            $selectedProfile.TenantAuth = $token.IdentityURL
+                            Save-DriverProfile -currentProfile $selectedProfile
+                        }
 
                         # Return the profile name - caller starts the session loop
                         return $selectedProfile.ProfileName
