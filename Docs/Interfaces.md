@@ -247,6 +247,9 @@ Non-sensitive settings only. Human-readable without decryption.
     "AppName":          "PasswordVault",
     "AuthMethod":       "ClientCredentials",
     "BaseURL":          "https://acme.privilegecloud.cyberark.cloud",
+    "TenantPortal":     "acme.cyberark.com",
+    "TenantVault":      "vault-acme.privilegecloud.cyberark.com",
+    "TenantAuth":       "https://acme.id.cyberark.cloud",
     "LogFolder":        "",
     "InputFolder":      "",
     "OutputFolder":     "",
@@ -266,9 +269,12 @@ Non-sensitive settings only. Human-readable without decryption.
 | `ProfileName` | string | Display name. Also used to derive file names. |
 | `AuthTokenProfile` | string | Name portion of the corresponding `.cred` auth token file. Usually identical to `ProfileName`. |
 | `SystemType` | string | `Privilege Cloud` (SaaS / ISPSS) or `Self-Hosted` (on-premises PVWA). Drives the Base URL prompt and maps to the auth script's `ISPSS` / `SelfHosted` parameter values. |
-| `AppName` | string | CyberArk application name used in the URL path. Default: `PasswordVault`. Joined with `BaseURL` when making API calls: `https://pvwa.company.com/PasswordVault`. |
+| `AppName` | string | CyberArk application name in the URL path (default: `PasswordVault`). For Self-Hosted only: joined with `BaseURL` to form the `PVWAUrl` passed to `Get-AuthToken` (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, `/PasswordVault` is embedded in the auth script's base URL template and `AppName` is not used at runtime. |
 | `AuthMethod` | string | Preferred authentication method for this profile. Set during profile creation; passed directly to `Get-AuthToken` to skip the interactive method prompt. |
 | `BaseURL` | string | Base URL without application path. For Privilege Cloud: `https://<subdomain>.privilegecloud.cyberark.cloud`. For Self-Hosted: `https://pvwa.company.com`. No trailing slash. |
+| `TenantPortal` | string | **Privilege Cloud only.** Admin portal address (no scheme): `{subdomain}.cyberark.com`. Auto-computed from the subdomain when the profile is saved. Informational only — not used in API calls. |
+| `TenantVault` | string | **Privilege Cloud only.** Vault FQDN: `vault-{subdomain}.privilegecloud.cyberark.com`. Auto-computed from the subdomain when the profile is saved. Informational only — not used in API calls. |
+| `TenantAuth` | string | **Privilege Cloud only.** Identity tenant URL (`https://{subdomain}.id.cyberark.cloud`). Auto-discovered by `Resolve-IdentityTenantURL` during profile edit and written back after each successful ISPSS login. Passed as `-IdentityTenantURL` to `Get-AuthToken` so the per-login HTTP redirect probe is skipped. Empty string if discovery has not yet run. |
 | `LogFolder` | string | Absolute path. Empty string resolves to the script launch directory at runtime. |
 | `InputFolder` | string | Default folder for open-file dialogs. Empty = launch directory. |
 | `OutputFolder` | string | Destination for output CSVs and save-file dialogs. Empty = launch directory. |
@@ -290,7 +296,17 @@ When calling `Get-AuthToken`, the driver maps these values back to the auth scri
 - `Privilege Cloud` → `-SystemType ISPSS -PCloudSubdomain <subdomain> [-AuthMethod <method>]`
 - `Self-Hosted` → `-SystemType SelfHosted -PVWAUrl <BaseURL>/<AppName> [-AuthMethod <method>]`
 
-`AppName` is always joined to `BaseURL` when constructing `PVWAUrl` for Self-Hosted calls (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, the driver patches `token.BaseURL` after auth to include `AppName` for downstream API calls.
+`AppName` is joined to `BaseURL` when constructing `PVWAUrl` for Self-Hosted calls (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, `/PasswordVault` is embedded directly in `Get-AuthToken`'s `PCLOUD_BASE_TEMPLATE` constant, so all ISPSS tokens are created with the correct base URL. The driver also passes `TenantAuth` as `-IdentityTenantURL` to bypass the HTTP redirect probe that normally discovers the Identity tenant URL.
+
+**Privilege Cloud: auto-computed profile fields**
+
+When the subdomain is entered during profile edit, three fields are computed automatically:
+
+| Field | Auto-computed value |
+|---|---|
+| `TenantPortal` | `{subdomain}.cyberark.com` |
+| `TenantVault` | `vault-{subdomain}.privilegecloud.cyberark.com` |
+| `TenantAuth` | Discovered by `Resolve-IdentityTenantURL`; written back after each login |
 
 ---
 

@@ -1380,9 +1380,12 @@ exactly the `*.id.cyberark.cloud` host we need. With `MaximumRedirection 8` (fol
 ensures the redirect URL is always captured in the catch block regardless of what the final page
 does.
 
-**Rule:** Cache the resolved URL in the profile (`IdentityHost` field) to avoid the multi-candidate
-probe on every session. Never hardcode `{sub}.id.cyberark.cloud` without verifying via redirect
-discovery — tenant subdomain mappings are not guaranteed to be 1:1 with the portal subdomain.
+**Rule:** Cache the resolved URL in the profile's `TenantAuth` field to avoid the multi-candidate
+probe on every session. Pass `TenantAuth` as `-IdentityTenantURL` when calling `Get-AuthToken` so
+`Resolve-IdentityTenantURL` is skipped entirely. After each successful ISPSS login, write the token's
+`IdentityURL` back to `TenantAuth` in the profile JSON (self-healing if the identity URL changes).
+Never hardcode `{sub}.id.cyberark.cloud` without verifying via redirect discovery — tenant subdomain
+mappings are not guaranteed to be 1:1 with the portal subdomain.
 
 ---
 
@@ -1471,6 +1474,33 @@ Key OOB details:
 - Loop exits when a token is found OR explicit API failure (`success = $false`) OR 5-minute timeout
 - Never key the loop condition on the shape of `$resp.Result` — the shape varies by tenant version
 - Show elapsed time in-place using `` "`r" `` to overwrite the previous line
+
+---
+
+### 11.4 Fix Privilege Cloud BaseURL at the constant, not in downstream callers
+
+**Root cause:** `Get-AuthToken` builds the ISPSS base URL from a single constant:
+```powershell
+$script:PCLOUD_BASE_TEMPLATE = 'https://{0}.privilegecloud.cyberark.cloud'
+```
+The Driver was patching `token.BaseURL` post-auth to append `/PasswordVault`. But the token object
+flows through multiple paths — fresh auth, silent ClientCredentials refresh (`Invoke-TokenRefresh`),
+expired token AutoRefresh (`Import-AuthToken -AutoRefresh`) — and Driver-side patches only ran in
+some of them. Any newly-returned token from an unpatched path had a bare hostname URL and API calls
+constructed the wrong path.
+
+**Fix:** Include `/PasswordVault` in the template constant itself:
+```powershell
+$script:PCLOUD_BASE_TEMPLATE = 'https://{0}.privilegecloud.cyberark.cloud/PasswordVault'
+```
+All code paths (`Get-AuthToken`, `Update-AuthToken`, `Import-AuthToken -AutoRefresh`) share this
+constant, so every ISPSS token is correct from creation. The `RefreshContext.BaseURL` — used when
+refreshing a token in-session — is also correct, ensuring refreshed tokens inherit the right URL.
+
+Driver-side patches remain as a migration safety net for tokens saved before the fix.
+
+**Rule:** When a URL base string is referenced by multiple code paths, fix the constant — not the
+callers. A caller-level patch is silently missed every time a new path is added.
 
 ---
 
@@ -1578,3 +1608,10 @@ $dialog.AutoUpgradeEnabled  = $false   # Forces XP-style dialog, which respects 
 `InitialDirectory` must control the starting folder. The XP-style dialog always opens at
 `InitialDirectory`. Note that `RestoreDirectory` is unrelated — it controls the process working
 directory, not where the dialog opens.
+
+**Known trade-off:** The XP-style dialog has an outdated appearance that may be unacceptable to
+users. There is no known way to honor `InitialDirectory` in the Vista-style dialog without
+third-party libraries. If aesthetics take priority, `AutoUpgradeEnabled` must remain `$true` and
+`InitialDirectory` will be ignored — the dialog always opens at the last browsed folder for that
+application. This is the current state: the project uses the Vista-style dialog and `OutputFolder`
+is not used as the dialog starting location.
