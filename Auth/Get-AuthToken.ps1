@@ -151,7 +151,7 @@ param(
 $script:CLIENT_AUTH_OID         = '1.3.6.1.5.5.7.3.2'
 $script:PVWA_SESSION_EXPIRY_MIN = 20
 $script:WEBVIEW2_TIMEOUT_SEC    = 300
-$script:PCLOUD_BASE_TEMPLATE    = 'https://{0}.privilegecloud.cyberark.cloud'
+$script:PCLOUD_BASE_TEMPLATE    = 'https://{0}.privilegecloud.cyberark.cloud/PasswordVault'
 $script:_WebView2AssemblyPath   = $null
 
 $script:PVWA_LOGON_PATHS = @{
