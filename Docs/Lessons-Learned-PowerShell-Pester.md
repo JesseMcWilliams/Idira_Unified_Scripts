@@ -1357,7 +1357,7 @@ function Resolve-IdentityTenantURL {
 
     foreach ($candidate in $candidates) {
         try {
-            $resp = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 8 `
+            $resp = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 0 `
                 -TimeoutSec 20 -ErrorAction Stop -UseBasicParsing
             $h = Get-WebResponseHost -Response $resp
             if ($h -match '\.id\.cyberark\.cloud$') { return "https://$h" }
@@ -1371,10 +1371,14 @@ function Resolve-IdentityTenantURL {
 }
 ```
 
-**Why the exception branch matters:** When `Invoke-WebRequest` follows redirects and lands on
-a page that returns a non-success status, it throws. The exception's `Response.ResponseUri`
-captures the host the redirect chain landed on — which is often the correct Identity host even
-when the final page returned an error.
+**Why `MaximumRedirection 0` is intentional:** Setting it to `0` means `Invoke-WebRequest` throws
+on the *very first* redirect response (HTTP 301/302/307) rather than following the chain silently.
+The exception object carries `exception.Response.ResponseUri`, which is the redirect *target* URL —
+exactly the `*.id.cyberark.cloud` host we need. With `MaximumRedirection 8` (follow redirects),
+`Invoke-WebRequest` lands on the final page after all redirects, which may be the portal itself
+(a JavaScript-driven page), making the redirect target undetectable. `MaximumRedirection 0`
+ensures the redirect URL is always captured in the catch block regardless of what the final page
+does.
 
 **Rule:** Cache the resolved URL in the profile (`IdentityHost` field) to avoid the multi-candidate
 probe on every session. Never hardcode `{sub}.id.cyberark.cloud` without verifying via redirect
