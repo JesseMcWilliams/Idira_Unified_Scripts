@@ -129,7 +129,7 @@ PowerShell\
 │       ├── Invoke-ApplicationsListAuthMethods.ps1  # SelfHosted only
 │       ├── Invoke-ApplicationsAddAuthMethod.ps1    # SelfHosted only
 │       └── Invoke-ApplicationsDeleteAuthMethod.ps1 # SelfHosted only
-├── Profiles\                           # Created at runtime (default: %APPDATA%\CyberArkPAS\)
+├── Profiles\                           # Created at runtime (default: %APPDATA%\IdiraUnifiedScripts\Profiles\)
 │   ├── Production.json
 │   ├── Production.cred          # DPAPI-encrypted token (was .xml)
 │   ├── Development.json

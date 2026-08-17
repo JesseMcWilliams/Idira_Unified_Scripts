@@ -1286,7 +1286,7 @@ function Update-AuthToken {
 #region Profile Persistence (DPAPI via Export-Clixml)
 
 function Get-ProfileDir {
-    $dir = Join-Path $env:APPDATA 'CyberArkPAS'
+    $dir = Join-Path $env:APPDATA 'IdiraUnifiedScripts\Profiles'
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     return $dir
 }
@@ -1321,7 +1321,7 @@ function Save-AuthToken {
         protection covers them alongside ClientSecret and Credential. The resulting file can
         only be decrypted by the same Windows user on the same machine.
 
-        Profiles are stored in %APPDATA%\CyberArkPAS\<ProfileName>.cred.
+        Profiles are stored in %APPDATA%\IdiraUnifiedScripts\Profiles\<ProfileName>.cred.
         When no profile name or path is given the name defaults to <SystemType>_<AuthMethod>.
 
     .PARAMETER TokenObject
@@ -1406,7 +1406,7 @@ function Import-AuthToken {
 
     .PARAMETER ProfileName
         Name of the profile to load (e.g. 'Development'). Resolves to
-        %APPDATA%\CyberArkPAS\<ProfileName>.cred.
+        %APPDATA%\IdiraUnifiedScripts\Profiles\<ProfileName>.cred.
 
     .PARAMETER Path
         Explicit path to a profile file. Takes precedence over -ProfileName.
@@ -1523,7 +1523,7 @@ function Get-AuthTokenProfiles {
         Lists all saved auth token profiles in the default profile directory.
 
     .DESCRIPTION
-        Reads each profile file in %APPDATA%\CyberArkPAS\ and returns a summary object
+        Reads each profile file in %APPDATA%\IdiraUnifiedScripts\Profiles\ and returns a summary object
         for each one. The returned objects can be piped directly to Import-AuthToken or
         Remove-AuthTokenProfile.
 
@@ -1534,7 +1534,7 @@ function Get-AuthTokenProfiles {
     [CmdletBinding()]
     param()
 
-    $dir = Join-Path $env:APPDATA 'CyberArkPAS'
+    $dir = Join-Path $env:APPDATA 'IdiraUnifiedScripts\Profiles'
     if (-not (Test-Path $dir)) {
         Write-Verbose "Profile directory does not exist: $dir"
         return

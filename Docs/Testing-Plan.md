@@ -251,7 +251,7 @@ Run these procedures manually against a lab environment.
 | A03 | SelfHosted — CyberArk auth | Token returned; `SystemType=SelfHosted` |
 | A04 | SelfHosted — LDAP auth | Token returned with LDAP method |
 | A05 | SelfHosted — PKI cert auth | Correct cert selected; token returned |
-| A06 | Save-AuthToken | Profile XML created in `%APPDATA%\CyberArkPAS\` |
+| A06 | Save-AuthToken | Profile XML created in `%APPDATA%\IdiraUnifiedScripts\Profiles\` |
 | A07 | Import-AuthToken — valid token | Token object returned with all fields |
 | A08 | Import-AuthToken — expired | `IsExpired` flag present |
 | A09 | Import-AuthToken — AutoRefresh | New token obtained for ClientCredentials |

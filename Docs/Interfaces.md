@@ -236,7 +236,7 @@ When CyberArk returns a structured error, `ErrorDetails` contains the parsed obj
 
 ## Driver Profile — JSON Schema
 
-Stored at `%APPDATA%\CyberArkPAS\<ProfileName>.json` (default location).
+Stored at `%APPDATA%\IdiraUnifiedScripts\Profiles\<ProfileName>.json` (default location).
 Non-sensitive settings only. Human-readable without decryption.
 
 ```json
@@ -296,7 +296,7 @@ When calling `Get-AuthToken`, the driver maps these values back to the auth scri
 
 ## Auth Token File — Serialized Shape
 
-Stored at `%APPDATA%\CyberArkPAS\<ProfileName>.cred` by `Save-AuthToken` via `Export-Clixml`.
+Stored at `%APPDATA%\IdiraUnifiedScripts\Profiles\<ProfileName>.cred` by `Save-AuthToken` via `Export-Clixml`.
 DPAPI-encrypted fields are marked below.
 
 | Field | Type | DPAPI? | Description |
