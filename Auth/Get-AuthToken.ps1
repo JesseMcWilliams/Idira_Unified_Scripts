@@ -248,7 +248,7 @@ function Resolve-IdentityTenantURL {
 
     foreach ($candidate in $candidates) {
         try {
-            $resp         = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 8 -TimeoutSec 20 -ErrorAction Stop
+            $resp         = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 8 -TimeoutSec 20 -ErrorAction Stop -UseBasicParsing
             $responseHost = Get-WebResponseHost -Response $resp
             if ($responseHost -match '\.id\.cyberark\.cloud$') {
                 $url = "https://$responseHost"
@@ -707,7 +707,7 @@ function Invoke-ISPSSInteractive {
     $challenges = $startResp.Result.Challenges
     $token      = $null
 
-    if ($startResp.Result.IdpRedirectShortUrl) {
+    if ($startResp.Result.PSObject.Properties['IdpRedirectShortUrl'] -and $startResp.Result.IdpRedirectShortUrl) {
         $redirectUrl = $startResp.Result.IdpRedirectShortUrl
         Write-Host "External IdP authentication required. Opening browser..."
         Start-Process $redirectUrl
