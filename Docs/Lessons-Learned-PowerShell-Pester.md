@@ -526,6 +526,41 @@ $safeName = Show-FieldPrompt -Label 'Safe Name' `
 This applies to **every** `$Defaults` key access — not just `SafeName`. The same
 `$InputData['Key']` rule from 4.1 applies identically to `$Defaults`.
 
+### 4.7 `PSObject.Properties` on a hashtable finds object members, NOT key-value entries
+
+**Root cause:** PowerShell hashtables (`@{}`) are `System.Collections.Hashtable` instances. When
+you call `$ht.PSObject.Properties['Key']`, the Extended Type System introspects the *object itself* —
+returning the hashtable's own .NET members (`Count`, `Keys`, `Values`, `IsFixedSize`, etc.) plus
+any ETS script or note properties. It does **not** enumerate the hashtable's key-value entries.
+
+This means `$ht.PSObject.Properties['SomeKey']` is **always `$null`** for any key that is a
+hashtable entry, even if `$ht['SomeKey']` would return a value.
+
+**Symptom:** A flag stored in a module metadata hashtable (e.g. `ExcludeFromExportAll = $true`)
+is silently never detected. The guard always evaluates to false and every item passes the filter,
+including the one that should be excluded.
+
+**Wrong — PSObject.Properties does not see hashtable entries:**
+```powershell
+# $_.Meta is a hashtable with key ExcludeFromExportAll = $true
+$listModules = @($script:LoadedModules | Where-Object {
+    -not ($_.Meta.PSObject.Properties['ExcludeFromExportAll'] -and $_.Meta.ExcludeFromExportAll)
+    # PSObject.Properties['ExcludeFromExportAll'] is always $null for a hashtable entry — never matches
+})
+```
+
+**Correct — use bracket notation for hashtable key access:**
+```powershell
+$listModules = @($script:LoadedModules | Where-Object {
+    -not $_.Meta['ExcludeFromExportAll']
+})
+```
+
+**Rule:** `PSObject.Properties['Key']` is for **PSCustomObject** property existence checks (e.g.
+JSON-deserialized API responses). For **hashtable** key access always use bracket notation
+`$ht['Key']` or `$ht.ContainsKey('Key')`. Never mix the two: if `$Meta` is a hashtable use
+`$Meta['Key']`; if it is a PSCustomObject use `$Meta.PSObject.Properties['Key']`.
+
 ---
 
 ## 5. PowerShell Reserved and Automatic Variable Names
@@ -1265,3 +1300,245 @@ Common Unicode characters that contain these dangerous last bytes in UTF-8:
 **Rule:** Never use any of these characters in `.ps1` or `.psm1` source files unless the file
 is saved with a UTF-8 BOM. In double-quoted strings, prefer plain ASCII `-` over em-dash `—`
 regardless of encoding, because some editors silently strip the BOM.
+
+---
+
+## 11. CyberArk Identity and Privilege Cloud Runtime Behaviors
+
+Lessons from live testing against a Privilege Cloud (ISPSS) tenant. These behaviors are not
+documented in the CyberArk developer portal and vary by tenant/version.
+
+---
+
+### 11.1 Privilege Cloud Identity tenant URL requires multi-candidate HTTP redirect discovery
+
+**Root cause:** The Privilege Cloud portal (`{sub}.privilegecloud.cyberark.cloud`) uses
+*JavaScript-based* redirects — not HTTP 301/302 — to navigate the browser to the Identity
+tenant (`{sub}.id.cyberark.cloud`). `Invoke-WebRequest` follows HTTP-level redirects but cannot
+execute JavaScript, so it lands on the portal page and returns the portal's own host. Calling
+`StartAuthentication` against the portal URL then returns HTTP 404 because the Identity API
+path does not exist on the portal.
+
+**Discovery approach:** Try up to three candidate URLs for the subdomain. After each attempt
+(success or caught exception), check whether the response's final host matches `*.id.cyberark.cloud`.
+The helper functions below extract the final host from both normal and exception paths:
+
+```powershell
+function Get-WebResponseHost {
+    param($Response)
+    if ($Response -and $Response.BaseResponse -and $Response.BaseResponse.ResponseUri) {
+        return $Response.BaseResponse.ResponseUri.Host
+    }
+    return $null
+}
+
+function Get-ExceptionRedirectHost {
+    param($ErrorRecord)
+    $ex = $ErrorRecord.Exception
+    if ($ex -and $ex.Response -and $ex.Response.ResponseUri) {
+        return $ex.Response.ResponseUri.Host
+    }
+    return $null
+}
+
+function Resolve-IdentityTenantURL {
+    param([string]$PCloudSubdomain, [string]$ExistingIdentityHost)
+
+    if (-not [string]::IsNullOrWhiteSpace($ExistingIdentityHost)) {
+        $cleaned = $ExistingIdentityHost.Trim().Replace('https://', '').TrimEnd('/')
+        return "https://$cleaned"
+    }
+
+    $candidates = @(
+        "https://$PCloudSubdomain.cyberark.cloud",
+        "https://$PCloudSubdomain-userportal.cyberark.cloud",
+        "https://$PCloudSubdomain.privilegecloud.cyberark.cloud"
+    )
+
+    foreach ($candidate in $candidates) {
+        try {
+            $resp = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 8 `
+                -TimeoutSec 20 -ErrorAction Stop -UseBasicParsing
+            $h = Get-WebResponseHost -Response $resp
+            if ($h -match '\.id\.cyberark\.cloud$') { return "https://$h" }
+        } catch {
+            $h = Get-ExceptionRedirectHost -ErrorRecord $_
+            if ($h -match '\.id\.cyberark\.cloud$') { return "https://$h" }
+        }
+    }
+
+    return "https://$PCloudSubdomain.id.cyberark.cloud"   # direct-construct fallback
+}
+```
+
+**Why the exception branch matters:** When `Invoke-WebRequest` follows redirects and lands on
+a page that returns a non-success status, it throws. The exception's `Response.ResponseUri`
+captures the host the redirect chain landed on — which is often the correct Identity host even
+when the final page returned an error.
+
+**Rule:** Cache the resolved URL in the profile (`IdentityHost` field) to avoid the multi-candidate
+probe on every session. Never hardcode `{sub}.id.cyberark.cloud` without verifying via redirect
+discovery — tenant subdomain mappings are not guaranteed to be 1:1 with the portal subdomain.
+
+---
+
+### 11.2 `AdvanceAuthentication` token extraction: dual field names and root-level fallback
+
+**Root cause:** The CyberArk Identity `AdvanceAuthentication` response returns the auth token in
+different locations depending on the Identity version, tenant configuration, and authentication step:
+
+| Scenario | Token location |
+|---|---|
+| Normal completion (most tenants) | `$resp.Result.Token` |
+| Some tenant configurations | `$resp.Result.Auth` (alternate field name) |
+| After OOB approval (some Identity versions) | `$resp.Token` or `$resp.Auth` at response root; `$resp.Result` is the string `"LoginSuccess"` |
+| Intermediate MFA challenge step | `$resp.Result` is a PSCustomObject but has neither `Token` nor `Auth` — the loop must continue |
+
+Under `Set-StrictMode -Version Latest`, accessing `$resp.Result.Token` when `Token` is absent throws
+`PropertyNotFoundException`. The guard `$resp.Result -isnot [string]` allows PSCustomObject responses
+through but does not verify that `Token` exists on that object.
+
+**Correct extraction pattern — guard every field and fall back to response root:**
+```powershell
+if ($resp) {
+    $authToken = $null
+
+    # Try Result object fields first (normal completion path)
+    if ($resp.Result -isnot [string]) {
+        if ($resp.Result.PSObject.Properties['Token'] -and $resp.Result.Token) {
+            $authToken = $resp.Result.Token
+        } elseif ($resp.Result.PSObject.Properties['Auth'] -and $resp.Result.Auth) {
+            $authToken = $resp.Result.Auth
+        }
+    }
+
+    # Fallback: token at response root level — seen when Result is string 'LoginSuccess'
+    # on some Identity versions after OOB approval
+    if (-not $authToken -and $resp.PSObject.Properties['Token'] -and $resp.Token) {
+        $authToken = $resp.Token
+    }
+    if (-not $authToken -and $resp.PSObject.Properties['Auth'] -and $resp.Auth) {
+        $authToken = $resp.Auth
+    }
+
+    if ($authToken) { return $authToken }
+}
+```
+
+**OOB poll loop pattern:**
+```powershell
+$oobStart = Get-Date
+do {
+    $elapsed = [int]((Get-Date) - $oobStart).TotalSeconds
+    Write-Host "`r  Waiting for out-of-band approval... ($($elapsed)s)" -NoNewline
+    Start-Sleep -Seconds 2
+    $resp = Invoke-IdentityAdvancedAuth -Action 'Poll' ...
+} while ($resp.Result -is [string] -and $resp.Result -ieq 'OobPending')
+Write-Host ''
+```
+
+Key OOB details:
+- Poll every **2 seconds** (not 3 — faster UX without significantly increasing server load)
+- Termination condition: any result other than `'OobPending'` (case-insensitive `-ieq`)
+- On approval, `$resp.Result` becomes `"LoginSuccess"` (string) — token is at response root level, NOT inside `$resp.Result`
+- Show elapsed time in-place using `` "`r" `` to overwrite the previous line
+
+---
+
+### 11.3 Re-auth after 401 must be triggered immediately in the inner action loop
+
+**Root cause:** `Invoke-TokenInvalidate` force-expires the session token (sets expiry to past,
+removes the token file) and returns `$true`. The token expiry check only ran at the top of the
+outer category loop. After a 401, the user had to press [B] to go back before the re-auth prompt
+appeared — a confusing UX.
+
+**Fix:** After calling `Invoke-ActionModule`, immediately re-check the token:
+```powershell
+Invoke-ActionModule -ModuleEntry $catModules[$actNum - 1]
+# A 401 during the module call force-expires the token via Invoke-TokenInvalidate.
+# Re-check immediately so the re-auth prompt appears now, not only after the user presses [B].
+if ((Test-TokenExpiry) -eq 'Expired' -and -not (Invoke-TokenRefresh)) {
+    return 'Exit'
+}
+```
+
+**Rule:** Whenever an action module can trigger `Invoke-TokenInvalidate` (which it does on HTTP 401),
+check token validity immediately afterward in the innermost loop — not only at the top of the outer loop.
+
+---
+
+## 12. CyberArk API Response Field Name Variations by Version
+
+### 12.1 Platform GET response structure differs between PVWA v12+ and Privilege Cloud
+
+**Root cause:** The `GET /API/Platforms/{id}` endpoint returns different response shapes depending
+on the PVWA version:
+
+| Version | Structure | Field names |
+|---|---|---|
+| PVWA v12+ | Fields nested under `general` sub-object | `id`, `name`, `description`, `active`, `platformType` |
+| Privilege Cloud / older | Fields at response root (no `general` wrapper) | `PlatformID`, `Name`/`name`, `SystemType` instead of `platformType` |
+
+When only mapping the `general` sub-object fields, Privilege Cloud responses produce mostly blank
+output (only `active` at the root may accidentally match the lowercase lookup).
+
+**Correct pattern — probe both locations and both field name variants:**
+```powershell
+$platform = $response.Data
+Write-CyberArkLog -Level 'DEBUG' -Message "Platform GET root fields: $($platform.PSObject.Properties.Name -join ', ')"
+
+$gen = if ($platform.PSObject.Properties['general'] -and $platform.general) {
+    Write-CyberArkLog -Level 'DEBUG' -Message "Platform GET general fields: $($platform.general.PSObject.Properties.Name -join ', ')"
+    $platform.general
+} else { $platform }
+
+[PSCustomObject]@{
+    PlatformID   = if ($gen.PSObject.Properties['id'])                  { $gen.id }
+                   elseif ($gen.PSObject.Properties['PlatformID'])      { $gen.PlatformID }
+                   elseif ($platform.PSObject.Properties['id'])         { $platform.id }
+                   elseif ($platform.PSObject.Properties['PlatformID']) { $platform.PlatformID }
+                   else { $platformID }
+    PlatformType = if ($gen.PSObject.Properties['platformType'])        { $gen.platformType }
+                   elseif ($gen.PSObject.Properties['SystemType'])      { $gen.SystemType }
+                   elseif ($platform.PSObject.Properties['platformType']) { $platform.platformType }
+                   elseif ($platform.PSObject.Properties['SystemType']) { $platform.SystemType }
+                   else { '' }
+    # Name, Description, Active follow the same probe-both-locations pattern
+}
+```
+
+**Rule:** When a CyberArk endpoint may be called against different PVWA versions, always log
+`$response.Data.PSObject.Properties.Name` at DEBUG level. The log output from a live run reveals
+the actual field names present and enables targeted fixes without guessing. Apply the same dual-location
+fallback pattern to the corresponding List endpoint for consistency.
+
+---
+
+## 13. Windows Forms Behavior
+
+### 13.1 `SaveFileDialog.InitialDirectory` is ignored unless `RestoreDirectory = $true`
+
+**Root cause:** `SaveFileDialog` (and `OpenFileDialog`) maintains a "last used folder" state within
+the Windows shell. The default `RestoreDirectory = $false` causes Windows to override `InitialDirectory`
+with whatever folder the user last navigated to in *any* file dialog — even in other applications.
+Setting `InitialDirectory` has no visible effect when this override is active.
+
+**Symptom:** The CSV save dialog always opens in the last browsed folder (e.g. Desktop or Downloads),
+ignoring the profile's `OutputFolder` setting.
+
+**Wrong:**
+```powershell
+$dialog = New-Object System.Windows.Forms.SaveFileDialog
+$dialog.InitialDirectory = $profileOutputFolder
+# RestoreDirectory defaults to $false — Windows overrides InitialDirectory with last-used folder
+```
+
+**Correct:**
+```powershell
+$dialog = New-Object System.Windows.Forms.SaveFileDialog
+$dialog.InitialDirectory = $profileOutputFolder
+$dialog.RestoreDirectory = $true   # Required — tells Windows to honour InitialDirectory
+```
+
+**Rule:** Always set `RestoreDirectory = $true` on any `SaveFileDialog` or `OpenFileDialog` where
+`InitialDirectory` must be respected. This applies identically to both dialog types.
