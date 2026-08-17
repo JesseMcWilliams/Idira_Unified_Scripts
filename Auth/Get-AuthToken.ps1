@@ -217,14 +217,17 @@ function Resolve-IdentityTenantURL {
     $portalUrl = $script:PCLOUD_BASE_TEMPLATE -f $PCloudSubdomain
     Write-Verbose "Discovering Identity tenant URL via redirect from: $portalUrl"
     try {
-        $handler = [System.Net.Http.HttpClientHandler]::new()
-        $handler.AllowAutoRedirect = $true
-        $client  = [System.Net.Http.HttpClient]::new($handler)
-        $client.Timeout = [TimeSpan]::FromSeconds(30)
-        $response = $client.GetAsync($portalUrl).GetAwaiter().GetResult()
-        $identityHost = $response.RequestMessage.RequestUri.Host
-        $client.Dispose()
-        $handler.Dispose()
+        # Use HttpWebRequest — always available in PS 5.1 without assembly loading.
+        # System.Net.Http.HttpClient requires an explicit Add-Type in PS 5.1 and has
+        # TLS quirks on older .NET Framework versions.
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        $request                  = [System.Net.HttpWebRequest][System.Net.WebRequest]::Create($portalUrl)
+        $request.AllowAutoRedirect = $true
+        $request.Timeout          = 30000
+        $request.Method           = 'GET'
+        $webResponse              = $request.GetResponse()
+        $identityHost             = $webResponse.ResponseUri.Host
+        $webResponse.Close()
         if ([string]::IsNullOrEmpty($identityHost)) {
             throw "Redirect did not produce an Identity tenant host."
         }
