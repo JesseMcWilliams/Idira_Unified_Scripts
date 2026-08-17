@@ -1,4 +1,4 @@
-# Lessons Learned — PowerShell 5.1 & Pester v6
+﻿# Lessons Learned — PowerShell 5.1 & Pester v6
 
 Patterns discovered during unit test development for the Idira Unified Scripts project.
 Each entry describes the root cause, the symptom, and the correct pattern.
@@ -873,6 +873,85 @@ $response = Invoke-CyberArkAPI `
 **Rule:** When mapping API response fields, always check `PSObject.Properties['application']` or
 `PSObject.Properties['authentication']` before accessing the inner object/array. The inner payload
 may be a single object OR an array depending on the endpoint — cast with `@(...)` to normalize.
+
+---
+
+### 8.5 CyberArk Groups `/Members` sub-resource returns HTTP 405 on some PVWA versions
+
+**Root cause:** The `GET /API/UserGroups/{id}/Members` endpoint does not exist in all PVWA
+versions. On older or differently-patched instances it returns HTTP 405 Method Not Allowed, even
+though the CyberArk documentation may list it. The correct endpoint for retrieving group members
+is the bare group GET: `GET /API/UserGroups/{id}`, which returns the members inline on the group
+object itself.
+
+**Symptom:**
+```
+HTTP 405 The remote server returned an error: (405) Method Not Allowed.
+[GET https://pvwa.company.com/PasswordVault/API/UserGroups/8/Members?offset=0&limit=1000]
+```
+
+**Wrong (sub-resource endpoint that 405s on many PVWA versions):**
+```powershell
+$response = Invoke-CyberArkAPI `
+    -Token    $Token `
+    -Method   'GET' `
+    -Endpoint "/API/UserGroups/$encodedId/Members"
+```
+
+**Correct (bare group GET with `-PageSize 0` to suppress pagination):**
+```powershell
+$response = Invoke-CyberArkAPI `
+    -Token    $Token `
+    -Method   'GET' `
+    -Endpoint "/API/UserGroups/$encodedId" `
+    -PageSize 0
+```
+
+Use `-PageSize 0` because this is a single-resource GET (not a paginated collection endpoint).
+Passing `offset` / `limit` query parameters to a single-resource endpoint may cause errors on
+some PVWA versions.
+
+**Member property name varies by PVWA version.** The inline member list may appear under any of:
+
+| Property name | Observed in |
+|---|---|
+| `members` | Most common |
+| `Members` | Some versions (case-sensitive in PS 5.1 PSObject access) |
+| `groupMembers` | Some older versions |
+| `value` | Rare (appears on some paginated wrappers) |
+
+**Correct extraction pattern — probe each property name in priority order:**
+```powershell
+[array]$members = @()
+if ($response.Data) {
+    foreach ($prop in @('members', 'Members', 'groupMembers', 'value')) {
+        if ($response.Data.PSObject.Properties[$prop] -and $response.Data.$prop) {
+            [array]$members = @($response.Data.$prop)
+            break
+        }
+    }
+}
+if ((-not $members) -or $members.Count -eq 0) {
+    # empty — not a failure
+}
+```
+
+**Rule for tests:** Mock the response using `members = @(...)` (the most common property name).
+Do not mock a `*/Members` sub-resource endpoint — mock the bare group endpoint (`*/UserGroups/{id}`)
+so the test verifies the actual API call the code makes:
+```powershell
+# Correct test mock
+Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/UserGroups/42' } {
+    [PSCustomObject]@{
+        IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null
+        Data = [PSCustomObject]@{ id = 42; members = @($member1, $member2) }
+    }
+}
+```
+
+**Rule:** Never use the `/Members` sub-resource endpoint. Always call the bare group GET and
+extract members from the response inline. Use the multi-property fallback probe loop to handle
+PVWA version differences without code changes.
 
 ---
 

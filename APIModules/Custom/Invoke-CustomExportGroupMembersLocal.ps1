@@ -138,7 +138,8 @@ function Invoke-CustomExportGroupMembersLocal {
             $membersResponse = Invoke-CyberArkAPI `
                 -Token     $Token `
                 -Method    'GET' `
-                -Endpoint  "/API/UserGroups/$encodedId/Members" `
+                -Endpoint  "/API/UserGroups/$encodedId" `
+                -PageSize  0 `
                 -IgnoreSSL:$ignoreSSL
 
             if (-not $membersResponse.IsSuccess) {
@@ -154,9 +155,15 @@ function Invoke-CustomExportGroupMembersLocal {
                 continue
             }
 
-            $members = if ($membersResponse.Data -and $membersResponse.Data.PSObject.Properties['value']) {
-                @($membersResponse.Data.value)
-            } else { @() }
+            $members = @()
+            if ($membersResponse.Data) {
+                foreach ($mprop in @('members', 'Members', 'groupMembers', 'value')) {
+                    if ($membersResponse.Data.PSObject.Properties[$mprop] -and $membersResponse.Data.$mprop) {
+                        $members = @($membersResponse.Data.$mprop)
+                        break
+                    }
+                }
+            }
 
             foreach ($m in $members) {
                 $memberId   = if ($m.PSObject.Properties['id']       -and $null -ne $m.id)       { "$($m.id)"       } else { '' }

@@ -1,4 +1,4 @@
-# Documentation Tracker
+﻿# Documentation Tracker
 
 Tracks the status of all design and reference documents for the CyberArk PAS Scripts project.
 Update the Status column as documents are created or revised.
@@ -135,3 +135,6 @@ Build documents in this sequence to support the implementation phases:
 | 2026-08-16 | Invoke-PlatformsList.ps1 | Same dual-fallback applied for consistency |
 | 2026-08-16 | 9 API modules + Run-Tests.ps1 + CyberArkComms.psm1 | Fixed 62 test regressions from commit 5edf0c8: applied [array] type constraint to 7 list modules (AccountsList, SafesList, PlatformsList, UsersList, SafeMembersList, ReportsList, ExportGroupMembersLocal); added (-not $col) or null guard to ExportEntitlements and ExportGroupMembersLocal empty-list checks; reverted GroupsGetMembers to /Members endpoint + value property; restored memberType in GroupsAddMember body; fixed CyberArkComms Join-CyberArkUrl TrimStart→Trim (was breaking C12); added PassThru=true to Run-Tests.ps1 Pester config — all 697 tests passing |
 | 2026-08-16 | Lessons-Learned-PowerShell-Pester.md | Added Section 4.6 — PS 5.1 empty @() in script block outputs nothing (not an empty array), so [array] alone does not prevent null when API returns 0 items; added Section 9.6 — Invoke-Pester requires PassThru=true to return the result object; without it $result is null |
+| 2026-08-16 | Invoke-GroupsGetMembers.ps1 + Invoke-CustomExportGroupMembersLocal.ps1 | Fixed runtime HTTP 405: reverted from /Members sub-resource to bare group GET (/API/UserGroups/{id}) with -PageSize 0; added multi-property fallback probe (members/Members/groupMembers/value) for PVWA version compatibility |
+| 2026-08-16 | Invoke-GroupsGetMembers.Tests.ps1 + Invoke-CustomExportGroupMembersLocal.Tests.ps1 | Updated mock data from value= to members= property; updated endpoint filters from */Members to bare group path — 697 tests passing |
+| 2026-08-16 | Lessons-Learned-PowerShell-Pester.md | Added Section 8.5 — CyberArk Groups /Members sub-resource returns 405 on many PVWA versions; correct pattern is bare group GET with multi-property member extraction |

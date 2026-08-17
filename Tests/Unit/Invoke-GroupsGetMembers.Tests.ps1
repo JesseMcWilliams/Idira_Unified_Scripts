@@ -41,7 +41,8 @@ BeforeAll {
 
     $script:ValidInput = @{ GroupID = '42' }
 
-    # Factory: build a mock API success response containing the given member objects
+    # Factory: build a mock API success response containing the given member objects.
+    # Members are returned inline on GET /API/UserGroups/{id} under the 'members' property.
     function script:New-MembersApiResponse {
         param([object[]]$Members = @())
         return [PSCustomObject]@{
@@ -53,8 +54,8 @@ BeforeAll {
             DataType      = 'JSON'
             RawResponse   = ''
             Data          = [PSCustomObject]@{
-                value = $Members
-                count = $Members.Count
+                id      = 42
+                members = $Members
             }
         }
     }
@@ -126,9 +127,9 @@ Describe 'Invoke-GroupsGetMembers - successful response' {
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Method -eq 'GET' }
     }
 
-    It 'GM08 - endpoint contains GroupID (/API/UserGroups/42/Members)' {
+    It 'GM08 - endpoint is bare group GET with GroupID (/API/UserGroups/42)' {
         Invoke-GroupsGetMembers -Token $script:MockToken -InputData $script:ValidInput
-        Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -like '*UserGroups/42/Members*' }
+        Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -eq '/API/UserGroups/42' }
     }
 }
 

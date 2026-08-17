@@ -85,7 +85,8 @@ Describe 'Invoke-CustomExportGroupMembersLocal' {
                 )
             }
             $membersData = [PSCustomObject]@{
-                value = @(
+                id      = 10
+                members = @(
                     [PSCustomObject]@{ id = 100; username = 'user1'; userType = 'EPVUser'; componentUser = $false }
                 )
             }
@@ -93,7 +94,7 @@ Describe 'Invoke-CustomExportGroupMembersLocal' {
             Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/UserGroups' } {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $groupsData }
             }
-            Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -like '*/Members' } {
+            Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -like '/API/UserGroups/*' } {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $membersData }
             }
 
@@ -118,15 +119,17 @@ Describe 'Invoke-CustomExportGroupMembersLocal' {
                 )
             }
 
-            # ParentGroup members: ChildGroup (nested) + user
+            # ParentGroup members: ChildGroup (nested)
             $parentMembersData = [PSCustomObject]@{
-                value = @(
+                id      = 10
+                members = @(
                     [PSCustomObject]@{ id = 20; username = 'ChildGroup'; userType = 'EPVGroup'; componentUser = $false }
                 )
             }
             # ChildGroup members: a user
             $childMembersData = [PSCustomObject]@{
-                value = @(
+                id      = 20
+                members = @(
                     [PSCustomObject]@{ id = 101; username = 'nested_user'; userType = 'EPVUser'; componentUser = $false }
                 )
             }
@@ -134,10 +137,10 @@ Describe 'Invoke-CustomExportGroupMembersLocal' {
             Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/UserGroups' } {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $groupsData }
             }
-            Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -like '*/10/Members' } {
+            Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -like '*/UserGroups/10' } {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $parentMembersData }
             }
-            Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -like '*/20/Members' } {
+            Mock Invoke-CyberArkAPI -ParameterFilter { $Endpoint -like '*/UserGroups/20' } {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $childMembersData }
             }
 
