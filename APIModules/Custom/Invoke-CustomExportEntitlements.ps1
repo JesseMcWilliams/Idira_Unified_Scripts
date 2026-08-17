@@ -142,7 +142,8 @@ function Invoke-CustomExportEntitlements {
             @($membersResponse.Data.value)
         } else { @() }
 
-        Write-Host " - $($members.Count) member$(if ($members.Count -ne 1) { 's' })" -ForegroundColor Green
+        $memberCount = if ($members) { $members.Count } else { 0 }
+        Write-Host " - $memberCount member$(if ($memberCount -ne 1) { 's' })" -ForegroundColor Green
 
         foreach ($member in $members) {
             try {

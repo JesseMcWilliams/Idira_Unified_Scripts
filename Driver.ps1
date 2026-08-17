@@ -185,14 +185,19 @@ function Invoke-EntitySearch {
         [Parameter(Mandatory = $false)] [string]$IdProperty         = 'id',
         [Parameter(Mandatory = $false)] [string[]]$DisplayProperties = @('id', 'name'),
         [Parameter(Mandatory = $false)] [string]$EntityLabel        = 'item',
-        [Parameter(Mandatory = $false)] [bool]$IgnoreSSL            = $false
+        [Parameter(Mandatory = $false)] [bool]$IgnoreSSL            = $false,
+        # When set, fetches all results from the API without a server-side search filter
+        # and performs a case-insensitive contains match on DisplayProperties client-side.
+        # Use for APIs (e.g. PIMServices) that do not support partial-match search params.
+        [Parameter(Mandatory = $false)] [switch]$ClientSideFilter
     )
 
     $response = $null
     try {
+        $qParams = if ($ClientSideFilter) { @{} } else { @{ $SearchParam = $SearchTerm; limit = '25' } }
         $response = Invoke-CyberArkAPI -Token $Token -Method 'GET' `
             -Endpoint $Endpoint `
-            -QueryParams @{ $SearchParam = $SearchTerm; limit = '25' } `
+            -QueryParams $qParams `
             -IgnoreSSL:$IgnoreSSL
     } catch {
         Write-Host "    Search error: $_" -ForegroundColor Red
@@ -208,6 +213,20 @@ function Invoke-EntitySearch {
     $items = @()
     if ($response.Data -and $response.Data.PSObject.Properties[$ResponseProperty]) {
         $items = @($response.Data.$ResponseProperty)
+    }
+
+    if ($ClientSideFilter -and $SearchTerm -and $items.Count -gt 0) {
+        $lowerTerm = $SearchTerm.ToLower()
+        $items = @($items | Where-Object {
+            $item = $_
+            $found = $false
+            foreach ($p in $DisplayProperties) {
+                if (-not $found -and $item.PSObject.Properties[$p] -and "$($item.$p)".ToLower().Contains($lowerTerm)) {
+                    $found = $true
+                }
+            }
+            $found
+        })
     }
 
     if ($items.Count -eq 0) {

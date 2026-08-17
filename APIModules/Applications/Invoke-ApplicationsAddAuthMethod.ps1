@@ -46,11 +46,11 @@ function Get-ApplicationsAddAuthMethodInput {
             $appId = Invoke-EntitySearch -Token $Token `
                 -Endpoint           '/WebServices/PIMServices.svc/Applications/' `
                 -SearchTerm         $searchTerm `
-                -SearchParam        'AppID' `
                 -ResponseProperty   'application' `
                 -IdProperty         'AppID' `
                 -DisplayProperties  @('AppID', 'Description', 'Location') `
                 -EntityLabel        'application' `
+                -ClientSideFilter `
                 -IgnoreSSL          $ignoreSSL
         }
         if (-not $appId) { return $null }
