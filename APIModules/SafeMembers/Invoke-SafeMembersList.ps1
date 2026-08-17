@@ -123,7 +123,7 @@ function Invoke-SafeMembersList {
         return $result
     }
 
-    $members = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
+    [array]$members = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
         @($response.Data.value)
     } else { @() }
 

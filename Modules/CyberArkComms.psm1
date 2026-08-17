@@ -162,7 +162,7 @@ function Join-CyberArkUrl {
 
     $result = $Base.TrimEnd('/')
     foreach ($seg in $Segments) {
-        $result = $result.TrimEnd('/') + '/' + $seg.TrimStart('/')
+        $result = $result.TrimEnd('/') + '/' + $seg.Trim('/')
     }
     return $result
 }

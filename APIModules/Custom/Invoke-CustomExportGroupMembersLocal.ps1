@@ -65,11 +65,11 @@ function Invoke-CustomExportGroupMembersLocal {
         return $result
     }
 
-    $allGroups = if ($groupsResponse.Data -and $groupsResponse.Data.PSObject.Properties['value']) {
+    [array]$allGroups = if ($groupsResponse.Data -and $groupsResponse.Data.PSObject.Properties['value']) {
         @($groupsResponse.Data.value)
     } else { @() }
 
-    if ($allGroups.Count -eq 0) {
+    if ((-not $allGroups) -or $allGroups.Count -eq 0) {
         Write-Host '  No groups found.' -ForegroundColor Yellow
         Write-CyberArkLog -Level 'WARN' -Message 'Export Local Group Members: no groups returned.'
         return $result

@@ -112,7 +112,7 @@ function Invoke-UsersList {
     }
 
     # Users API returns a 'Users' property (not 'value')
-    $users = if ($response.Data -and $response.Data.PSObject.Properties['Users']) {
+    [array]$users = if ($response.Data -and $response.Data.PSObject.Properties['Users']) {
         @($response.Data.Users)
     } else { @() }
 

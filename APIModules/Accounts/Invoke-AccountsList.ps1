@@ -120,7 +120,7 @@ function Invoke-AccountsList {
         return $result
     }
 
-    $accounts = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
+    [array]$accounts = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
         @($response.Data.value)
     } else { @() }
 

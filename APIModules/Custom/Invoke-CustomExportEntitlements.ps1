@@ -98,7 +98,7 @@ function Invoke-CustomExportEntitlements {
         @($safesResponse.Data.value)
     } else { @() }
 
-    if ($safes.Count -eq 0) {
+    if ((-not $safes) -or $safes.Count -eq 0) {
         Write-Host '  No safes found.' -ForegroundColor Yellow
         Write-CyberArkLog -Level 'WARN' -Message 'Export Entitlements: no safes returned.'
         return $result

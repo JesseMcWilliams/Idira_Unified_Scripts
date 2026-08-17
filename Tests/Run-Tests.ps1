@@ -82,6 +82,7 @@ if (-not (Test-Path -LiteralPath $testPath)) {
 $config = New-PesterConfiguration
 
 $config.Run.Path         = $testPath
+$config.Run.PassThru     = $true     # Return result object for summary
 $config.Output.Verbosity = $Verbosity
 $config.Run.Exit         = $false    # We handle exit code ourselves
 
@@ -122,7 +123,7 @@ Write-Host ''
 if ($result.FailedCount -gt 0) {
     Write-Host '  FAILED TESTS:' -ForegroundColor Red
     foreach ($test in $result.Failed) {
-        Write-Host "    - $($test.Name)" -ForegroundColor Yellow
+        Write-Host "    - $($test.ExpandedPath)" -ForegroundColor Yellow
         if ($test.ErrorRecord) {
             Write-Host "      $($test.ErrorRecord.Exception.Message)" -ForegroundColor DarkGray
         }

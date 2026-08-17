@@ -431,6 +431,54 @@ The `@()` wrapper forces PowerShell to treat the result as an array regardless o
 
 ---
 
+### 4.6 PS 5.1: empty `@()` in a script block outputs nothing — `[array]` alone does not prevent null
+
+**Root cause:** In PS 5.1, `@()` in a **script block body** does not write the empty array to the
+pipeline — it writes the array's *contents*, which are nothing. So `$x = & { @() }` assigns
+`$null` to `$x`, not an empty array. The same applies to any `if`-expression branch that produces
+`@()`:
+
+```powershell
+# If the TRUE branch executes @($emptyArray), $x becomes $null — NOT @()
+$x = if ($cond) { @($response.Data.value) } else { @() }
+```
+
+Adding `[array]` **only** fixes the single-item unwrap problem:
+
+| Case | Without `[array]` | With `[array]` |
+|---|---|---|
+| 0 items from API | `$null` | Still `$null` — `{ @() }` outputs nothing |
+| 1 item from API | bare `PSCustomObject` | `@(item)` — type coercion wraps it |
+| 2+ items from API | `Object[]` (works) | `Object[]` (works) |
+
+**Symptom:** `[array]$items = if (cond) { @($response.Data.value) } else { @() }` gives
+`$null` for `$items` when the API returns 0 items, and then `$items.Count` throws.
+
+**Fix — always pair `[array]` with the null-safe Count guard:**
+```powershell
+# [array] handles single-item unwrap; (-not $items) handles the empty-array-becomes-null case
+[array]$items = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
+    @($response.Data.value)
+} else { @() }
+
+if ((-not $items) -or $items.Count -eq 0) { return $result }
+```
+
+**Alternative — two-step assignment avoids the issue entirely:**
+```powershell
+[array]$items = @()   # direct assignment — always an empty array, never null
+if ($response.Data -and $response.Data.PSObject.Properties['value']) {
+    [array]$items = @($response.Data.value)  # also direct — safe for 0, 1, or many items
+}
+if ((-not $items) -or $items.Count -eq 0) { return $result }
+```
+
+**Rule:** Every list module must use BOTH `[array]` on the variable declaration (to fix the
+single-item unwrap) AND `(-not $items) -or $items.Count -eq 0` as the empty-check guard (to
+handle the zero-item case). Never use bare `$items.Count -eq 0` without the null guard.
+
+---
+
 ### 4.4 `Run-Tests.ps1` propagates strict mode into Pester child scopes
 
 **Root cause:** `Run-Tests.ps1` calls `Set-StrictMode -Version Latest` before `Invoke-Pester`.
@@ -972,6 +1020,57 @@ causing the `Should -Not -Throw` assertion to fail.
 use `GET`) should not have a WhatIf `Context` block in their test file. If a module is read-only
 (GET only), remove or omit the WhatIf context entirely — do not adjust the mock to make it pass,
 because passing would mask the misunderstanding.
+
+---
+
+### 9.6 `Invoke-Pester` with `-Configuration` returns nothing without `PassThru`
+
+**Root cause:** When calling `Invoke-Pester -Configuration $config`, the return value is `$null`
+unless `$config.Run.PassThru = $true` is set. Without `PassThru`, Pester runs the tests and
+writes output to the host, but does not return the result object to the caller. Under
+`Set-StrictMode -Version Latest`, any subsequent access to result properties (`$result.FailedCount`)
+throws `PropertyNotFoundException: The property '...' cannot be found on this object` because
+`$result` is `$null`.
+
+**Symptom:**
+```
+The property 'FailedCount' cannot be found on this object. Verify that the property exists.
+At Run-Tests.ps1:113 char:17
+```
+even though the property name is correct for Pester v6.
+
+**Pester v6 result properties** (for reference):
+
+| Property | Type | Description |
+|---|---|---|
+| `FailedCount` | `int` | Count of failed tests |
+| `PassedCount` | `int` | Count of passed tests |
+| `SkippedCount` | `int` | Count of skipped tests |
+| `TotalCount` | `int` | Total test count |
+| `Failed` | `List[Pester.Test]` | Collection of failed test objects |
+| `Passed` | `List[Pester.Test]` | Collection of passed test objects |
+| `Tests` | `List[Pester.Test]` | All tests |
+| `Duration` | `TimeSpan` | Total run duration |
+
+**Wrong:**
+```powershell
+$config = New-PesterConfiguration
+$config.Run.Path = $path
+$result = Invoke-Pester -Configuration $config   # $result is $null
+$result.FailedCount                               # throws PropertyNotFoundException
+```
+
+**Correct:**
+```powershell
+$config = New-PesterConfiguration
+$config.Run.Path     = $path
+$config.Run.PassThru = $true                      # required — return the result object
+$result = Invoke-Pester -Configuration $config
+$result.FailedCount                               # works — returns an int
+```
+
+**Rule:** Always set `$config.Run.PassThru = $true` in `Run-Tests.ps1` and any other script that
+reads the Pester result object after calling `Invoke-Pester -Configuration`.
 
 ---
 

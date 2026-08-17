@@ -119,7 +119,7 @@ function Invoke-SafesList {
         return $result
     }
 
-    $safes = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
+    [array]$safes = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
         @($response.Data.value)
     } else { @() }
 

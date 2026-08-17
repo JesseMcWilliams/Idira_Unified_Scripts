@@ -98,7 +98,7 @@ function Invoke-ReportsList {
         return $result
     }
 
-    $reports = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
+    [array]$reports = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
         @($response.Data.value)
     } else { @() }
 

@@ -153,7 +153,8 @@ function Invoke-GroupsAddMember {
 
     $encodedId = [Uri]::EscapeDataString($groupId)
 
-    $body = @{ memberId = [int]$memberId }
+    $memberType = if ($InputData['MemberType']) { "$($InputData['MemberType'])".Trim() } else { 'EPVUser' }
+    $body = @{ memberId = [int]$memberId; memberType = $memberType }
 
     $domainName = if ($InputData['DomainName']) { "$($InputData['DomainName'])".Trim() } else { '' }
     if (-not [string]::IsNullOrEmpty($domainName)) {

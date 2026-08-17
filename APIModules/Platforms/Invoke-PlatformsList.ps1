@@ -112,7 +112,7 @@ function Invoke-PlatformsList {
     }
 
     # Platforms API uses 'Platforms' property, not 'value'
-    $platforms = if ($response.Data -and $response.Data.PSObject.Properties['Platforms']) {
+    [array]$platforms = if ($response.Data -and $response.Data.PSObject.Properties['Platforms']) {
         @($response.Data.Platforms)
     } else { @() }
 
