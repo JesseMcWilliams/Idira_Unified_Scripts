@@ -212,14 +212,61 @@ function New-AuthTokenObject {
     }
 }
 
+function Get-WebResponseHost {
+    param($Response)
+    if ($Response -and $Response.BaseResponse -and $Response.BaseResponse.ResponseUri) {
+        return $Response.BaseResponse.ResponseUri.Host
+    }
+    return $null
+}
+
+function Get-ExceptionRedirectHost {
+    param($ErrorRecord)
+    $ex = $ErrorRecord.Exception
+    if ($ex -and $ex.Response -and $ex.Response.ResponseUri) {
+        return $ex.Response.ResponseUri.Host
+    }
+    return $null
+}
+
 function Resolve-IdentityTenantURL {
-    param([string]$PCloudSubdomain)
-    # Privilege Cloud Identity tenant URLs always follow the pattern
-    # https://{subdomain}.id.cyberark.cloud — redirect-following is unreliable
-    # because the portal login page uses JavaScript redirects that HttpWebRequest
-    # cannot follow, causing it to return the portal host instead of the Identity host.
+    param(
+        [string]$PCloudSubdomain,
+        [string]$ExistingIdentityHost
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($ExistingIdentityHost)) {
+        $cleaned = $ExistingIdentityHost.Trim().Replace('https://', '').TrimEnd('/')
+        return "https://$cleaned"
+    }
+
+    $candidates = @(
+        "https://$PCloudSubdomain.cyberark.cloud",
+        "https://$PCloudSubdomain-userportal.cyberark.cloud",
+        "https://$PCloudSubdomain.privilegecloud.cyberark.cloud"
+    )
+
+    foreach ($candidate in $candidates) {
+        try {
+            $resp         = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 8 -TimeoutSec 20 -ErrorAction Stop
+            $responseHost = Get-WebResponseHost -Response $resp
+            if ($responseHost -match '\.id\.cyberark\.cloud$') {
+                $url = "https://$responseHost"
+                Write-Verbose "Identity tenant URL (from $candidate): $url"
+                return $url
+            }
+        } catch {
+            $redirectHost = Get-ExceptionRedirectHost -ErrorRecord $_
+            if ($redirectHost -match '\.id\.cyberark\.cloud$') {
+                $url = "https://$redirectHost"
+                Write-Verbose "Identity tenant URL (via redirect from $candidate): $url"
+                return $url
+            }
+        }
+    }
+
     $url = "https://$PCloudSubdomain.id.cyberark.cloud"
-    Write-Verbose "Identity tenant URL: $url"
+    Write-Verbose "Identity tenant URL (fallback): $url"
     return $url
 }
 
