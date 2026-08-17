@@ -643,6 +643,7 @@ function Invoke-IdentityChallengeLoop {
                 Write-Host $selectedMech.PromptMechChosen
                 $oobStart   = Get-Date
                 $oobTimeout = 300   # 5 minutes
+                $oobToken   = $null
                 do {
                     $elapsed = [int]((Get-Date) - $oobStart).TotalSeconds
                     Write-Host "`r  Waiting for out-of-band approval... ($($elapsed)s)" -NoNewline
@@ -653,8 +654,22 @@ function Invoke-IdentityChallengeLoop {
                     Start-Sleep -Seconds 5
                     $resp = Invoke-IdentityAdvancedAuth -IdentityURL $IdentityURL -TenantId $TenantId `
                         -SessionId $SessionId -MechanismId $selectedMech.MechanismId -Action 'Poll'
-                } while ($resp.Result -is [string] -and $resp.Result -ieq 'OobPending')
+                    # CyberArk Identity returns different shapes while OOB is pending:
+                    #   {Result: "OobPending"}           — string (handled by loop condition)
+                    #   {Result: {Summary: "..."}}        — PSCustomObject with no Token yet
+                    # On approval it may return token in Result.Token, Result.Auth, or response root.
+                    # Extract on every poll so we exit as soon as the token appears.
+                    if ($resp) {
+                        if ($resp.Result -isnot [string]) {
+                            if ($resp.Result.PSObject.Properties['Token'] -and $resp.Result.Token) { $oobToken = $resp.Result.Token }
+                            elseif ($resp.Result.PSObject.Properties['Auth'] -and $resp.Result.Auth) { $oobToken = $resp.Result.Auth }
+                        }
+                        if (-not $oobToken -and $resp.PSObject.Properties['Token'] -and $resp.Token) { $oobToken = $resp.Token }
+                        if (-not $oobToken -and $resp.PSObject.Properties['Auth']  -and $resp.Auth)  { $oobToken = $resp.Auth  }
+                    }
+                } while (-not $oobToken -and $resp -and $resp.success -ne $false)
                 Write-Host ''
+                if ($oobToken) { return $oobToken }
             }
             default {
                 # OATH (TOTP) and any other text-entry mechanism
