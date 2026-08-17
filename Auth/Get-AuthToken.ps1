@@ -214,29 +214,13 @@ function New-AuthTokenObject {
 
 function Resolve-IdentityTenantURL {
     param([string]$PCloudSubdomain)
-    $portalUrl = $script:PCLOUD_BASE_TEMPLATE -f $PCloudSubdomain
-    Write-Verbose "Discovering Identity tenant URL via redirect from: $portalUrl"
-    try {
-        # Use HttpWebRequest — always available in PS 5.1 without assembly loading.
-        # System.Net.Http.HttpClient requires an explicit Add-Type in PS 5.1 and has
-        # TLS quirks on older .NET Framework versions.
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-        $request                  = [System.Net.HttpWebRequest][System.Net.WebRequest]::Create($portalUrl)
-        $request.AllowAutoRedirect = $true
-        $request.Timeout          = 30000
-        $request.Method           = 'GET'
-        $webResponse              = $request.GetResponse()
-        $identityHost             = $webResponse.ResponseUri.Host
-        $webResponse.Close()
-        if ([string]::IsNullOrEmpty($identityHost)) {
-            throw "Redirect did not produce an Identity tenant host."
-        }
-        $url = "https://$identityHost"
-        Write-Verbose "Identity tenant URL: $url"
-        return $url
-    } catch {
-        throw "Failed to discover Identity tenant URL from '$portalUrl': $_"
-    }
+    # Privilege Cloud Identity tenant URLs always follow the pattern
+    # https://{subdomain}.id.cyberark.cloud — redirect-following is unreliable
+    # because the portal login page uses JavaScript redirects that HttpWebRequest
+    # cannot follow, causing it to return the portal host instead of the Identity host.
+    $url = "https://$PCloudSubdomain.id.cyberark.cloud"
+    Write-Verbose "Identity tenant URL: $url"
+    return $url
 }
 
 function Get-FilteredClientCertificate {
@@ -1060,12 +1044,13 @@ function Get-AuthToken {
                         -ClientId $ClientId -ClientSecret $ClientSecret -BaseURL $baseURL
                 }
                 'Interactive' {
-                    $username = if ($ClientId) { $ClientId }
-                                elseif ($Credential) { $Credential.UserName }
-                                else { $null }
+                    $usernameToUse = if ($ClientId)      { $ClientId }
+                                     elseif ($Username)   { $Username }
+                                     elseif ($Credential) { $Credential.UserName }
+                                     else                 { $null }
                     return Invoke-ISPSSInteractive -IdentityURL $IdentityTenantURL `
                         -PCloudSubdomain $PCloudSubdomain -BaseURL $baseURL `
-                        -Username $username -Credential $Credential
+                        -Username $usernameToUse -Credential $Credential
                 }
                 'SSO' {
                     return Invoke-ISPSSSO -IdentityURL $IdentityTenantURL `
