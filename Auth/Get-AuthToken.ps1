@@ -641,12 +641,15 @@ function Invoke-IdentityChallengeLoop {
                 $resp = Invoke-IdentityAdvancedAuth -IdentityURL $IdentityURL -TenantId $TenantId `
                     -SessionId $SessionId -MechanismId $selectedMech.MechanismId -Action 'StartOOB'
                 Write-Host $selectedMech.PromptMechChosen
-                Write-Host "Waiting for out-of-band approval..."
+                $oobStart = Get-Date
                 do {
-                    Start-Sleep -Seconds 3
+                    $elapsed = [int]((Get-Date) - $oobStart).TotalSeconds
+                    Write-Host "`r  Waiting for out-of-band approval... ($($elapsed)s)" -NoNewline
+                    Start-Sleep -Seconds 2
                     $resp = Invoke-IdentityAdvancedAuth -IdentityURL $IdentityURL -TenantId $TenantId `
                         -SessionId $SessionId -MechanismId $selectedMech.MechanismId -Action 'Poll'
-                } while ($resp.Result -is [string] -and $resp.Result -eq 'OobPending')
+                } while ($resp.Result -is [string] -and $resp.Result -ieq 'OobPending')
+                Write-Host ''
             }
             default {
                 # OATH (TOTP) and any other text-entry mechanism
@@ -662,15 +665,25 @@ function Invoke-IdentityChallengeLoop {
             throw "Authentication failed: $($resp.Message)"
         }
 
-        # Final success: Result is an object containing the token.
-        # CyberArk Identity uses 'Token' or 'Auth' depending on tenant version.
-        if ($resp -and ($resp.Result -isnot [string])) {
-            Write-Verbose "AdvanceAuthentication result properties: $($resp.Result.PSObject.Properties.Name -join ', ')"
+        # Extract token - CyberArk Identity varies by version/tenant:
+        #   Some return token inside Result object (Token or Auth field).
+        #   Some return Result as string 'LoginSuccess' with token at response root.
+        if ($resp) {
             $authToken = $null
-            if ($resp.Result.PSObject.Properties['Token'] -and $resp.Result.Token) {
-                $authToken = $resp.Result.Token
-            } elseif ($resp.Result.PSObject.Properties['Auth'] -and $resp.Result.Auth) {
-                $authToken = $resp.Result.Auth
+            if ($resp.Result -isnot [string]) {
+                Write-Verbose "AdvanceAuthentication Result fields: $($resp.Result.PSObject.Properties.Name -join ', ')"
+                if ($resp.Result.PSObject.Properties['Token'] -and $resp.Result.Token) {
+                    $authToken = $resp.Result.Token
+                } elseif ($resp.Result.PSObject.Properties['Auth'] -and $resp.Result.Auth) {
+                    $authToken = $resp.Result.Auth
+                }
+            }
+            # Fallback: token at response root level (seen when Result is 'LoginSuccess' string)
+            if (-not $authToken -and $resp.PSObject.Properties['Token'] -and $resp.Token) {
+                $authToken = $resp.Token
+            }
+            if (-not $authToken -and $resp.PSObject.Properties['Auth'] -and $resp.Auth) {
+                $authToken = $resp.Auth
             }
             if ($authToken) { return $authToken }
         }
