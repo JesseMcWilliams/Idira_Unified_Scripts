@@ -1425,22 +1425,47 @@ if ($resp) {
 }
 ```
 
-**OOB poll loop pattern:**
+**OOB poll loop pattern — loop until token found, not until result string changes:**
+
+CyberArk Identity returns two different "still pending" shapes depending on tenant version:
+- `{"Result": "OobPending"}` — a plain string
+- `{"Result": {"Summary": "..."}}` — a PSCustomObject with only a Summary field
+
+A loop that checks `while ($resp.Result -is [string] -and $resp.Result -ieq 'OobPending')` exits
+immediately when the server returns the PSCustomObject shape, before the user can approve the push.
+
+**Correct approach — extract the token inside the loop and poll until it appears:**
 ```powershell
-$oobStart = Get-Date
+$oobStart   = Get-Date
+$oobTimeout = 300   # 5 minutes
+$oobToken   = $null
 do {
     $elapsed = [int]((Get-Date) - $oobStart).TotalSeconds
     Write-Host "`r  Waiting for out-of-band approval... ($($elapsed)s)" -NoNewline
-    Start-Sleep -Seconds 2
+    if ($elapsed -ge $oobTimeout) {
+        Write-Host ''
+        throw "Authentication failed: Out-of-band approval timed out after $($oobTimeout / 60) minutes."
+    }
+    Start-Sleep -Seconds 5
     $resp = Invoke-IdentityAdvancedAuth -Action 'Poll' ...
-} while ($resp.Result -is [string] -and $resp.Result -ieq 'OobPending')
+    # Try all known token locations on every poll response
+    if ($resp) {
+        if ($resp.Result -isnot [string]) {
+            if ($resp.Result.PSObject.Properties['Token'] -and $resp.Result.Token) { $oobToken = $resp.Result.Token }
+            elseif ($resp.Result.PSObject.Properties['Auth'] -and $resp.Result.Auth) { $oobToken = $resp.Result.Auth }
+        }
+        if (-not $oobToken -and $resp.PSObject.Properties['Token'] -and $resp.Token) { $oobToken = $resp.Token }
+        if (-not $oobToken -and $resp.PSObject.Properties['Auth']  -and $resp.Auth)  { $oobToken = $resp.Auth  }
+    }
+} while (-not $oobToken -and $resp -and $resp.success -ne $false)
 Write-Host ''
+if ($oobToken) { return $oobToken }
 ```
 
 Key OOB details:
-- Poll every **2 seconds** (not 3 — faster UX without significantly increasing server load)
-- Termination condition: any result other than `'OobPending'` (case-insensitive `-ieq`)
-- On approval, `$resp.Result` becomes `"LoginSuccess"` (string) — token is at response root level, NOT inside `$resp.Result`
+- Poll every **5 seconds** — less aggressive than 2s, reduces server load
+- Loop exits when a token is found OR explicit API failure (`success = $false`) OR 5-minute timeout
+- Never key the loop condition on the shape of `$resp.Result` — the shape varies by tenant version
 - Show elapsed time in-place using `` "`r" `` to overwrite the previous line
 
 ---
@@ -1516,29 +1541,36 @@ fallback pattern to the corresponding List endpoint for consistency.
 
 ## 13. Windows Forms Behavior
 
-### 13.1 `SaveFileDialog.InitialDirectory` is ignored unless `RestoreDirectory = $true`
+### 13.1 `SaveFileDialog.InitialDirectory` is ignored by the Vista-style dialog
 
-**Root cause:** `SaveFileDialog` (and `OpenFileDialog`) maintains a "last used folder" state within
-the Windows shell. The default `RestoreDirectory = $false` causes Windows to override `InitialDirectory`
-with whatever folder the user last navigated to in *any* file dialog — even in other applications.
-Setting `InitialDirectory` has no visible effect when this override is active.
+**Root cause:** In .NET 4+, `SaveFileDialog.AutoUpgradeEnabled` defaults to `$true`, which causes
+the dialog to use the Vista-style common file dialog. The Vista-style dialog ignores `InitialDirectory`
+as the starting browse location — it instead remembers the last folder the user navigated to for
+that file type/application (stored in the shell's MRU list). Setting `InitialDirectory` has no
+visible effect on where the dialog opens.
 
-**Symptom:** The CSV save dialog always opens in the last browsed folder (e.g. Desktop or Downloads),
-ignoring the profile's `OutputFolder` setting.
+`RestoreDirectory = $true` is a separate, unrelated property that controls whether the *process
+working directory* is restored to its original value after the dialog closes. It has no effect
+on where the dialog opens and was a mistaken diagnosis.
 
-**Wrong:**
+**Symptom:** The CSV save dialog always opens at the application's launch directory or the last
+browsed folder, ignoring the profile's `OutputFolder` setting.
+
+**Wrong (Vista-style dialog — ignores InitialDirectory):**
 ```powershell
 $dialog = New-Object System.Windows.Forms.SaveFileDialog
 $dialog.InitialDirectory = $profileOutputFolder
-# RestoreDirectory defaults to $false — Windows overrides InitialDirectory with last-used folder
+# AutoUpgradeEnabled defaults to $true — Vista-style dialog ignores InitialDirectory
 ```
 
-**Correct:**
+**Correct — disable Vista-style dialog to restore InitialDirectory behaviour:**
 ```powershell
 $dialog = New-Object System.Windows.Forms.SaveFileDialog
-$dialog.InitialDirectory = $profileOutputFolder
-$dialog.RestoreDirectory = $true   # Required — tells Windows to honour InitialDirectory
+$dialog.InitialDirectory    = $profileOutputFolder
+$dialog.AutoUpgradeEnabled  = $false   # Forces XP-style dialog, which respects InitialDirectory
 ```
 
-**Rule:** Always set `RestoreDirectory = $true` on any `SaveFileDialog` or `OpenFileDialog` where
-`InitialDirectory` must be respected. This applies identically to both dialog types.
+**Rule:** Set `AutoUpgradeEnabled = $false` on any `SaveFileDialog` or `OpenFileDialog` where
+`InitialDirectory` must control the starting folder. The XP-style dialog always opens at
+`InitialDirectory`. Note that `RestoreDirectory` is unrelated — it controls the process working
+directory, not where the dialog opens.
