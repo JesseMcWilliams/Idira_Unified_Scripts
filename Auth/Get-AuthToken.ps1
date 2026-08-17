@@ -641,11 +641,16 @@ function Invoke-IdentityChallengeLoop {
                 $resp = Invoke-IdentityAdvancedAuth -IdentityURL $IdentityURL -TenantId $TenantId `
                     -SessionId $SessionId -MechanismId $selectedMech.MechanismId -Action 'StartOOB'
                 Write-Host $selectedMech.PromptMechChosen
-                $oobStart = Get-Date
+                $oobStart   = Get-Date
+                $oobTimeout = 300   # 5 minutes
                 do {
                     $elapsed = [int]((Get-Date) - $oobStart).TotalSeconds
                     Write-Host "`r  Waiting for out-of-band approval... ($($elapsed)s)" -NoNewline
-                    Start-Sleep -Seconds 2
+                    if ($elapsed -ge $oobTimeout) {
+                        Write-Host ''
+                        throw "Authentication failed: Out-of-band approval timed out after $($oobTimeout / 60) minutes."
+                    }
+                    Start-Sleep -Seconds 5
                     $resp = Invoke-IdentityAdvancedAuth -IdentityURL $IdentityURL -TenantId $TenantId `
                         -SessionId $SessionId -MechanismId $selectedMech.MechanismId -Action 'Poll'
                 } while ($resp.Result -is [string] -and $resp.Result -ieq 'OobPending')
