@@ -162,6 +162,7 @@ function Get-CsvSavePath {
         $dialog.DefaultExt       = 'csv'
         $dialog.FileName         = $defaultName
         $dialog.InitialDirectory = $defaultDir
+        $dialog.RestoreDirectory = $true
         if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             return $dialog.FileName
         }
