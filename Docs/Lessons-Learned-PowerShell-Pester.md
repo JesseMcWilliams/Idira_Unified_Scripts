@@ -1876,3 +1876,156 @@ try {
     if ($webResp) { try { $webResp.Close() } catch { } }
 }
 ```
+
+---
+
+## 15. Session Token and NoteProperty Preservation
+
+### 15.1 NoteProperties are lost when the token object is replaced
+
+When the driver refreshes a session token it creates a fresh `PSCustomObject` from the auth module.
+Any NoteProperties added to the old token (e.g. `MaxResults` injected from the profile `Limit` field)
+are not present on the new object.
+
+**Wrong:**
+```powershell
+$script:SessionToken = $refreshedToken   # MaxResults NoteProperty silently lost
+```
+
+**Correct — copy NoteProperties before assigning:**
+```powershell
+function Set-SessionToken {
+    param([PSCustomObject]$NewToken)
+    if ($script:SessionToken) {
+        foreach ($np in @($script:SessionToken.PSObject.Properties |
+                          Where-Object { $_.MemberType -eq 'NoteProperty' })) {
+            if (-not $NewToken.PSObject.Properties[$np.Name]) {
+                try { $NewToken | Add-Member -NotePropertyName $np.Name -NotePropertyValue $np.Value -Force } catch { }
+            }
+        }
+    }
+    $script:SessionToken = $NewToken
+}
+```
+
+**Rule:** Never assign directly to `$script:SessionToken`; always call `Set-SessionToken` so runtime
+properties survive token renewal.
+
+### 15.2 Token Warning branch must not call the refresh function
+
+The session loop checks token status on each iteration: `Valid` → continue, `Warning` → approaching
+expiry, `Expired` → prompt re-auth.
+
+A common mistake is to call `Invoke-TokenRefresh | Out-Null` in the `Warning` branch to attempt
+a proactive refresh. When the refresh fails (network blip, credentials expired), the failure is
+silently discarded by `| Out-Null`. The session then checks status again on the next iteration,
+finds the token now expired (because the failed refresh invalidated it), and exits — even though the
+original token was still valid.
+
+**Wrong:**
+```powershell
+'Warning' { Invoke-SelfHostedKeepalive; Invoke-TokenRefresh | Out-Null }
+```
+
+**Correct — keepalive only; `Invoke-TokenRefresh` already guards the Warning case:**
+```powershell
+'Warning' { Invoke-SelfHostedKeepalive }
+```
+
+`Invoke-TokenRefresh` must also short-circuit on `Warning` status (not just `Valid`) so that
+callers who do check the return value don't accidentally trigger a full re-auth prompt:
+
+```powershell
+if ($status -in @('Valid', 'Warning')) { return $true }
+```
+
+---
+
+## 16. CyberArk API Runtime Behaviors (ISPSS-Specific)
+
+### 16.1 Groups API returns all groups as groupType='Vault' on ISPSS
+
+On ISPSS (Privilege Cloud), the `/API/UserGroups` endpoint returns **all groups** —
+including LDAP/Active Directory-backed groups — with `groupType = 'Vault'` and no
+`directoryType`. Client-side filtering by `groupType` is therefore unreliable.
+
+**Wrong approach:**
+```powershell
+# Breaks on ISPSS — all groups appear as Vault regardless of actual directory source
+$ldapGroups = $allGroups | Where-Object { $_.groupType -match 'LDAP|directory' }
+```
+
+**Correct approach — use the AD lookup as the filter:**
+```powershell
+# Attempt AD lookup for every group; groups found in AD are LDAP-backed
+foreach ($group in $allGroups) {
+    $dn = & $fnFindGroupDN -GroupSAM $group.groupName -Root $searchRoot
+    if (-not $dn) {
+        Write-CyberArkLog -Level 'DEBUG' -Message "Not found in AD — likely Vault-only, skipping."
+        continue
+    }
+    # ... process LDAP group members
+}
+```
+
+Groups not found in AD are silently skipped (DEBUG log only). This is expected for
+internal Vault-only groups and must not be recorded as a failure.
+
+### 16.2 Accounts API caps at ~20,000 accounts without a safe filter
+
+`GET /API/Accounts` without a `filter=safeName eq ...` query parameter will return at most
+approximately 20,000 accounts regardless of pagination. This is a CyberArk server-side cap,
+not a client-side limitation.
+
+**Workaround — iterate by safe:**
+1. Fetch all safes via `GET /API/Safes`.
+2. For each safe, call `GET /API/Accounts?filter=safeName eq 'SafeName'`.
+3. Each per-safe call is paginated normally by `Invoke-CyberArkAPI`; the 20K cap does not
+   apply per-safe.
+4. Accumulate results across all safes.
+
+This pattern is implemented in `Invoke-AccountsList` as the "By Safe" retrieval mode.
+
+### 16.3 OData filter values must be single-quoted for safe names with spaces
+
+CyberArk filter parameters use an OData-like syntax. String values containing spaces must
+be enclosed in single quotes to prevent the parser from splitting on the space:
+
+```powershell
+# Wrong — parser may split "My Safe" as two tokens
+$filter = "safeName eq $safeName"
+
+# Correct — single-quoted per OData convention; escape embedded single quotes by doubling
+$filter = "safeName eq '$($safeName -replace "'", "''")'"
+```
+
+This applies to any OData filter field where the value may contain whitespace.
+
+---
+
+## 17. Script-Scoped Helper Functions in Dot-Sourced Modules
+
+### 17.1 Use `script:` prefix to scope helpers without polluting the global namespace
+
+API modules are dot-sourced into the driver scope. Any function defined at module level
+without qualification becomes a global function and can collide across modules.
+
+Use the `script:` prefix to scope helper functions to the dot-sourcing context (the driver
+script scope). These functions are callable with the `script:` prefix from within the same
+module and from the driver scope, but are not visible to other modules or child scopes:
+
+```powershell
+# In Invoke-AccountsList.ps1 (dot-sourced into Driver.ps1)
+function script:Add-AccountToResult {
+    param([PSCustomObject]$Result, [object]$Account, [hashtable]$ErrorInputData)
+    # ... shared mapping logic ...
+}
+
+# Called from Invoke-AccountsList (entry-point function in same file)
+foreach ($acct in $accounts) {
+    script:Add-AccountToResult -Result $result -Account $acct -ErrorInputData $InputData
+}
+```
+
+**Rule:** Always prefix module-internal helpers with `script:` to avoid cross-module
+function name collisions and to signal that the function is not part of the public API.

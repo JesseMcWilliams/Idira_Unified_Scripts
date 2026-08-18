@@ -17,10 +17,10 @@ the driver.
 | `Auth\CyberArk.Auth.Common.psm1` | Complete |
 | `Auth\CyberArk.Auth.ISPSS.psm1` | Complete |
 | `Auth\CyberArk.Auth.SelfHosted.psm1` | Complete |
-| `CyberArkLogging.psm1` | Planned |
-| `CyberArkComms.psm1` | Planned |
-| `Driver.ps1` | Planned |
-| API Modules | Planned |
+| `Modules\CyberArkLogging.psm1` | Complete |
+| `Modules\CyberArkComms.psm1` | Complete |
+| `Driver.ps1` | Complete |
+| API Modules (40+ modules across 9 categories) | Complete |
 
 ---
 
@@ -330,6 +330,10 @@ result object. See [API-Module-Development-Guide.md](API-Module-Development-Guid
 | Credential scrubbing | `Invoke-ClearNonRefreshableContext` called after Connect | For Interactive/SSO/SAML/OIDC sessions, `Credential` and `ClientSecret` are removed from `_RefreshContext` in memory after the session token is set. Reduces in-memory credential exposure for methods that cannot silently refresh. |
 | Navigation | `B` = back 1, `B2` = back 2, etc. | Unambiguous — `B` prefix cannot conflict with numeric menu options. |
 | Default folders | Launch directory when profile has empty strings | Predictable fallback that works without any profile configuration. |
+| Action menu ordering | `List` always first within each category; remaining actions sorted by `Priority` | Users almost always want to list before acting. Explicit sort key overrides the numeric Priority so any future re-numbering does not change the visual order. |
+| Table display truncation | Driver truncates List and ExportEntitlements output to `DisplayLimit` rows (default 20); full data still exported to CSV | Avoids flooding the terminal with hundreds of rows while keeping the full dataset available for downstream processing. Configurable per-profile. 0 = show all. |
+| Accounts List — By-Safe mode | Optional mode fetches accounts per-safe rather than a single global query | CyberArk's `/API/Accounts` endpoint caps returns at ~20,000 accounts without a safe filter. Per-safe iteration bypasses this limit while remaining within the existing pagination infrastructure. |
+| Role profile fields | `Role_Template_Safe` and `Role_Group_Prefix` stored in the profile, not hardcoded | These values are environment-specific (safe naming conventions, group prefix conventions differ per tenant). Storing them in the profile makes modules portable across environments. |
 
 ---
 

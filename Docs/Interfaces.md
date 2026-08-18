@@ -350,24 +350,28 @@ Non-sensitive settings only. Human-readable without decryption.
 
 ```json
 {
-    "ProfileName":      "Production",
-    "AuthTokenProfile": "Production",
-    "SystemType":       "Privilege Cloud",
-    "AppName":          "PasswordVault",
-    "AuthMethod":       "ClientCredentials",
-    "BaseURL":          "https://acme.privilegecloud.cyberark.cloud",
-    "TenantPortal":     "acme.cyberark.com",
-    "TenantVault":      "vault-acme.privilegecloud.cyberark.com",
-    "TenantAuth":       "https://acme.id.cyberark.cloud",
-    "LogFolder":        "",
-    "InputFolder":      "",
-    "OutputFolder":     "",
-    "IgnoreSSL":        false,
-    "ParallelThreads":  1,
-    "WhatIfDefault":    false,
-    "LastUsed":         "2026-01-15T14:32:01Z",
-    "Created":          "2026-01-01T09:00:00Z",
-    "Modified":         "2026-01-15T14:32:01Z"
+    "ProfileName":        "Production",
+    "AuthTokenProfile":   "Production",
+    "SystemType":         "Privilege Cloud",
+    "AppName":            "PasswordVault",
+    "AuthMethod":         "ClientCredentials",
+    "Username":           "svc-cyberark",
+    "BaseURL":            "https://acme.privilegecloud.cyberark.cloud",
+    "TenantPortal":       "acme.cyberark.com",
+    "TenantVault":        "vault-acme.privilegecloud.cyberark.com",
+    "TenantAuth":         "https://acme.id.cyberark.cloud",
+    "LogFolder":          "",
+    "InputFolder":        "",
+    "OutputFolder":       "",
+    "IgnoreSSL":          false,
+    "WhatIfDefault":      false,
+    "Limit":              0,
+    "DisplayLimit":       20,
+    "Role_Template_Safe": "",
+    "Role_Group_Prefix":  "",
+    "LastUsed":           "2026-01-15T14:32:01Z",
+    "Created":            "2026-01-01T09:00:00Z",
+    "Modified":           "2026-01-15T14:32:01Z"
 }
 ```
 
@@ -380,6 +384,7 @@ Non-sensitive settings only. Human-readable without decryption.
 | `SystemType` | string | `Privilege Cloud` (SaaS / ISPSS) or `Self-Hosted` (on-premises PVWA). Drives the Base URL prompt and maps to the auth script's `ISPSS` / `SelfHosted` parameter values. |
 | `AppName` | string | CyberArk application name in the URL path (default: `PasswordVault`). For Self-Hosted only: joined with `BaseURL` to form the `PVWAUrl` passed to `Get-SelfHostedAuthToken` (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, `/PasswordVault` is embedded in `PCLOUD_BASE_TEMPLATE` inside `CyberArk.Auth.ISPSS.psm1` and `AppName` is not used at runtime. |
 | `AuthMethod` | string | Preferred authentication method for this profile. Set during profile creation; passed directly to `Get-ISPSSAuthToken` or `Get-SelfHostedAuthToken` to skip the interactive method prompt. |
+| `Username` | string | Default username pre-populated in auth prompts. Captured from `Get-Credential` on first login and saved back to the profile. |
 | `BaseURL` | string | Base URL without application path. For Privilege Cloud: `https://<subdomain>.privilegecloud.cyberark.cloud`. For Self-Hosted: `https://pvwa.company.com`. No trailing slash. |
 | `TenantPortal` | string | **Privilege Cloud only.** Admin portal address (no scheme): `{subdomain}.cyberark.com`. Auto-computed from the subdomain when the profile is saved. Informational only — not used in API calls. |
 | `TenantVault` | string | **Privilege Cloud only.** Vault FQDN: `vault-{subdomain}.privilegecloud.cyberark.com`. Auto-computed from the subdomain when the profile is saved. Informational only — not used in API calls. |
@@ -388,8 +393,11 @@ Non-sensitive settings only. Human-readable without decryption.
 | `InputFolder` | string | Default folder for open-file dialogs. Empty = launch directory. |
 | `OutputFolder` | string | Destination for output CSVs and save-file dialogs. Empty = launch directory. |
 | `IgnoreSSL` | bool | Bypasses SSL certificate validation for all API calls in this profile. |
-| `ParallelThreads` | int | Reserved. Currently always 1 (sequential processing). |
 | `WhatIfDefault` | bool | When `true`, WhatIf mode is active by default for this profile. |
+| `Limit` | int | Maximum number of items the API returns for List operations (`MaxResults` on the session token). `0` = no limit. Passed to `Invoke-CyberArkAPI` via `Token.MaxResults`. |
+| `DisplayLimit` | int | Maximum rows shown in the interactive table for List and ExportEntitlements results. `0` = show all. Default: `20`. The full result set is always available for CSV export regardless of this setting. |
+| `Role_Template_Safe` | string | Safe name used as a permission template when assigning roles. Consumed by Add/Update Safe Member role-assignment operations. Empty string if not used. |
+| `Role_Group_Prefix` | string | Prefix for CyberArk role-based groups (e.g. `CyberArk_`). Consumed by Add/Update Safe Member role-assignment operations. Empty string if not used. |
 | `LastUsed` | ISO 8601 UTC | Updated each time the profile is selected. |
 | `Created` | ISO 8601 UTC | Set once at profile creation. |
 | `Modified` | ISO 8601 UTC | Updated whenever any profile field changes. |
