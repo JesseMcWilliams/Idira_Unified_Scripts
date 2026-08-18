@@ -15,8 +15,28 @@ $ModuleMeta = @{
         @{ Column = 'MemberName';     Required = $true;  Description = 'Username, group name, or role name to add.' }
         @{ Column = 'SearchIn';       Required = $false; Description = 'Where to search: Vault, or domain FQDN.' }
         @{ Column = 'MemberType';     Required = $false; Description = 'User / Group / Role (default: User).' }
-        @{ Column = 'PermissionRole'; Required = $false; Description = 'ReadOnly / EndUser / PowerUser / SafeManager / Custom (default: ReadOnly).' }
+        @{ Column = 'PermissionRole'; Required = $false; Description = 'Role or Specified. Role values: ReadOnly / EndUser / PowerUser / SafeManager. Use Specified to set individual permissions.' }
         @{ Column = 'ExpirationDate'; Required = $false; Description = 'Membership expiration date (yyyy-MM-dd) or blank.' }
+        @{ Column = 'UseAccounts';                            Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'RetrieveAccounts';                       Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'ListAccounts';                           Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'AddAccounts';                            Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'UpdateAccountContent';                   Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'UpdateAccountProperties';                Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'InitiateCPMAccountManagementOperations'; Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'SpecifyNextAccountContent';              Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'RenameAccounts';                         Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'DeleteAccounts';                         Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'UnlockAccounts';                         Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'ManageSafe';                             Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'ManageSafeMembers';                      Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'BackupSafe';                             Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'ViewAuditLog';                           Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'ViewSafeMembers';                        Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'AccessWithoutConfirmation';              Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'CreateFolders';                          Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'DeleteFolders';                          Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'MoveAccountsAndFolders';                 Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
     )
     Priority         = 21
     Version          = '1.0.0'
@@ -104,6 +124,34 @@ function script:Get-PermissionSet {
     return $perms
 }
 
+$script:PermissionColumns = @(
+    'UseAccounts', 'RetrieveAccounts', 'ListAccounts', 'AddAccounts',
+    'UpdateAccountContent', 'UpdateAccountProperties',
+    'InitiateCPMAccountManagementOperations', 'SpecifyNextAccountContent',
+    'RenameAccounts', 'DeleteAccounts', 'UnlockAccounts',
+    'ManageSafe', 'ManageSafeMembers', 'BackupSafe',
+    'ViewAuditLog', 'ViewSafeMembers', 'AccessWithoutConfirmation',
+    'CreateFolders', 'DeleteFolders', 'MoveAccountsAndFolders'
+)
+
+function script:Get-SpecifiedPermissions {
+    param([hashtable]$Data)
+    $perms = @{}
+    foreach ($col in $script:PermissionColumns) {
+        $raw = if ($Data.ContainsKey($col)) { "$($Data[$col])".Trim() } else { '' }
+        $perms[$col] = ($raw -match '^(true|yes|1|y)$')
+    }
+    return $perms
+}
+
+function script:Test-HasSpecifiedColumns {
+    param([hashtable]$Data)
+    foreach ($col in $script:PermissionColumns) {
+        if ($Data.ContainsKey($col)) { return $true }
+    }
+    return $false
+}
+
 function Get-SafeMembersAddInput {
     <#
         Called by the driver when HasCustomInput = $true.
@@ -143,48 +191,41 @@ function Get-SafeMembersAddInput {
         -Description 'Membership expiration date (yyyy-MM-dd), or leave blank for no expiry.'
 
     Write-Host ''
-    Write-Host '  Permission Role:' -ForegroundColor DarkGray
-    Write-Host '    1 = ReadOnly'
-    Write-Host '    2 = EndUser'
-    Write-Host '    3 = PowerUser'
-    Write-Host '    4 = SafeManager'
-    Write-Host '    5 = Custom'
+    Write-Host '  Permission Mode:' -ForegroundColor DarkGray
+    Write-Host '    1 = Role       (named permission preset)'
+    Write-Host '    2 = Specified  (enter each permission individually)'
+    Write-Host ''
 
-    $roleChoice = Read-Host '  Select role (1-5, default=1)'
+    $modeChoice = Read-Host '  Select mode (1-2, default=1)'
 
     $permissionRole = 'ReadOnly'
-    $customPermissions = $null
+    $specifiedPerms = $null
 
-    switch ($roleChoice) {
-        '2' { $permissionRole = 'EndUser' }
-        '3' { $permissionRole = 'PowerUser' }
-        '4' { $permissionRole = 'SafeManager' }
-        '5' {
-            $permissionRole = 'Custom'
-            $customPermissions = @{
-                UseAccounts                            = (Read-Host '    UseAccounts (Y/N)') -match '^[Yy]$'
-                RetrieveAccounts                       = (Read-Host '    RetrieveAccounts (Y/N)') -match '^[Yy]$'
-                ListAccounts                           = (Read-Host '    ListAccounts (Y/N)') -match '^[Yy]$'
-                AddAccounts                            = (Read-Host '    AddAccounts (Y/N)') -match '^[Yy]$'
-                UpdateAccountContent                   = (Read-Host '    UpdateAccountContent (Y/N)') -match '^[Yy]$'
-                UpdateAccountProperties                = (Read-Host '    UpdateAccountProperties (Y/N)') -match '^[Yy]$'
-                InitiateCPMAccountManagementOperations = (Read-Host '    InitiateCPMAccountManagementOperations (Y/N)') -match '^[Yy]$'
-                SpecifyNextAccountContent              = (Read-Host '    SpecifyNextAccountContent (Y/N)') -match '^[Yy]$'
-                RenameAccounts                         = (Read-Host '    RenameAccounts (Y/N)') -match '^[Yy]$'
-                DeleteAccounts                         = (Read-Host '    DeleteAccounts (Y/N)') -match '^[Yy]$'
-                UnlockAccounts                         = (Read-Host '    UnlockAccounts (Y/N)') -match '^[Yy]$'
-                ManageSafe                             = (Read-Host '    ManageSafe (Y/N)') -match '^[Yy]$'
-                ManageSafeMembers                      = (Read-Host '    ManageSafeMembers (Y/N)') -match '^[Yy]$'
-                BackupSafe                             = (Read-Host '    BackupSafe (Y/N)') -match '^[Yy]$'
-                ViewAuditLog                           = (Read-Host '    ViewAuditLog (Y/N)') -match '^[Yy]$'
-                ViewSafeMembers                        = (Read-Host '    ViewSafeMembers (Y/N)') -match '^[Yy]$'
-                AccessWithoutConfirmation              = (Read-Host '    AccessWithoutConfirmation (Y/N)') -match '^[Yy]$'
-                CreateFolders                          = (Read-Host '    CreateFolders (Y/N)') -match '^[Yy]$'
-                DeleteFolders                          = (Read-Host '    DeleteFolders (Y/N)') -match '^[Yy]$'
-                MoveAccountsAndFolders                 = (Read-Host '    MoveAccountsAndFolders (Y/N)') -match '^[Yy]$'
-            }
+    if ($modeChoice -eq '2') {
+        $permissionRole = 'Specified'
+        Write-Host ''
+        Write-Host '  Enter Y or N for each permission (default=N):' -ForegroundColor DarkGray
+        Write-Host ''
+        $specifiedPerms = @{}
+        foreach ($col in $script:PermissionColumns) {
+            $answer = Show-FieldPrompt -Label $col -Default 'N' -Description "Grant $col permission? (Y/N)"
+            $specifiedPerms[$col] = ($answer -match '^[Yy]$')
         }
-        default { $permissionRole = 'ReadOnly' }
+    } else {
+        Write-Host ''
+        Write-Host '  Permission Role:' -ForegroundColor DarkGray
+        Write-Host '    1 = ReadOnly'
+        Write-Host '    2 = EndUser'
+        Write-Host '    3 = PowerUser'
+        Write-Host '    4 = SafeManager'
+        Write-Host ''
+        $roleChoice = Read-Host '  Select role (1-4, default=1)'
+        $permissionRole = switch ($roleChoice) {
+            '2' { 'EndUser' }
+            '3' { 'PowerUser' }
+            '4' { 'SafeManager' }
+            default { 'ReadOnly' }
+        }
     }
 
     $inputData = @{
@@ -196,8 +237,8 @@ function Get-SafeMembersAddInput {
         ExpirationDate = $expirationDate
     }
 
-    if ($null -ne $customPermissions) {
-        $inputData.Permissions = $customPermissions
+    if ($null -ne $specifiedPerms) {
+        $inputData.Permissions = $specifiedPerms
     }
 
     return $inputData
@@ -260,12 +301,14 @@ function Invoke-SafeMembersAdd {
         return $result
     }
 
-    $encodedSafe   = [Uri]::EscapeDataString($safeName)
+    $encodedSafe    = [Uri]::EscapeDataString($safeName)
     $permissionRole = if ($InputData['PermissionRole']) { $InputData['PermissionRole'] } else { 'ReadOnly' }
 
-    # Resolve permissions: use explicit Custom hashtable if provided, otherwise use preset
-    $permissions = if ($InputData['Permissions'] -and $InputData['PermissionRole'] -eq 'Custom') {
+    # Resolve permissions: interactive Specified > CSV Specified columns > named role
+    $permissions = if ($InputData['Permissions'] -and $InputData['Permissions'] -is [hashtable]) {
         $InputData['Permissions']
+    } elseif ((script:Test-HasSpecifiedColumns -Data $InputData) -or $permissionRole -eq 'Specified') {
+        script:Get-SpecifiedPermissions -Data $InputData
     } else {
         script:Get-PermissionSet -Role $permissionRole
     }
