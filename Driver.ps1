@@ -324,6 +324,9 @@ function Get-AllDriverProfiles {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $false -Force
                 }
             }
+            if (-not $p.PSObject.Properties['Limit']) {
+                $p | Add-Member -NotePropertyName 'Limit' -NotePropertyValue 0 -Force
+            }
             $xmlPath  = Get-ProfileTokenPath -Name $p.AuthTokenProfile
             $hasToken = Test-Path -LiteralPath $xmlPath
 
@@ -404,6 +407,7 @@ function New-BlankProfile {
         OutputFolder     = ''
         IgnoreSSL        = $false
         WhatIfDefault    = $false
+        Limit            = 0
         TenantPortal     = ''
         TenantVault      = ''
         TenantAuth       = ''
@@ -685,6 +689,14 @@ function Invoke-ProfileEditFlow {
     $wiStr = Show-FieldPrompt -Label 'WhatIf Default' -Default $(if ($currentProfile.WhatIfDefault) { 'Y' } else { 'N' }) `
         -Description 'Default to WhatIf mode for this profile? (Y/N) - Recommended for production.'
     $currentProfile.WhatIfDefault = $wiStr -match '^[Yy]$'
+
+    $currentLimitDefault = if ($currentProfile.PSObject.Properties['Limit'] -and $currentProfile.Limit -gt 0) { "$($currentProfile.Limit)" } else { '0' }
+    $limitStr = Show-FieldPrompt -Label 'Result Limit' -Default $currentLimitDefault `
+        -Description 'Maximum results returned by List/Get operations (0 = no limit, e.g. 500).'
+    $parsedLimit = 0
+    if ($limitStr) { try { $parsedLimit = [int]$limitStr } catch { } }
+    if ($parsedLimit -lt 0) { $parsedLimit = 0 }
+    $currentProfile.Limit = $parsedLimit
 
     Write-Host ''
     Save-DriverProfile -currentProfile $currentProfile
@@ -1107,6 +1119,14 @@ function Invoke-ProfileManagementLoop {
                         $script:SessionToken  = $token
                         $script:ActiveProfile = $selectedProfile
                         $script:WhatIfMode    = $selectedProfile.WhatIfDefault -or $script:WhatIfMode
+                        # Inject profile result limit into token so Invoke-CyberArkAPI can apply it
+                        $profileLimit = 0
+                        if ($selectedProfile.PSObject.Properties['Limit']) {
+                            try { $profileLimit = [int]$selectedProfile.Limit } catch { }
+                        }
+                        if ($profileLimit -gt 0) {
+                            $script:SessionToken | Add-Member -NotePropertyName 'MaxResults' -NotePropertyValue $profileLimit -Force
+                        }
 
                         # Persist discovered identity URL back to profile so future logins skip rediscovery
                         if ($token.SystemType -eq 'ISPSS' -and $token.IdentityURL -and
