@@ -327,6 +327,9 @@ function Get-AllDriverProfiles {
             if (-not $p.PSObject.Properties['Limit']) {
                 $p | Add-Member -NotePropertyName 'Limit' -NotePropertyValue 0 -Force
             }
+            if (-not $p.PSObject.Properties['DisplayLimit']) {
+                $p | Add-Member -NotePropertyName 'DisplayLimit' -NotePropertyValue 20 -Force
+            }
             $xmlPath  = Get-ProfileTokenPath -Name $p.AuthTokenProfile
             $hasToken = Test-Path -LiteralPath $xmlPath
 
@@ -413,6 +416,7 @@ function New-BlankProfile {
         TenantAuth         = ''
         Role_Template_Safe = ''
         Role_Group_Prefix  = ''
+        DisplayLimit       = 20
         LastUsed           = $null
         Created          = (Get-Date).ToUniversalTime().ToString('o')
         Modified         = (Get-Date).ToUniversalTime().ToString('o')
@@ -509,6 +513,8 @@ function Show-ProfileDetail {
     Field 'Output Folder'   $(if ($p.OutputFolder) { $p.OutputFolder } else { '(launch directory)' })
     Field 'Ignore SSL'      $p.IgnoreSSL     $(if ($p.IgnoreSSL)     { 'Yellow' } else { 'Gray' })
     Field 'WhatIf Default'  $p.WhatIfDefault $(if ($p.WhatIfDefault) { 'Yellow' } else { 'Gray' })
+    $dpLimit = if ($p.PSObject.Properties['DisplayLimit']) { [int]$p.DisplayLimit } else { 20 }
+    Field 'Display Limit'   $(if ($dpLimit -eq 0) { 'Show all' } else { "$dpLimit rows" })
     if ($p.PSObject.Properties['Role_Template_Safe'] -and $p.Role_Template_Safe) { Field 'Role Template Safe' $p.Role_Template_Safe }
     if ($p.PSObject.Properties['Role_Group_Prefix']  -and $p.Role_Group_Prefix)  { Field 'Role Group Prefix'  $p.Role_Group_Prefix  }
     $created  = try { ([datetime]$p.Created).ToLocalTime().ToString('yyyy-MM-dd HH:mm') }  catch { $p.Created }
@@ -701,6 +707,14 @@ function Invoke-ProfileEditFlow {
     if ($limitStr) { try { $parsedLimit = [int]$limitStr } catch { } }
     if ($parsedLimit -lt 0) { $parsedLimit = 0 }
     $currentProfile.Limit = $parsedLimit
+
+    $currentDisplayLimitDefault = if ($currentProfile.PSObject.Properties['DisplayLimit'] -and $currentProfile.DisplayLimit -ge 0) { "$($currentProfile.DisplayLimit)" } else { '20' }
+    $displayLimitStr = Show-FieldPrompt -Label 'Display Limit' -Default $currentDisplayLimitDefault `
+        -Description 'Maximum rows shown in table output for List operations (0 = show all, default 20).'
+    $parsedDisplayLimit = 20
+    if ($displayLimitStr) { try { $parsedDisplayLimit = [int]$displayLimitStr } catch { } }
+    if ($parsedDisplayLimit -lt 0) { $parsedDisplayLimit = 0 }
+    $currentProfile.DisplayLimit = $parsedDisplayLimit
 
     $currentProfile.Role_Template_Safe = Show-FieldPrompt -Label 'Role Template Safe' `
         -Default $(if ($currentProfile.PSObject.Properties['Role_Template_Safe']) { $currentProfile.Role_Template_Safe } else { '' }) `
@@ -1854,8 +1868,11 @@ function Invoke-ActionModule {
     Write-CyberArkLog -Message "Invoking $fnName" -Level 'DEBUG'
 
     $result = & $fnName -Token $script:SessionToken -InputData $inputData -WhatIf:$script:WhatIfMode
-    $isAllSafeMembers    = ($meta.Category -eq 'SafeMembers' -and $meta.Action -eq 'List' -and -not $inputData['SafeName'])
-    $truncateDisplay     = $isAllSafeMembers -or ($meta.Category -eq 'Custom' -and $meta.Action -eq 'ExportEntitlements')
+    $displayLimit    = if ($script:ActiveProfile -and $script:ActiveProfile.PSObject.Properties['DisplayLimit']) {
+        [int]$script:ActiveProfile.DisplayLimit
+    } else { 20 }
+    # 0 = show all; otherwise truncate List operations and ExportEntitlements to $displayLimit rows
+    $truncateDisplay = ($displayLimit -gt 0) -and (($meta.Action -eq 'List') -or ($meta.Category -eq 'Custom' -and $meta.Action -eq 'ExportEntitlements'))
 
     Write-Host ''
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {
@@ -1869,9 +1886,9 @@ function Invoke-ActionModule {
                     [PSCustomObject]$props
                 })
             } else { @($result.Results) }
-            $displayData = if ($truncateDisplay -and $tableData.Count -gt 10) {
-                Write-Host "  Showing first 10 of $($result.Results.Count) results." -ForegroundColor DarkGray
-                $tableData[0..9]
+            $displayData = if ($truncateDisplay -and $tableData.Count -gt $displayLimit) {
+                Write-Host "  Showing first $displayLimit of $($result.Results.Count) results. (Change 'Display Limit' in Profile Settings)" -ForegroundColor DarkGray
+                $tableData[0..($displayLimit - 1)]
             } else { $tableData }
             $displayData | Format-Table -AutoSize | Out-String |
                 Where-Object { $_.Trim() } |
