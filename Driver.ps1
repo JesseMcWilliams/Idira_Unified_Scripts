@@ -1808,6 +1808,7 @@ function Invoke-ActionModule {
     Write-CyberArkLog -Message "Invoking $fnName" -Level 'DEBUG'
 
     $result = & $fnName -Token $script:SessionToken -InputData $inputData -WhatIf:$script:WhatIfMode
+    $isAllSafeMembers = ($meta.Category -eq 'SafeMembers' -and $meta.Action -eq 'List' -and -not $inputData['SafeName'])
 
     Write-Host ''
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {
@@ -1815,13 +1816,17 @@ function Invoke-ActionModule {
         if ($result.Results.Count -gt 0) {
             $tableData = if ($meta.Action -eq 'List') {
                 $n = 1
-                $result.Results | ForEach-Object {
+                @($result.Results | ForEach-Object {
                     $props = [ordered]@{ '#' = $n++ }
                     foreach ($p in $_.PSObject.Properties) { $props[$p.Name] = $p.Value }
                     [PSCustomObject]$props
-                }
-            } else { $result.Results }
-            $tableData | Format-Table -AutoSize | Out-String |
+                })
+            } else { @($result.Results) }
+            $displayData = if ($isAllSafeMembers -and $tableData.Count -gt 10) {
+                Write-Host "  Showing first 10 of $($result.Results.Count) results." -ForegroundColor DarkGray
+                $tableData[0..9]
+            } else { $tableData }
+            $displayData | Format-Table -AutoSize | Out-String |
                 Where-Object { $_.Trim() } |
                 ForEach-Object { Write-Host "  $_" }
         }
@@ -1871,7 +1876,7 @@ function Invoke-ActionModule {
     if ($meta.Action -eq 'List' -and $result.Results.Count -gt 0) {
         $getModule = $script:LoadedModules | Where-Object {
             -not ($_.PSObject.Properties['Failed'] -and $_.Failed) -and
-            $_.Meta.Category -eq $meta.Category -and $_.Meta.Action -eq 'Get'
+            $_.Meta.Category -eq $meta.Category -and $_.Meta.Action -in @('Get', 'GetMembers')
         } | Select-Object -First 1
         if ($getModule) {
             Write-Host ''
