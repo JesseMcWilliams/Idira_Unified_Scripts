@@ -33,7 +33,7 @@ BeforeAll {
     function global:Import-AuthToken   { param($Path, [switch]$AutoRefresh, [switch]$IgnoreExpiry) return $null }
     function global:Save-AuthToken     { param($TokenObject, $ProfileName) }
 
-    # ── Temp directory: replaces the real %APPDATA%\CyberArkPAS folder ───────
+    # ── Temp directory: replaces the real %APPDATA%\IdiraUnifiedScripts\Profiles folder ───────
     $script:TempDir = Join-Path $env:TEMP "DriverTests_$(Get-Random)"
     New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
 

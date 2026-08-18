@@ -151,7 +151,7 @@ param(
 $script:CLIENT_AUTH_OID         = '1.3.6.1.5.5.7.3.2'
 $script:PVWA_SESSION_EXPIRY_MIN = 20
 $script:WEBVIEW2_TIMEOUT_SEC    = 300
-$script:PCLOUD_BASE_TEMPLATE    = 'https://{0}.privilegecloud.cyberark.cloud'
+$script:PCLOUD_BASE_TEMPLATE    = 'https://{0}.privilegecloud.cyberark.cloud/PasswordVault'
 $script:_WebView2AssemblyPath   = $null
 
 $script:PVWA_LOGON_PATHS = @{
@@ -247,7 +247,9 @@ function Resolve-IdentityTenantURL {
     )
 
     foreach ($candidate in $candidates) {
+        
         try {
+            Write-Verbose ("Testing URL: {0}" -F $candidate)
             $resp         = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 0 -TimeoutSec 20 -ErrorAction Stop -UseBasicParsing
             $responseHost = Get-WebResponseHost -Response $resp
             if ($responseHost -match '\.id\.cyberark\.cloud$') {
@@ -256,7 +258,13 @@ function Resolve-IdentityTenantURL {
                 return $url
             }
         } catch {
+            Write-Verbose ("Initial Call Failed. HTTP Response {0}" -f [int]($_.Exception.Response.StatusCode))
+            Write-Verbose ("Initial Call Failed. HTTP Message  {0}" -f ($_.Exception.Response.StatusCode))
+            Write-Verbose ("  Error  : {0}" -f $_)
+            Write-Verbose ("Exception: {0}" -f $_.Exception)
+            Write-Verbose ("Response : {0}" -f $_.Exception.Response)
             $redirectHost = Get-ExceptionRedirectHost -ErrorRecord $_
+            Write-Verbose ("Redirection to: {0}" -f $redirectHost)
             if ($redirectHost -match '\.id\.cyberark\.cloud$') {
                 $url = "https://$redirectHost"
                 Write-Verbose "Identity tenant URL (via redirect from $candidate): $url"
@@ -1286,7 +1294,7 @@ function Update-AuthToken {
 #region Profile Persistence (DPAPI via Export-Clixml)
 
 function Get-ProfileDir {
-    $dir = Join-Path $env:APPDATA 'CyberArkPAS'
+    $dir = Join-Path $env:APPDATA 'IdiraUnifiedScripts\Profiles'
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     return $dir
 }
@@ -1321,7 +1329,7 @@ function Save-AuthToken {
         protection covers them alongside ClientSecret and Credential. The resulting file can
         only be decrypted by the same Windows user on the same machine.
 
-        Profiles are stored in %APPDATA%\CyberArkPAS\<ProfileName>.cred.
+        Profiles are stored in %APPDATA%\IdiraUnifiedScripts\Profiles\<ProfileName>.cred.
         When no profile name or path is given the name defaults to <SystemType>_<AuthMethod>.
 
     .PARAMETER TokenObject
@@ -1406,7 +1414,7 @@ function Import-AuthToken {
 
     .PARAMETER ProfileName
         Name of the profile to load (e.g. 'Development'). Resolves to
-        %APPDATA%\CyberArkPAS\<ProfileName>.cred.
+        %APPDATA%\IdiraUnifiedScripts\Profiles\<ProfileName>.cred.
 
     .PARAMETER Path
         Explicit path to a profile file. Takes precedence over -ProfileName.
@@ -1523,7 +1531,7 @@ function Get-AuthTokenProfiles {
         Lists all saved auth token profiles in the default profile directory.
 
     .DESCRIPTION
-        Reads each profile file in %APPDATA%\CyberArkPAS\ and returns a summary object
+        Reads each profile file in %APPDATA%\IdiraUnifiedScripts\Profiles\ and returns a summary object
         for each one. The returned objects can be piped directly to Import-AuthToken or
         Remove-AuthTokenProfile.
 
@@ -1534,7 +1542,7 @@ function Get-AuthTokenProfiles {
     [CmdletBinding()]
     param()
 
-    $dir = Join-Path $env:APPDATA 'CyberArkPAS'
+    $dir = Join-Path $env:APPDATA 'IdiraUnifiedScripts\Profiles'
     if (-not (Test-Path $dir)) {
         Write-Verbose "Profile directory does not exist: $dir"
         return

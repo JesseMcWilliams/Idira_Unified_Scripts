@@ -13,11 +13,22 @@
 
 .PARAMETER WhatIf
     Enable WhatIf mode for the session (suppresses all write/modify/delete API calls).
+
+.PARAMETER LogLevel
+    Minimum log level written to the log file and console. Valid values: VERBOSE, DEBUG, INFO, WARN, ERROR.
+    Defaults to INFO.
+
+.PARAMETER LogFolder
+    Default folder for log files when the active profile does not specify one.
+    Defaults to a 'Logs' subfolder under the script launch directory.
 #>
 [CmdletBinding()]
 param(
     [string]$StartProfile,
-    [switch]$WhatIf
+    [switch]$WhatIf,
+    [ValidateSet('VERBOSE', 'DEBUG', 'INFO', 'WARN', 'ERROR')]
+    [string]$LogLevel = 'INFO',
+    [string]$LogFolder
 )
 
 Set-StrictMode -Version Latest
@@ -25,20 +36,26 @@ $ErrorActionPreference = 'Stop'
 
 #region --- Configuration ---
 
-$script:AppName              = 'Idira Unified Scripts - CyberArk PAS Driver'
-$script:Version              = '1.0.0'
-$script:AuthScriptPath       = Join-Path $PSScriptRoot 'Auth\Get-AuthToken.ps1'
-$script:LoggingModulePath    = Join-Path $PSScriptRoot 'Modules\CyberArkLogging.psm1'
-$script:CommsModulePath      = Join-Path $PSScriptRoot 'Modules\CyberArkComms.psm1'
-$script:APIModulesPath       = Join-Path $PSScriptRoot 'APIModules'
-$script:DefaultProfileDir    = Join-Path $env:APPDATA 'CyberArkPAS'
-$script:ProfileDir           = $script:DefaultProfileDir
-$script:InactivityTimeoutMin = 10
-$script:TokenExpiryWarnMin   = 5
-$script:WhatIfMode           = $WhatIf.IsPresent
-$script:ScreenWidth          = 80
-$script:SessionToken         = $null   # Active token object - set after successful auth
-$script:ActiveProfile        = $null   # Active driver profile JSON object
+$script:AppName                   = 'Idira Unified Scripts - CyberArk PAS Driver'
+$script:Version                   = '1.0.0'
+$script:AuthCommonPath            = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.Common.psm1'
+$script:AuthISPSSPath             = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.ISPSS.psm1'
+$script:AuthSelfHostedPath        = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.SelfHosted.psm1'
+$script:LoggingModulePath         = Join-Path $PSScriptRoot 'Modules\CyberArkLogging.psm1'
+$script:CommsModulePath           = Join-Path $PSScriptRoot 'Modules\CyberArkComms.psm1'
+$script:APIModulesPath            = Join-Path $PSScriptRoot 'APIModules'
+$script:DefaultProfileDir         = Join-Path $env:APPDATA 'IdiraUnifiedScripts\Profiles'
+$script:ProfileDir                = $script:DefaultProfileDir
+$script:InactivityTimeoutMin      = 10
+$script:TokenExpiryWarnMin        = 5
+$script:ProactiveRefreshThresholdMin = 10
+$script:PVWA_SESSION_EXPIRY_MIN   = 20   # matches SelfHosted module constant
+$script:WhatIfMode                = $WhatIf.IsPresent
+$script:DefaultLogLevel           = $LogLevel
+$script:DefaultLogFolder          = if ($LogFolder) { $LogFolder } else { Join-Path $PSScriptRoot 'Logs' }
+$script:ScreenWidth               = 80
+$script:SessionToken              = $null   # Active token object - set after successful auth
+$script:ActiveProfile             = $null   # Active driver profile JSON object
 
 #endregion
 
@@ -46,8 +63,14 @@ $script:ActiveProfile        = $null   # Active driver profile JSON object
 
 function Assert-Prerequisites {
     $missing = @()
-    if (-not (Test-Path -LiteralPath $script:AuthScriptPath)) {
-        $missing += "Auth script not found: $($script:AuthScriptPath)"
+    if (-not (Test-Path -LiteralPath $script:AuthCommonPath)) {
+        $missing += "Auth Common module not found: $($script:AuthCommonPath)"
+    }
+    if (-not (Test-Path -LiteralPath $script:AuthISPSSPath)) {
+        $missing += "Auth ISPSS module not found: $($script:AuthISPSSPath)"
+    }
+    if (-not (Test-Path -LiteralPath $script:AuthSelfHostedPath)) {
+        $missing += "Auth SelfHosted module not found: $($script:AuthSelfHostedPath)"
     }
     if (-not (Test-Path -LiteralPath $script:LoggingModulePath)) {
         $missing += "Logging module not found: $($script:LoggingModulePath)"
@@ -285,6 +308,7 @@ function Get-ProfileTokenPath { param([string]$Name) Join-Path $script:ProfileDi
 
 function Get-AllDriverProfiles {
     $jsonFiles = Get-ChildItem -LiteralPath $script:ProfileDir -Filter '*.json' -File -ErrorAction SilentlyContinue
+    Write-CyberArkLog -Message "Scanning profiles in '$($script:ProfileDir)': $(@($jsonFiles).Count) file(s) found." -Level 'DEBUG'
     $selectedProfiles  = foreach ($f in $jsonFiles) {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
@@ -330,16 +354,19 @@ function Get-AllDriverProfiles {
                                  elseif ($systemType -eq 'SelfHosted') { 'Self-Hosted' }
                                  else                                   { $systemType }
 
+            $expiryStr = if ($expiry) { $expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } else { 'n/a' }
+            Write-CyberArkLog -Message "  Profile '$($p.ProfileName)': $displaySystemType | $($p.AuthMethod) | Token: $tokenStatus | Expiry: $expiryStr" -Level 'DEBUG'
+
             [PSCustomObject]@{
-                ProfileName  = $p.ProfileName
-                SystemType   = $displaySystemType
-                AuthMethod   = if ($authMethod) { $authMethod } elseif ($p.AuthMethod) { $p.AuthMethod } else { '' }
-                BaseURL      = $baseURL
-                TokenStatus  = $tokenStatus
-                Expiry       = $expiry
-                LastUsed     = $p.LastUsed
-                JsonPath     = $f.FullName
-                currentProfile      = $p
+                ProfileName    = $p.ProfileName
+                SystemType     = $displaySystemType
+                AuthMethod     = if ($authMethod) { $authMethod } elseif ($p.AuthMethod) { $p.AuthMethod } else { '' }
+                BaseURL        = $baseURL
+                TokenStatus    = $tokenStatus
+                Expiry         = $expiry
+                LastUsed       = $p.LastUsed
+                JsonPath       = $f.FullName
+                currentProfile = $p
             }
         } catch {
             Write-CyberArkLog -Message "Failed to read profile '$($f.Name)': $_" -Level 'WARN'
@@ -377,6 +404,9 @@ function New-BlankProfile {
         OutputFolder     = ''
         IgnoreSSL        = $false
         WhatIfDefault    = $false
+        TenantPortal     = ''
+        TenantVault      = ''
+        TenantAuth       = ''
         LastUsed         = $null
         Created          = (Get-Date).ToUniversalTime().ToString('o')
         Modified         = (Get-Date).ToUniversalTime().ToString('o')
@@ -462,6 +492,11 @@ function Show-ProfileDetail {
     Field 'Auth Method'     $(if ($p.AuthMethod)  { $p.AuthMethod }  else { '(Not Set)' }) $(if ($p.AuthMethod) { 'Cyan' } else { 'Yellow' })
     Field 'Username'        $(if ($p.Username)     { $p.Username }   else { '(Not Set)' }) $(if ($p.Username)   { 'Cyan' } else { 'Yellow' })
     Field 'Base URL'        $(if ($p.BaseURL)      { $p.BaseURL } else { '(Not Set)' })
+    if ($p.SystemType -eq 'Privilege Cloud') {
+        if ($p.PSObject.Properties['TenantPortal'] -and $p.TenantPortal) { Field 'Tenant Portal' $p.TenantPortal }
+        if ($p.PSObject.Properties['TenantVault']  -and $p.TenantVault)  { Field 'Tenant Vault'  $p.TenantVault  }
+        if ($p.PSObject.Properties['TenantAuth']   -and $p.TenantAuth)   { Field 'Tenant Auth'   $p.TenantAuth   }
+    }
     Field 'Application'     $(if ($p.AppName)      { $p.AppName } else { 'PasswordVault' })
     Field 'Log Folder'      $(if ($p.LogFolder)    { $p.LogFolder    } else { '(launch directory)' })
     Field 'Input Folder'    $(if ($p.InputFolder)  { $p.InputFolder  } else { '(launch directory)' })
@@ -594,7 +629,25 @@ function Invoke-ProfileEditFlow {
             $subdomain = Show-FieldPrompt -Label 'Privilege Cloud Subdomain' -Default $subdomain `
                 -Description 'Subdomain of your tenant URL. For acme.privilegecloud.cyberark.cloud, enter: acme'
             if ($subdomain) {
-                $currentProfile.BaseURL = $pcloudTemplate -f $subdomain.Trim()
+                $cleanSub = $subdomain.Trim()
+                $currentProfile.BaseURL      = $pcloudTemplate -f $cleanSub
+                $currentProfile.TenantPortal = "$cleanSub.cyberark.com"
+                $currentProfile.TenantVault  = "vault-$cleanSub.privilegecloud.cyberark.com"
+                Write-Host "    Tenant Portal : $($currentProfile.TenantPortal)" -ForegroundColor DarkGray
+                Write-Host "    Tenant Vault  : $($currentProfile.TenantVault)"  -ForegroundColor DarkGray
+                Write-Host '    Discovering identity URL...' -ForegroundColor DarkGray
+                try {
+                    $resolved = Resolve-IdentityTenantURL -PCloudSubdomain $cleanSub
+                    Write-Verbose ("Resolution Result: {0}" -f $resolved)
+                    if ($resolved) {
+                        $currentProfile.TenantAuth = $resolved
+                        Write-Host "    Tenant Auth   : $resolved" -ForegroundColor DarkGray
+                    } else {
+                        Write-Host '    Tenant Auth   : (not discovered - will resolve at login)' -ForegroundColor Yellow
+                    }
+                } catch {
+                    Write-Host '    Tenant Auth   : (discovery failed - will resolve at login)' -ForegroundColor Yellow
+                }
             }
         }
         'Self-Hosted' {
@@ -671,6 +724,14 @@ function Invoke-ProfileTestConnection {
                 Write-Host "    Expires : $($existing.Expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm'))" -ForegroundColor Gray
                 Write-Host ''
                 if (-not $isExpired) {
+                    if ($existing.SystemType -eq 'ISPSS') {
+                        Write-Host '  Privilege Cloud: no server validation endpoint.' -ForegroundColor DarkGray
+                        Write-Host '  Token accepted based on local expiry.' -ForegroundColor DarkGray
+                        Write-Host ''
+                        Write-Host '  Press Enter to return.' -ForegroundColor DarkGray
+                        Read-Host | Out-Null
+                        return
+                    }
                     Write-Host '  Verifying with server...' -ForegroundColor DarkGray
                     $valResp = Invoke-TokenValidate -Token $existing -IgnoreSSL:$Summary.currentProfile.IgnoreSSL
                     if ($valResp -and $valResp.IsSuccess) {
@@ -711,29 +772,54 @@ function Invoke-ProfileTestConnection {
     }
 
     # Token missing or expired - authenticate
-    Write-Host '  Calling Get-AuthToken...' -ForegroundColor DarkGray
+    Write-Host '  Authenticating...' -ForegroundColor DarkGray
     Write-Host ''
 
     try {
-        $params = @{ IgnoreSSL = $Summary.currentProfile.IgnoreSSL }
+        $savedToken = $null
         if (Test-Path -LiteralPath $tokenPath) {
-            $saved = Import-AuthToken -Path $tokenPath -IgnoreExpiry
-            if ($saved) {
-                $params['SystemType']  = $saved.SystemType
-                $params['AuthMethod']  = $saved.AuthMethod
-                $params['PVWAUrl']     = if ($saved.SystemType -eq 'SelfHosted') { $saved.BaseURL } else { $null }
-                $params['PCloudSubdomain'] = if ($saved.SystemType -eq 'ISPSS' -and $saved.BaseURL -match 'https://([^.]+)\.') {
-                    $Matches[1]
-                } else { $null }
-            }
+            try { $savedToken = Import-AuthToken -Path $tokenPath -IgnoreExpiry } catch {}
         }
-        $token = Get-AuthToken @params
+
+        $token = $null
+        if ($Summary.currentProfile.SystemType -eq 'Privilege Cloud') {
+            $params = @{}
+            if ($Summary.currentProfile.AuthMethod) { $params['AuthMethod'] = $Summary.currentProfile.AuthMethod }
+            if ($Summary.currentProfile.BaseURL -match '^https://(.+)\.privilegecloud\.cyberark\.cloud') {
+                $params['PCloudSubdomain'] = $Matches[1]
+            } elseif ($savedToken -and $savedToken.BaseURL -match 'https://([^.]+)\.privilegecloud') {
+                $params['PCloudSubdomain'] = $Matches[1]
+            }
+            if ($Summary.currentProfile.PSObject.Properties['TenantAuth'] -and $Summary.currentProfile.TenantAuth) {
+                $params['IdentityTenantURL'] = $Summary.currentProfile.TenantAuth
+            }
+            if ($Summary.currentProfile.Username) { $params['Username'] = $Summary.currentProfile.Username }
+            $token = Get-ISPSSAuthToken @params
+        } else {
+            $params = @{ IgnoreSSL = $Summary.currentProfile.IgnoreSSL }
+            if ($Summary.currentProfile.AuthMethod) { $params['AuthMethod'] = $Summary.currentProfile.AuthMethod }
+            if ($Summary.currentProfile.Username)   { $params['Username']   = $Summary.currentProfile.Username }
+            if ($savedToken -and $savedToken.BaseURL) {
+                $params['PVWAUrl'] = $savedToken.BaseURL
+            } elseif ($Summary.currentProfile.BaseURL) {
+                $appName = if ($Summary.currentProfile.AppName) { $Summary.currentProfile.AppName.Trim('/') } else { 'PasswordVault' }
+                $params['PVWAUrl'] = "$($Summary.currentProfile.BaseURL.TrimEnd('/'))/$appName"
+            }
+            $token = Get-SelfHostedAuthToken @params
+        }
         if ($token -and $token.Token) {
             Write-Host '  Connection successful.' -ForegroundColor Green
             Write-Host "    System  : $($token.SystemType)"   -ForegroundColor Gray
             Write-Host "    Method  : $($token.AuthMethod)"   -ForegroundColor Gray
             Write-Host "    Base URL: $($token.BaseURL)"      -ForegroundColor Gray
             Write-Host "    Expires : $($token.Expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm'))" -ForegroundColor Gray
+
+            # Persist discovered identity URL back to the profile so future logins skip rediscovery
+            if ($token.SystemType -eq 'ISPSS' -and $token.IdentityURL -and
+                $token.IdentityURL -ne $Summary.currentProfile.TenantAuth) {
+                $Summary.currentProfile.TenantAuth = $token.IdentityURL
+                Save-DriverProfile -currentProfile $Summary.currentProfile
+            }
 
             if (Confirm-Action 'Save this token to the profile?') {
                 $null = Save-AuthToken -TokenObject $token -ProfileName $Summary.currentProfile.AuthTokenProfile
@@ -868,29 +954,54 @@ function Invoke-ProfileManagementLoop {
                                 # Token known-good - load directly, no refresh needed
                                 $token = Import-AuthToken -Path $xmlPath
                             } elseif ($selected.TokenStatus -eq 'Expired') {
-                                # Attempt silent refresh (succeeds for ClientCredentials; falls through for others)
-                                $token = Import-AuthToken -Path $xmlPath -AutoRefresh
+                                # Load the token and attempt a refresh appropriate to its SystemType
+                                $expiredToken = Import-AuthToken -Path $xmlPath -IgnoreExpiry
+                                if ($expiredToken) {
+                                    try {
+                                        Write-Host '  Token expired, refreshing...' -ForegroundColor DarkGray
+                                        $token = if ($expiredToken.SystemType -eq 'ISPSS') {
+                                            Update-ISPSSAuthToken -TokenObject $expiredToken
+                                        } else {
+                                            Update-SelfHostedAuthToken -TokenObject $expiredToken
+                                        }
+                                    } catch {
+                                        Write-CyberArkLog -Message "Auto-refresh failed: $_" -Level 'WARN'
+                                        $token = $null
+                                    }
+                                }
                             }
-                            # No Token / Unreadable: skip Import-AuthToken, go straight to Get-AuthToken
+                            # No Token / Unreadable: skip Import-AuthToken, go straight to fresh auth
                         } catch {
                             Write-CyberArkLog -Message "Failed to load saved token: $_" -Level 'WARN'
                         }
 
                         # Validate the loaded token against the server before trusting it
                         if ($token) {
-                            Write-Host '  Validating token...' -ForegroundColor DarkGray
-                            $valResp = Invoke-TokenValidate -Token $token -IgnoreSSL:$selectedProfile.IgnoreSSL
-                            if ($valResp -and $valResp.IsSuccess) {
-                                $logonUser = if ($valResp.Data -and $valResp.Data.PSObject.Properties['username']) {
-                                    " (as $($valResp.Data.username))"
-                                } else { '' }
-                                Write-Host "  Token verified$logonUser." -ForegroundColor Green
-                            } elseif ($valResp -and $valResp.StatusCode -eq 401) {
-                                Write-Host '  Server rejected saved token (401). Please re-authenticate.' -ForegroundColor Yellow
-                                Remove-Item -LiteralPath $xmlPath -Force -ErrorAction SilentlyContinue
-                                $token = $null
+                            if ($token.SystemType -eq 'ISPSS') {
+                                Write-Host '  Privilege Cloud: token accepted based on local expiry.' -ForegroundColor DarkGray
+                            } else {
+                                Write-Host '  Validating token...' -ForegroundColor DarkGray
+                                $valResp = Invoke-TokenValidate -Token $token -IgnoreSSL:$selectedProfile.IgnoreSSL
+                                if ($valResp -and $valResp.IsSuccess) {
+                                    $logonUser = if ($valResp.Data -and $valResp.Data.PSObject.Properties['username']) {
+                                        " (as $($valResp.Data.username))"
+                                    } else { '' }
+                                    Write-Host "  Token verified$logonUser." -ForegroundColor Green
+                                } elseif ($valResp -and $valResp.StatusCode -eq 401) {
+                                    Write-Host '  Server rejected saved token (401). Please re-authenticate.' -ForegroundColor Yellow
+                                    Remove-Item -LiteralPath $xmlPath -Force -ErrorAction SilentlyContinue
+                                    $token = $null
+                                }
+                                # Non-401 errors (network unreachable, etc.) - proceed with the loaded token
                             }
-                            # Non-401 errors (network unreachable, etc.) - proceed with the loaded token
+                        }
+                        # Ensure ISPSS BaseURL includes AppName (pre-fix saved tokens may lack it)
+                        if ($token -and $token.SystemType -eq 'ISPSS' -and $token.BaseURL) {
+                            $diskUri = [Uri]$token.BaseURL
+                            if (-not $diskUri.AbsolutePath -or $diskUri.AbsolutePath -eq '/') {
+                                $diskAppName = if ($selectedProfile.AppName) { $selectedProfile.AppName.Trim('/') } else { 'PasswordVault' }
+                                $token.BaseURL = "$($token.BaseURL.TrimEnd('/'))/$diskAppName"
+                            }
                         }
                     }
 
@@ -904,26 +1015,28 @@ function Invoke-ProfileManagementLoop {
                         Write-Host "  $authStatusMsg" -ForegroundColor Yellow
                         Write-Host ''
                         try {
-                            $authParams = @{ IgnoreSSL = $selectedProfile.IgnoreSSL }
-                            if ($selectedProfile.AuthMethod) { $authParams['AuthMethod'] = $selectedProfile.AuthMethod }
-                            if ($selectedProfile.Username)   { $authParams['Username']   = $selectedProfile.Username }
                             $appName = if ($selectedProfile.AppName) { $selectedProfile.AppName.Trim('/') } else { 'PasswordVault' }
-                            # Map profile SystemType to the auth script's expected values
                             if ($selectedProfile.SystemType -eq 'Privilege Cloud') {
-                                $authParams['SystemType'] = 'ISPSS'
+                                $authParams = @{}
+                                if ($selectedProfile.AuthMethod) { $authParams['AuthMethod'] = $selectedProfile.AuthMethod }
+                                if ($selectedProfile.Username)   { $authParams['Username']   = $selectedProfile.Username }
                                 if ($selectedProfile.BaseURL -match '^https://(.+)\.privilegecloud\.cyberark\.cloud') {
                                     $authParams['PCloudSubdomain'] = $Matches[1]
                                 }
+                                if ($selectedProfile.PSObject.Properties['TenantAuth'] -and $selectedProfile.TenantAuth) {
+                                    $authParams['IdentityTenantURL'] = $selectedProfile.TenantAuth
+                                }
+                                $token = Get-ISPSSAuthToken @authParams
                             } elseif ($selectedProfile.SystemType -eq 'Self-Hosted') {
-                                $authParams['SystemType'] = 'SelfHosted'
+                                $authParams = @{ IgnoreSSL = $selectedProfile.IgnoreSSL }
+                                if ($selectedProfile.AuthMethod) { $authParams['AuthMethod'] = $selectedProfile.AuthMethod }
+                                if ($selectedProfile.Username)   { $authParams['Username']   = $selectedProfile.Username }
                                 if ($selectedProfile.BaseURL) {
                                     $authParams['PVWAUrl'] = "$($selectedProfile.BaseURL.TrimEnd('/'))/$appName"
                                 }
-                            }
-                            $token = Get-AuthToken @authParams
-                            # For Privilege Cloud, patch token.BaseURL to include AppName for subsequent API calls
-                            if ($token -and $selectedProfile.SystemType -eq 'Privilege Cloud' -and $token.BaseURL) {
-                                $token.BaseURL = "$($token.BaseURL.TrimEnd('/'))/$appName"
+                                $token = Get-SelfHostedAuthToken @authParams
+                            } else {
+                                throw "Profile SystemType '$($selectedProfile.SystemType)' is not configured. Edit the profile to set it."
                             }
                             # If user entered credentials, save username back to profile for next-login pre-fill
                             if ($token -and $token._RefreshContext -and $token._RefreshContext['Credential']) {
@@ -934,12 +1047,13 @@ function Invoke-ProfileManagementLoop {
                                 }
                             }
                         } catch {
+                            $caughtAuthError = $_   # capture before any expression that could overwrite $_
                             $urlInfo = if ($selectedProfile.SystemType -eq 'Self-Hosted' -and $selectedProfile.BaseURL) {
                                 $an = if ($selectedProfile.AppName) { $selectedProfile.AppName.Trim('/') } else { 'PasswordVault' }
                                 " [URL: $($selectedProfile.BaseURL.TrimEnd('/'))/$an]"
                             } else { '' }
-                            Write-Host "  Authentication failed$($urlInfo): $_" -ForegroundColor Red
-                            Write-CyberArkLog -Message "Authentication failed for profile '$($selectedProfile.ProfileName)'$($urlInfo): $_" -Level 'ERROR'
+                            Write-Host "  Authentication failed$($urlInfo): $caughtAuthError" -ForegroundColor Red
+                            Write-CyberArkLog -Message "Authentication failed for profile '$($selectedProfile.ProfileName)'$($urlInfo): $caughtAuthError" -Level 'ERROR'
                             Write-Host '  Press Enter to return to profile selection.' -ForegroundColor DarkGray
                             Read-Host | Out-Null
                             break
@@ -989,9 +1103,17 @@ function Invoke-ProfileManagementLoop {
                         }
                         Write-Host ''
 
+                        Invoke-ClearNonRefreshableContext -Token $token
                         $script:SessionToken  = $token
                         $script:ActiveProfile = $selectedProfile
                         $script:WhatIfMode    = $selectedProfile.WhatIfDefault -or $script:WhatIfMode
+
+                        # Persist discovered identity URL back to profile so future logins skip rediscovery
+                        if ($token.SystemType -eq 'ISPSS' -and $token.IdentityURL -and
+                            $token.IdentityURL -ne $selectedProfile.TenantAuth) {
+                            $selectedProfile.TenantAuth = $token.IdentityURL
+                            Save-DriverProfile -currentProfile $selectedProfile
+                        }
 
                         # Return the profile name - caller starts the session loop
                         return $selectedProfile.ProfileName
@@ -1191,6 +1313,40 @@ function Test-TokenExpiry {
     return 'Valid'
 }
 
+function Invoke-ClearNonRefreshableContext {
+    # Removes stored credentials from _RefreshContext for methods that cannot silently refresh.
+    # Reduces the in-memory exposure window for Interactive/SSO/SAML/OIDC sessions.
+    # Username is retained so it can pre-fill prompts on manual re-auth.
+    param([PSCustomObject]$Token)
+    if (-not $Token -or -not $Token.PSObject.Properties['_RefreshContext'] -or -not $Token._RefreshContext) { return }
+    if ($Token.AuthMethod -in @('Interactive', 'SSO', 'SAML', 'OIDC')) {
+        $Token._RefreshContext.Remove('Credential')
+        $Token._RefreshContext.Remove('ClientSecret')
+    }
+}
+
+function Invoke-ProactiveRefresh {
+    # Silently refreshes a ClientCredentials token when it is approaching expiry,
+    # before the expiry check would normally trigger a re-auth prompt.
+    if (-not $script:SessionToken) { return }
+    if ($script:SessionToken.SystemType -ne 'ISPSS') { return }
+    if ($script:SessionToken.AuthMethod -ne 'ClientCredentials') { return }
+    $remaining = Get-TokenRemainingMinutes
+    if ($remaining -le 0 -or $remaining -gt $script:ProactiveRefreshThresholdMin) { return }
+
+    Write-CyberArkLog -Message "Proactively refreshing ClientCredentials token ($([Math]::Round($remaining, 1)) min remaining)." -Level 'INFO'
+    try {
+        $refreshed = Update-ISPSSAuthToken -TokenObject $script:SessionToken
+        if ($refreshed -and $refreshed.Token) {
+            $script:SessionToken = $refreshed
+            $null = Save-AuthToken -TokenObject $refreshed -ProfileName $script:ActiveProfile.AuthTokenProfile
+            Write-CyberArkLog -Message 'Proactive token refresh succeeded.' -Level 'INFO'
+        }
+    } catch {
+        Write-CyberArkLog -Message "Proactive token refresh failed (will retry on expiry): $_" -Level 'WARN'
+    }
+}
+
 function Invoke-TokenRefresh {
     $status = Test-TokenExpiry
     if ($status -eq 'Valid') { return $true }
@@ -1198,12 +1354,19 @@ function Invoke-TokenRefresh {
     $method = $script:SessionToken.AuthMethod
     $type   = $script:SessionToken.SystemType
 
-    # ISPSS ClientCredentials - silent refresh via refresh_token grant
-    if ($type -eq 'ISPSS' -and $method -eq 'ClientCredentials') {
-        Write-CyberArkLog -Message 'Silently refreshing ISPSS ClientCredentials token.' -Level 'INFO'
+    # ISPSS: ClientCredentials refreshes silently; all other ISPSS methods prompt first
+    if ($type -eq 'ISPSS') {
+        if ($method -ne 'ClientCredentials') {
+            Write-Host ''
+            Write-Host '  Your session token has expired. Re-authentication required.' -ForegroundColor Yellow
+            Write-Host '  Press Enter to re-authenticate, or X to exit: ' -ForegroundColor White -NoNewline
+            $r = (Read-Host).Trim()
+            if ($r -match '^[Xx]$') { return $false }
+        } else {
+            Write-CyberArkLog -Message 'Silently refreshing ISPSS ClientCredentials token.' -Level 'INFO'
+        }
         try {
-            $refreshed = Get-AuthToken -TokenToRefresh $script:SessionToken `
-                -IgnoreSSL:$script:ActiveProfile.IgnoreSSL
+            $refreshed = Update-ISPSSAuthToken -TokenObject $script:SessionToken
             if ($refreshed -and $refreshed.Token) {
                 $script:SessionToken = $refreshed
                 $null = Save-AuthToken -TokenObject $refreshed -ProfileName $script:ActiveProfile.AuthTokenProfile
@@ -1211,12 +1374,13 @@ function Invoke-TokenRefresh {
                 return $true
             }
         } catch {
-            Write-CyberArkLog -Message "Silent token refresh failed: $_" -Level 'ERROR'
+            Write-CyberArkLog -Message "Token refresh failed: $_" -Level 'ERROR'
+            Write-Host "  Authentication failed: $_" -ForegroundColor Red
         }
         return $false
     }
 
-    # SelfHosted password-based methods - prompt for password only (pre-fill URL and username)
+    # SelfHosted password methods: prompt for password only (re-uses stored username and URL)
     if ($type -eq 'SelfHosted' -and $method -in @('CyberArk', 'LDAP', 'RADIUS')) {
         $ctx      = if ($script:SessionToken.PSObject.Properties['_RefreshContext']) { $script:SessionToken._RefreshContext } else { $null }
         $pvwaUrl  = if ($ctx -and $ctx['PVWAUrl']) { $ctx['PVWAUrl'] } else { $script:SessionToken.BaseURL }
@@ -1234,13 +1398,12 @@ function Invoke-TokenRefresh {
             $uname      = if ($username) { $username } else { (Read-Host '  Username').Trim() }
             $newCred    = [System.Management.Automation.PSCredential]::new($uname, $securePassword)
             $concurrent = if ($ctx -and $ctx.ContainsKey('ConcurrentSession')) { $ctx['ConcurrentSession'] } else { $false }
-            $newToken = Get-AuthToken `
-                -SystemType         $type `
-                -AuthMethod         $method `
-                -PVWAUrl            $pvwaUrl `
-                -Credential         $newCred `
-                -ConcurrentSession: ([switch]::new($concurrent)) `
-                -IgnoreSSL:         $script:ActiveProfile.IgnoreSSL
+            $newToken   = Get-SelfHostedAuthToken `
+                -AuthMethod        $method `
+                -PVWAUrl           $pvwaUrl `
+                -Credential        $newCred `
+                -ConcurrentSession:([switch]::new($concurrent)) `
+                -IgnoreSSL:        $script:ActiveProfile.IgnoreSSL
             if ($newToken -and $newToken.Token) {
                 $script:SessionToken = $newToken
                 $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
@@ -1254,7 +1417,7 @@ function Invoke-TokenRefresh {
         return $false
     }
 
-    # All other methods (SAML, OIDC, Shared, PKI, ISPSS Interactive/SSO) - use stored context
+    # All other SelfHosted methods (Shared, PKI, PKIPN, SAML, OIDC) - re-auth via stored context
     Write-Host ''
     Write-Host '  Your session token has expired. Re-authentication required.' -ForegroundColor Yellow
     Write-Host '  Press Enter to re-authenticate, or X to exit: ' -ForegroundColor White -NoNewline
@@ -1262,7 +1425,7 @@ function Invoke-TokenRefresh {
     if ($r -match '^[Xx]$') { return $false }
 
     try {
-        $newToken = Get-AuthToken -TokenToRefresh $script:SessionToken -IgnoreSSL:$script:ActiveProfile.IgnoreSSL
+        $newToken = Update-SelfHostedAuthToken -TokenObject $script:SessionToken
         if ($newToken -and $newToken.Token) {
             $script:SessionToken = $newToken
             $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
@@ -1312,11 +1475,13 @@ function Invoke-SessionLogoff {
 
 function Invoke-TokenValidate {
     # Calls GET /API/LoggedOnUser to confirm the server still accepts the token.
-    # Returns the API response object, or $null if the call throws.
+    # Returns the API response object, or $null if the call throws or is unsupported.
+    # Privilege Cloud (ISPSS) does not expose a token validation endpoint — returns $null immediately.
     param(
         [Parameter(Mandatory = $true)]  [PSCustomObject]$Token,
         [Parameter(Mandatory = $false)] [bool]$IgnoreSSL = $false
     )
+    if ($Token.SystemType -eq 'ISPSS') { return $null }
     try {
         return Invoke-CyberArkAPI -Token $Token -Method 'GET' `
             -Endpoint '/API/LoggedOnUser' -IgnoreSSL:$IgnoreSSL
@@ -1643,6 +1808,7 @@ function Invoke-ActionModule {
     Write-CyberArkLog -Message "Invoking $fnName" -Level 'DEBUG'
 
     $result = & $fnName -Token $script:SessionToken -InputData $inputData -WhatIf:$script:WhatIfMode
+    $isAllSafeMembers = ($meta.Category -eq 'SafeMembers' -and $meta.Action -eq 'List' -and -not $inputData['SafeName'])
 
     Write-Host ''
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {
@@ -1650,13 +1816,17 @@ function Invoke-ActionModule {
         if ($result.Results.Count -gt 0) {
             $tableData = if ($meta.Action -eq 'List') {
                 $n = 1
-                $result.Results | ForEach-Object {
+                @($result.Results | ForEach-Object {
                     $props = [ordered]@{ '#' = $n++ }
                     foreach ($p in $_.PSObject.Properties) { $props[$p.Name] = $p.Value }
                     [PSCustomObject]$props
-                }
-            } else { $result.Results }
-            $tableData | Format-Table -AutoSize | Out-String |
+                })
+            } else { @($result.Results) }
+            $displayData = if ($isAllSafeMembers -and $tableData.Count -gt 10) {
+                Write-Host "  Showing first 10 of $($result.Results.Count) results." -ForegroundColor DarkGray
+                $tableData[0..9]
+            } else { $tableData }
+            $displayData | Format-Table -AutoSize | Out-String |
                 Where-Object { $_.Trim() } |
                 ForEach-Object { Write-Host "  $_" }
         }
@@ -1706,7 +1876,7 @@ function Invoke-ActionModule {
     if ($meta.Action -eq 'List' -and $result.Results.Count -gt 0) {
         $getModule = $script:LoadedModules | Where-Object {
             -not ($_.PSObject.Properties['Failed'] -and $_.Failed) -and
-            $_.Meta.Category -eq $meta.Category -and $_.Meta.Action -eq 'Get'
+            $_.Meta.Category -eq $meta.Category -and $_.Meta.Action -in @('Get', 'GetMembers')
         } | Select-Object -First 1
         if ($getModule) {
             Write-Host ''
@@ -1770,6 +1940,7 @@ function Invoke-SessionLoop {
         }
 
         # --- Token health ---
+        Invoke-ProactiveRefresh
         switch (Test-TokenExpiry) {
             'Expired' {
                 if (-not (Invoke-TokenRefresh)) {
@@ -1878,10 +2049,29 @@ if ($MyInvocation.InvocationName -eq '.') { return }
 try {
 
 Assert-Prerequisites
-. $script:AuthScriptPath   # dot-source at script scope so Get-AuthToken is available everywhere
 
-Initialize-CyberArkLog -ProfileName 'Startup' -Destination 'Console' -MinLevel 'INFO'
+# Init startup log — overwrites on each launch so the file always reflects the most recent start
+Initialize-CyberArkLog `
+    -LogFolder    $script:DefaultLogFolder `
+    -ProfileName  'Startup' `
+    -Destination  'Both' `
+    -MinLevel     $script:DefaultLogLevel `
+    -OverwriteFile
+
 Write-CyberArkLog -Message "$($script:AppName) v$($script:Version) starting. PID: $PID" -Level 'INFO'
+$_platform = if ($PSVersionTable.PSObject.Properties['Platform']) { $PSVersionTable.Platform } else { 'Windows' }
+Write-CyberArkLog -Message "PowerShell $($PSVersionTable.PSVersion)  Platform: $_platform" -Level 'INFO'
+Write-CyberArkLog -Message 'Core modules loaded: CyberArkLogging, CyberArkComms.' -Level 'DEBUG'
+Remove-Variable _platform
+
+Write-CyberArkLog -Message 'Loading auth modules...' -Level 'DEBUG'
+Import-Module $script:AuthCommonPath     -Force -ErrorAction Stop
+Write-CyberArkLog -Message 'Loaded: CyberArk.Auth.Common' -Level 'DEBUG'
+Import-Module $script:AuthISPSSPath      -Force -ErrorAction Stop
+Write-CyberArkLog -Message 'Loaded: CyberArk.Auth.ISPSS' -Level 'DEBUG'
+Import-Module $script:AuthSelfHostedPath -Force -ErrorAction Stop
+Write-CyberArkLog -Message 'Loaded: CyberArk.Auth.SelfHosted' -Level 'DEBUG'
+Write-CyberArkLog -Message 'All modules loaded. Ready for profile selection.' -Level 'INFO'
 
 # --- Outer restart loop ---
 $nextDefaultProfile = $StartProfile
@@ -1911,12 +2101,12 @@ while ($true) {
     # Re-initialize log with the active profile's folder and metadata
     $logFolder = if ($script:ActiveProfile.LogFolder -and (Test-Path -LiteralPath $script:ActiveProfile.LogFolder)) {
         $script:ActiveProfile.LogFolder
-    } else { $PSScriptRoot }
+    } else { $script:DefaultLogFolder }
 
     Initialize-CyberArkLog `
         -LogFolder   $logFolder `
         -ProfileName $script:ActiveProfile.ProfileName `
-        -MinLevel    'INFO' `
+        -MinLevel    $script:DefaultLogLevel `
         -Destination 'Both' `
         -SystemType  $script:SessionToken.SystemType `
         -AuthMethod  $script:SessionToken.AuthMethod `
@@ -1940,7 +2130,13 @@ while ($true) {
         # Return to profile selection with the current profile as default
         $nextDefaultProfile = $selectedProfile
         # Re-initialize a minimal console log for the profile selection screen
-        Initialize-CyberArkLog -ProfileName 'Startup' -Destination 'Console' -MinLevel 'INFO'
+        Initialize-CyberArkLog `
+            -LogFolder    $script:DefaultLogFolder `
+            -ProfileName  'Startup' `
+            -Destination  'Both' `
+            -MinLevel     $script:DefaultLogLevel `
+            -OverwriteFile
+        Write-CyberArkLog -Message 'Session restarted. Returned to profile selection.' -Level 'INFO'
         continue
     }
 
