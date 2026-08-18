@@ -7,7 +7,7 @@ produces or consumes one of these objects must match the shape defined here exac
 
 ## Token Object
 
-Returned by `Get-AuthToken` and accepted by every API module as the `$Token` parameter.
+Returned by `Get-ISPSSAuthToken` and `Get-SelfHostedAuthToken`; accepted by every API module as the `$Token` parameter.
 
 ```powershell
 [PSCustomObject]@{
@@ -23,7 +23,7 @@ Returned by `Get-AuthToken` and accepted by every API module as the `$Token` par
     BaseURL         = [string]              # PVWA or PCloud base URL (no trailing slash)
     IdentityURL     = [string]              # ISPSS: Identity tenant URL. SelfHosted: $null
     TenantId        = [string]              # ISPSS: Identity tenant ID. SelfHosted: $null
-    _RefreshContext = [hashtable]           # Internal — used by Update-AuthToken (see below)
+    _RefreshContext = [hashtable]           # Internal — used by Update-ISPSSAuthToken / Update-SelfHostedAuthToken (see below)
 }
 ```
 
@@ -55,6 +55,115 @@ All fields are optional depending on `AuthMethod`. Only fields relevant to the m
     PVWAUrl               = [string]
     BaseURL               = [string]
     WebView2AssemblyPath  = [string]
+}
+```
+
+---
+
+## Auth Module Public Functions
+
+### CyberArk.Auth.Common.psm1
+
+| Function | Parameters | Returns | Notes |
+|---|---|---|---|
+| `New-AuthTokenObject` | _(positional — all fields of token shape)_ | `[PSCustomObject]` token | Factory; ensures all fields are present |
+| `ConvertTo-PlainText` | `-SecureString [SecureString]` | `[string]` | Zeroes unmanaged memory after conversion |
+| `Get-FilteredClientCertificate` | `-Thumbprint [string]` (optional) | `[X509Certificate2]` or `$null` | Prompts cert picker if no thumbprint |
+| `Import-WebView2Assembly` | `-AssemblyPath [string]` | `[void]` (throws on failure) | Memoises — only loads DLL once per session |
+| `Invoke-WebView2Window` | `-Uri [string]`, `-SuccessPattern [string]`, `-Title [string]`, `-TimeoutSec [int]` | `[hashtable]` with `Token`, `Cookies` | STA runspace; throws on timeout |
+| `Save-AuthToken` | `-TokenObject [PSCustomObject]`, `-ProfileName [string]` | `[void]` | DPAPI via `Export-Clixml` to `.cred` |
+| `Import-AuthToken` | `-Path [string]`, `-IgnoreExpiry [switch]` | `[PSCustomObject]` or `$null` | Warns if expired; caller handles refresh |
+| `Get-AuthTokenProfiles` | _(none)_ | `[PSCustomObject[]]` | Lists all `.cred` profiles in profile directory |
+| `Remove-AuthTokenProfile` | `-ProfileName [string]` | `[void]` | Deletes `.json` + `.cred` pair |
+
+> **Note:** `Import-AuthToken` does **not** have an `-AutoRefresh` switch. The driver explicitly calls
+> `Update-ISPSSAuthToken` or `Update-SelfHostedAuthToken` after loading an expired token.
+
+---
+
+### CyberArk.Auth.ISPSS.psm1
+
+```powershell
+function Get-ISPSSAuthToken {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('ClientCredentials', 'Interactive', 'SSO')]
+        [string]$AuthMethod,
+
+        [Parameter(Mandatory)]
+        [string]$PCloudSubdomain,
+
+        [string]$IdentityTenantURL,          # skips HTTP probe when provided (TenantAuth field)
+
+        [string]$ClientId,                   # ClientCredentials: OAuth2 client ID
+                                             # Interactive: pre-fill username (prompted if absent)
+        [System.Security.SecureString]$ClientSecret,
+
+        [System.Management.Automation.PSCredential]$Credential,
+
+        [string]$WebView2AssemblyPath        # SSO only
+    )
+    # Returns: [PSCustomObject] token object
+}
+
+function Update-ISPSSAuthToken {
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject]$TokenObject          # Must have valid _RefreshContext
+    )
+    # Returns: [PSCustomObject] refreshed token object
+    # ClientCredentials: attempts refresh_token grant; falls back to full re-auth on failure
+    # Interactive / SSO: re-runs the full interactive flow
+}
+
+function Resolve-IdentityTenantURL {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PCloudSubdomain,
+
+        [string]$ExistingIdentityHost         # Returns immediately if provided (cache hit)
+    )
+    # Returns: [string] full Identity URL (e.g. 'https://acme.id.cyberark.cloud')
+}
+```
+
+---
+
+### CyberArk.Auth.SelfHosted.psm1
+
+```powershell
+function Get-SelfHostedAuthToken {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('CyberArk','LDAP','RADIUS','Shared','PKI','PKIPN','SAML','OIDC')]
+        [string]$AuthMethod,
+
+        [Parameter(Mandatory)]
+        [string]$PVWAUrl,                    # Full URL including AppName (e.g. https://pvwa.co/PasswordVault)
+
+        [System.Management.Automation.PSCredential]$Credential,
+
+        [string]$Username,
+
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [string]$CertificateThumbprint,      # Alternative to Certificate object
+
+        [switch]$ConcurrentSession,
+
+        [switch]$IgnoreSSL,
+
+        [string]$WebView2AssemblyPath        # SAML / OIDC only
+    )
+    # Returns: [PSCustomObject] token object
+}
+
+function Update-SelfHostedAuthToken {
+    param(
+        [Parameter(Mandatory)]
+        [PSCustomObject]$TokenObject          # Must have valid _RefreshContext
+    )
+    # Returns: [PSCustomObject] refreshed token object
+    # Re-authenticates using the same method and credentials stored in _RefreshContext
 }
 ```
 
@@ -269,12 +378,12 @@ Non-sensitive settings only. Human-readable without decryption.
 | `ProfileName` | string | Display name. Also used to derive file names. |
 | `AuthTokenProfile` | string | Name portion of the corresponding `.cred` auth token file. Usually identical to `ProfileName`. |
 | `SystemType` | string | `Privilege Cloud` (SaaS / ISPSS) or `Self-Hosted` (on-premises PVWA). Drives the Base URL prompt and maps to the auth script's `ISPSS` / `SelfHosted` parameter values. |
-| `AppName` | string | CyberArk application name in the URL path (default: `PasswordVault`). For Self-Hosted only: joined with `BaseURL` to form the `PVWAUrl` passed to `Get-AuthToken` (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, `/PasswordVault` is embedded in the auth script's base URL template and `AppName` is not used at runtime. |
-| `AuthMethod` | string | Preferred authentication method for this profile. Set during profile creation; passed directly to `Get-AuthToken` to skip the interactive method prompt. |
+| `AppName` | string | CyberArk application name in the URL path (default: `PasswordVault`). For Self-Hosted only: joined with `BaseURL` to form the `PVWAUrl` passed to `Get-SelfHostedAuthToken` (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, `/PasswordVault` is embedded in `PCLOUD_BASE_TEMPLATE` inside `CyberArk.Auth.ISPSS.psm1` and `AppName` is not used at runtime. |
+| `AuthMethod` | string | Preferred authentication method for this profile. Set during profile creation; passed directly to `Get-ISPSSAuthToken` or `Get-SelfHostedAuthToken` to skip the interactive method prompt. |
 | `BaseURL` | string | Base URL without application path. For Privilege Cloud: `https://<subdomain>.privilegecloud.cyberark.cloud`. For Self-Hosted: `https://pvwa.company.com`. No trailing slash. |
 | `TenantPortal` | string | **Privilege Cloud only.** Admin portal address (no scheme): `{subdomain}.cyberark.com`. Auto-computed from the subdomain when the profile is saved. Informational only — not used in API calls. |
 | `TenantVault` | string | **Privilege Cloud only.** Vault FQDN: `vault-{subdomain}.privilegecloud.cyberark.com`. Auto-computed from the subdomain when the profile is saved. Informational only — not used in API calls. |
-| `TenantAuth` | string | **Privilege Cloud only.** Identity tenant URL (`https://{subdomain}.id.cyberark.cloud`). Auto-discovered by `Resolve-IdentityTenantURL` during profile edit and written back after each successful ISPSS login. Passed as `-IdentityTenantURL` to `Get-AuthToken` so the per-login HTTP redirect probe is skipped. Empty string if discovery has not yet run. |
+| `TenantAuth` | string | **Privilege Cloud only.** Identity tenant URL (`https://{subdomain}.id.cyberark.cloud`). Auto-discovered by `Resolve-IdentityTenantURL` during profile edit and written back after each successful ISPSS login. Passed as `-IdentityTenantURL` to `Get-ISPSSAuthToken` so the per-login HTTP redirect probe is skipped. Empty string if discovery has not yet run. |
 | `LogFolder` | string | Absolute path. Empty string resolves to the script launch directory at runtime. |
 | `InputFolder` | string | Default folder for open-file dialogs. Empty = launch directory. |
 | `OutputFolder` | string | Destination for output CSVs and save-file dialogs. Empty = launch directory. |
@@ -292,11 +401,11 @@ Non-sensitive settings only. Human-readable without decryption.
 | `Privilege Cloud` | Asks for the tenant **subdomain** (e.g. `acme`). URL is constructed automatically. | `https://<subdomain>.privilegecloud.cyberark.cloud` |
 | `Self-Hosted` | Asks for the full **PVWA base URL** directly. Trailing slash is stripped on save. | `https://pvwa.company.com` |
 
-When calling `Get-AuthToken`, the driver maps these values back to the auth script's parameter set:
-- `Privilege Cloud` → `-SystemType ISPSS -PCloudSubdomain <subdomain> [-AuthMethod <method>]`
-- `Self-Hosted` → `-SystemType SelfHosted -PVWAUrl <BaseURL>/<AppName> [-AuthMethod <method>]`
+The driver maps `SystemType` to the correct auth module function:
+- `Privilege Cloud` → `Get-ISPSSAuthToken -AuthMethod <method> -PCloudSubdomain <subdomain> [-IdentityTenantURL <TenantAuth>]`
+- `Self-Hosted` → `Get-SelfHostedAuthToken -AuthMethod <method> -PVWAUrl <BaseURL>/<AppName> [-IgnoreSSL]`
 
-`AppName` is joined to `BaseURL` when constructing `PVWAUrl` for Self-Hosted calls (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, `/PasswordVault` is embedded directly in `Get-AuthToken`'s `PCLOUD_BASE_TEMPLATE` constant, so all ISPSS tokens are created with the correct base URL. The driver also passes `TenantAuth` as `-IdentityTenantURL` to bypass the HTTP redirect probe that normally discovers the Identity tenant URL.
+`AppName` is joined to `BaseURL` when constructing `PVWAUrl` for Self-Hosted calls (e.g. `https://pvwa.company.com/PasswordVault`). For Privilege Cloud, `/PasswordVault` is embedded in `PCLOUD_BASE_TEMPLATE` inside `CyberArk.Auth.ISPSS.psm1`, so all ISPSS tokens are created with the correct base URL. The driver passes `TenantAuth` as `-IdentityTenantURL` to bypass the HTTP redirect probe that discovers the Identity tenant URL.
 
 **Privilege Cloud: auto-computed profile fields**
 
@@ -391,8 +500,9 @@ Defined in the driver or shared modules. Override before launching for non-defau
 | Variable | Default | Description |
 |---|---|---|
 | `$script:TokenExpiryWarningMinutes` | `5` | Minutes remaining before prompting user to re-authenticate |
+| `$script:ProactiveRefreshThresholdMin` | `10` | Minutes remaining at which `Invoke-ProactiveRefresh` silently refreshes a ClientCredentials token |
 | `$script:MaxRateLimitRetries` | `5` | Max consecutive 429 responses before failing the call |
 | `$script:RateLimitBaseDelaySec` | `2` | Initial backoff delay in seconds (doubles each retry) |
-| `$script:PVWA_SESSION_EXPIRY_MIN` | `20` | Expected Self-Hosted session lifetime in minutes |
-| `$script:WEBVIEW2_TIMEOUT_SEC` | `300` | Max seconds to wait for browser-based auth completion |
-| `$script:CLIENT_AUTH_OID` | `1.3.6.1.5.5.7.3.2` | OID for Client Authentication EKU (PKI cert filtering) |
+| `$script:PVWA_SESSION_EXPIRY_MIN` | `20` | Expected Self-Hosted session lifetime in minutes (defined in both SelfHosted module and Driver) |
+| `$script:WEBVIEW2_TIMEOUT_SEC` | `300` | Max seconds to wait for browser-based auth completion (defined in CyberArk.Auth.Common.psm1) |
+| `$script:CLIENT_AUTH_OID` | `1.3.6.1.5.5.7.3.2` | OID for Client Authentication EKU (PKI cert filtering, defined in CyberArk.Auth.Common.psm1) |

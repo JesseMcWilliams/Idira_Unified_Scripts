@@ -14,7 +14,9 @@ the driver.
 
 | Component | Status |
 |---|---|
-| `Get-AuthToken.ps1` | Complete |
+| `Auth\CyberArk.Auth.Common.psm1` | Complete |
+| `Auth\CyberArk.Auth.ISPSS.psm1` | Complete |
+| `Auth\CyberArk.Auth.SelfHosted.psm1` | Complete |
 | `CyberArkLogging.psm1` | Planned |
 | `CyberArkComms.psm1` | Planned |
 | `Driver.ps1` | Planned |
@@ -35,11 +37,12 @@ the driver.
   └───────────┼────────────────────┼────────────────────┼────────────┘
               │                    │                     │
               ▼                    ▼                     ▼
-  ┌───────────────────┐  ┌─────────────────┐  ┌─────────────────────┐
-  │   Profile Files   │  │ Get-AuthToken   │  │    API Modules      │
-  │  <Name>.json      │  │     .ps1        │  │  APIModules\<Cat>\  │
-  │  <Name>.cred      │  │                 │  │  Invoke-<Cat><Act>  │
-  └───────────────────┘  └─────────────────┘  └──────────┬──────────┘
+  ┌───────────────────┐  ┌─────────────────────────────────┐  ┌─────────────────────┐
+  │   Profile Files   │  │         Auth Modules            │  │    API Modules      │
+  │  <Name>.json      │  │  CyberArk.Auth.Common.psm1      │  │  APIModules\<Cat>\  │
+  │  <Name>.cred      │  │  CyberArk.Auth.ISPSS.psm1       │  │  Invoke-<Cat><Act>  │
+  └───────────────────┘  │  CyberArk.Auth.SelfHosted.psm1  │  └──────────┬──────────┘
+                         └─────────────────────────────────┘
                                                            │
                     ┌──────────────────────────────────────┘
                     ▼
@@ -64,7 +67,9 @@ the driver.
 PowerShell\
 ├── Driver.ps1                          # Interactive driver script
 ├── Auth\
-│   └── Get-AuthToken.ps1               # Authentication — ISPSS and Self-Hosted
+│   ├── CyberArk.Auth.Common.psm1       # Shared auth utilities: token object, WebView2, profile persistence
+│   ├── CyberArk.Auth.ISPSS.psm1        # Privilege Cloud / CyberArk Identity authentication
+│   └── CyberArk.Auth.SelfHosted.psm1   # Self-Hosted PVWA authentication
 ├── Modules\
 │   ├── CyberArkComms.psm1              # Shared REST communications module
 │   ├── CyberArkLogging.psm1            # Logging module
@@ -159,6 +164,9 @@ Driver.ps1 launched
   └─ Check prerequisites (PS version, WebView2 if needed)
   └─ Import CyberArkLogging.psm1
   └─ Import CyberArkComms.psm1
+  └─ Import CyberArk.Auth.Common.psm1
+  └─ Import CyberArk.Auth.ISPSS.psm1
+  └─ Import CyberArk.Auth.SelfHosted.psm1
   └─ Initialize log (PID assigned, file created with 40-star header)
   └─ Scan profile directory → display profile summary
 ```
@@ -169,12 +177,12 @@ Driver.ps1 launched
 User selects / creates / edits profile
   └─ Load <ProfileName>.json (driver settings)
   └─ Validate profile (folders accessible, auth file present)
-  └─ Load <ProfileName>.xml via Import-AuthToken (DPAPI decrypt)
+  └─ Load <ProfileName>.cred via Import-AuthToken (DPAPI decrypt)
   └─ Check token expiry
        ├─ Valid         → proceed to session
        ├─ Expiring soon → ask user: refresh now or proceed?
-       └─ Expired       → auto-refresh (ClientCredentials)
-                          or prompt re-auth (Interactive / SSO / SAML / OIDC)
+       └─ Expired       → Update-ISPSSAuthToken (ISPSS: silent refresh_token or re-auth)
+                          or Update-SelfHostedAuthToken (Self-Hosted: re-auth)
   └─ Re-initialize log with profile name in filename
   └─ Log session start: profile, SystemType, AuthMethod, BaseURL, WhatIf mode
 ```
@@ -241,12 +249,30 @@ The top-level interactive script. Owns:
 - Output file handling (save dialogs, output CSV column appending)
 - Session summary logging at exit
 
-### Get-AuthToken.ps1
+### Auth Modules
 
-Standalone authentication script. Called by the driver to obtain or refresh tokens. Returns a rich
-token object with everything needed for subsequent API calls. Also exports `Save-AuthToken`,
-`Import-AuthToken`, `Get-AuthTokenProfiles`, and `Remove-AuthTokenProfile` for profile management.
-See [Interfaces.md](Interfaces.md) for the token object shape.
+Three focused `.psm1` modules replace the former `Get-AuthToken.ps1` monolith. Imported by Driver
+at startup via `Import-Module`. All functions run in module scope — internal helpers are private.
+
+**`CyberArk.Auth.Common.psm1`** — Shared utilities used by both auth modules and the driver:
+- `New-AuthTokenObject` — creates the standard token PSCustomObject (the shared return contract)
+- `ConvertTo-PlainText` — SecureString to plain string, zeroes unmanaged memory after use
+- `Import-WebView2Assembly` / `Invoke-WebView2Window` — browser-based auth (SSO, SAML, OIDC)
+- `Get-FilteredClientCertificate` — certificate store picker (PKI / PKIPN)
+- `Save-AuthToken` / `Import-AuthToken` — DPAPI profile persistence (`.cred` files)
+- `Get-AuthTokenProfiles` / `Remove-AuthTokenProfile` — profile listing and deletion
+
+**`CyberArk.Auth.ISPSS.psm1`** — Privilege Cloud / CyberArk Identity authentication:
+- `Get-ISPSSAuthToken` — fresh auth: `ClientCredentials`, `Interactive`, or `SSO`
+- `Update-ISPSSAuthToken` — refresh: silent `refresh_token` grant (CC) or re-auth
+- `Resolve-IdentityTenantURL` — discovers the `*.id.cyberark.cloud` tenant URL via HTTP probe
+
+**`CyberArk.Auth.SelfHosted.psm1`** — Self-Hosted PVWA authentication:
+- `Get-SelfHostedAuthToken` — fresh auth: `CyberArk`, `LDAP`, `RADIUS`, `Shared`, `PKI`, `PKIPN`, `SAML`, `OIDC`
+- `Update-SelfHostedAuthToken` — re-authenticates using stored `_RefreshContext`
+
+See [Interfaces.md](Interfaces.md) for token object shape and public function signatures.
+See [Auth-Module-Rework-Design.md](Auth-Module-Rework-Design.md) for the design rationale.
 
 ### CyberArkComms.psm1
 
@@ -285,7 +311,7 @@ result object. See [API-Module-Development-Guide.md](API-Module-Development-Guid
 |---|---|---|
 | Profile storage | Two files: JSON + DPAPI XML | JSON for non-sensitive settings (readable without decryption); XML for credentials (DPAPI-protected). Keeps profile listing fast. |
 | SystemType in profile | `'Privilege Cloud'` / `'Self-Hosted'` (user-facing labels) | Maps to auth script values `'ISPSS'`/`'SelfHosted'` at call time. User-facing labels are more descriptive than the internal values. Stored in JSON so the edit flow can tailor the Base URL prompt without loading the XML token. |
-| Base URL collection | Branched by SystemType | Privilege Cloud: user enters subdomain only; URL is constructed from the template (`https://{0}.privilegecloud.cyberark.cloud`). Self-Hosted: user enters the full PVWA URL. Matches the prompting logic in `Get-AuthToken.ps1`. |
+| Base URL collection | Branched by SystemType | Privilege Cloud: user enters subdomain only; `PCLOUD_BASE_TEMPLATE` in `CyberArk.Auth.ISPSS.psm1` constructs the full URL. Self-Hosted: user enters the full PVWA URL, joined with `AppName`. |
 | Credential protection | `Export-Clixml` (DPAPI) | Native PowerShell, no external dependencies. User+machine locked — deliberate trade-off for security over portability. |
 | Token string protection | Convert to `SecureString` before `Export-Clixml` | Ensures the bearer token is DPAPI-encrypted in the XML, not stored as plaintext. |
 | Browser-based auth | WebView2 over IE `WebBrowser` | IE-based `Windows.Forms.WebBrowser` is deprecated. WebView2 uses the Edge engine, supports modern auth flows, and provides `CookieManager` API. |
@@ -299,7 +325,9 @@ result object. See [API-Module-Development-Guide.md](API-Module-Development-Guid
 | Log correlation | PID (not GUID) | Shorter and immediately recognizable. Unique per script session. Filename includes timestamp for uniqueness across sessions with recycled PIDs. |
 | Parallel processing | Skipped (sequential only) | Simplicity and PS 5.1 compatibility. Runspace complexity not justified for current use cases. |
 | Self-Hosted keepalive | Get Logged On User Details ~2 min before expiry | Attempts to extend the 20-minute PVWA session without requiring re-authentication. |
-| ISPSS token expiry | Warn user; prompt re-auth for Interactive/SSO | `ClientCredentials` silently refreshes via `refresh_token`. Interactive/SSO cannot refresh silently. |
+| ISPSS token expiry | Proactive silent refresh (CC); prompt re-auth for Interactive/SSO | `ClientCredentials` tokens are silently refreshed via `Update-ISPSSAuthToken` when < 10 minutes remain (`ProactiveRefreshThresholdMin`). Interactive/SSO cannot refresh silently — user is prompted. |
+| Auth module isolation | Three `.psm1` modules instead of one dot-sourced script | Proper private scope, explicit `Export-ModuleMember` surfaces, testable in isolation, no `SystemType` routing inside auth code. Driver branches externally by `SystemType`. |
+| Credential scrubbing | `Invoke-ClearNonRefreshableContext` called after Connect | For Interactive/SSO/SAML/OIDC sessions, `Credential` and `ClientSecret` are removed from `_RefreshContext` in memory after the session token is set. Reduces in-memory credential exposure for methods that cannot silently refresh. |
 | Navigation | `B` = back 1, `B2` = back 2, etc. | Unambiguous — `B` prefix cannot conflict with numeric menu options. |
 | Default folders | Launch directory when profile has empty strings | Predictable fallback that works without any profile configuration. |
 

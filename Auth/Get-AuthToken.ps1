@@ -247,7 +247,9 @@ function Resolve-IdentityTenantURL {
     )
 
     foreach ($candidate in $candidates) {
+        
         try {
+            Write-Verbose ("Testing URL: {0}" -F $candidate)
             $resp         = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 0 -TimeoutSec 20 -ErrorAction Stop -UseBasicParsing
             $responseHost = Get-WebResponseHost -Response $resp
             if ($responseHost -match '\.id\.cyberark\.cloud$') {
@@ -256,7 +258,13 @@ function Resolve-IdentityTenantURL {
                 return $url
             }
         } catch {
+            Write-Verbose ("Initial Call Failed. HTTP Response {0}" -f [int]($_.Exception.Response.StatusCode))
+            Write-Verbose ("Initial Call Failed. HTTP Message  {0}" -f ($_.Exception.Response.StatusCode))
+            Write-Verbose ("  Error  : {0}" -f $_)
+            Write-Verbose ("Exception: {0}" -f $_.Exception)
+            Write-Verbose ("Response : {0}" -f $_.Exception.Response)
             $redirectHost = Get-ExceptionRedirectHost -ErrorRecord $_
+            Write-Verbose ("Redirection to: {0}" -f $redirectHost)
             if ($redirectHost -match '\.id\.cyberark\.cloud$') {
                 $url = "https://$redirectHost"
                 Write-Verbose "Identity tenant URL (via redirect from $candidate): $url"

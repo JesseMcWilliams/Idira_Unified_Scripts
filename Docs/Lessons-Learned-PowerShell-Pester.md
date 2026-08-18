@@ -714,6 +714,53 @@ at the scope level of the long-lived caller, not inside a helper that immediatel
 
 ---
 
+### 6.2 Logging from a `.psm1` module when the logging module may not be loaded
+
+**Root cause:** `CyberArkLogging.psm1` is imported by the Driver before the auth modules, so
+`Write-CyberArkLog` is available in the session during live use. But auth modules can also be
+imported in isolation — in Pester tests, standalone scripts, or interactive debugging — where the
+logging module is not loaded. Calling `Write-CyberArkLog` directly in a `.psm1` throws
+`CommandNotFoundException` in those contexts.
+
+**Wrong — direct call breaks isolated import:**
+```powershell
+# Inside CyberArk.Auth.ISPSS.psm1
+function Resolve-IdentityTenantURL { ...
+    Write-CyberArkLog -Message "Probing $candidate" -Level 'DEBUG'   # throws if logger not loaded
+}
+```
+
+**Correct — private wrapper with `Get-Command` guard:**
+```powershell
+# Private, not exported — only callable within this module
+function script:Write-ISPSSLog {
+    param([string]$Message, [string]$Level = 'DEBUG', [string]$Fn)
+    if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
+        Write-CyberArkLog -Message $Message -Level $Level -FunctionName $Fn
+    } else {
+        Write-Verbose $Message
+    }
+}
+
+function Resolve-IdentityTenantURL { ...
+    script:Write-ISPSSLog -Message "Probing $candidate" -Level 'DEBUG' -Fn 'Resolve-IdentityTenantURL'
+}
+```
+
+**Why `script:` prefix:** The `script:` scope modifier makes the function private to the module
+file. `Export-ModuleMember` cannot accidentally expose it, and it cannot collide with same-named
+functions in the caller's scope.
+
+**Why `-FunctionName` is explicit:** `Write-CyberArkLog` auto-detects the calling function name
+from the call stack. When called via the wrapper, the stack frame shows `Write-ISPSSLog`, not the
+real caller. Passing `-FunctionName` explicitly restores the correct function name in the log entry.
+
+**Rule:** Never call session-level functions (from other modules) directly from inside a `.psm1`.
+Gate the call with `Get-Command -ErrorAction SilentlyContinue` and fall back to a built-in
+alternative (`Write-Verbose`, `Write-Warning`) so the module remains safe to import in any context.
+
+---
+
 ## 7. Custom Input Functions and Cancellation
 
 ### 7.1 Return `$null` from a custom input function to signal cancellation
@@ -1326,8 +1373,13 @@ The helper functions below extract the final host from both normal and exception
 ```powershell
 function Get-WebResponseHost {
     param($Response)
-    if ($Response -and $Response.BaseResponse -and $Response.BaseResponse.ResponseUri) {
-        return $Response.BaseResponse.ResponseUri.Host
+    if (-not $Response) { return $null }
+    try {
+        if ($Response.BaseResponse -and $Response.BaseResponse.ResponseUri) {
+            return $Response.BaseResponse.ResponseUri.Host
+        }
+    } catch {
+        # BaseResponse may be disposed or in an invalid state; treat as no host
     }
     return $null
 }
@@ -1335,8 +1387,13 @@ function Get-WebResponseHost {
 function Get-ExceptionRedirectHost {
     param($ErrorRecord)
     $ex = $ErrorRecord.Exception
-    if ($ex -and $ex.Response -and $ex.Response.ResponseUri) {
-        return $ex.Response.ResponseUri.Host
+    if (-not $ex) { return $null }
+    try {
+        if ($ex.Response -and $ex.Response.ResponseUri) {
+            return $ex.Response.ResponseUri.Host
+        }
+    } catch {
+        # Response object may be in an invalid state (e.g. SSL/TLS or connection-level failure)
     }
     return $null
 }
@@ -1362,7 +1419,9 @@ function Resolve-IdentityTenantURL {
             $h = Get-WebResponseHost -Response $resp
             if ($h -match '\.id\.cyberark\.cloud$') { return "https://$h" }
         } catch {
-            $h = Get-ExceptionRedirectHost -ErrorRecord $_
+            # Capture $_ immediately — any pipeline or function call overwrites it in PS 5.1
+            $caughtError = $_
+            $h = Get-ExceptionRedirectHost -ErrorRecord $caughtError
             if ($h -match '\.id\.cyberark\.cloud$') { return "https://$h" }
         }
     }
@@ -1370,6 +1429,12 @@ function Resolve-IdentityTenantURL {
     return "https://$PCloudSubdomain.id.cyberark.cloud"   # direct-construct fallback
 }
 ```
+
+> **Note:** The null-check `if ($ex.Response -and ...)` is not sufficient. When a network or
+> SSL/TLS failure occurs, `$ex.Response` may be a non-null object in an invalid internal state.
+> Accessing `.ResponseUri` on such an object throws `InvalidOperationException`. Wrapping the
+> property access in `try/catch` inside the helper is the correct guard. See Section 14 for the
+> full catch-block safety pattern.
 
 **Why `MaximumRedirection 0` is intentional:** Setting it to `0` means `Invoke-WebRequest` throws
 on the *very first* redirect response (HTTP 301/302/307) rather than following the chain silently.
@@ -1615,3 +1680,168 @@ third-party libraries. If aesthetics take priority, `AutoUpgradeEnabled` must re
 `InitialDirectory` will be ignored — the dialog always opens at the last browsed folder for that
 application. This is the current state: the project uses the Vista-style dialog and `OutputFolder`
 is not used as the dialog starting location.
+
+---
+
+## 14. PS 5.1 `catch` Block Safety: `$_` Stability and `WebException` Property Access
+
+Two related failure modes that both manifest as unexpected exceptions inside a `catch` block when
+working with `Invoke-WebRequest` errors.
+
+---
+
+### 14.1 `$_` is overwritten by any pipeline or function call inside a `catch` block
+
+**Root cause:** In PS 5.1, `$_` is the *current pipeline object* — an automatic variable that
+belongs to the active pipeline stage. Inside a `catch` block it holds the caught `ErrorRecord`,
+but that assignment is not protected. Any of the following immediately overwrites it:
+
+- Running a pipeline: `$_ | Get-Member`, `$info = $_ | Select-Object ...`
+- Calling a function that itself runs a pipeline or accesses `$_`
+- A nested `try { } catch { }` — the inner `catch` sets `$_` to the new error; after the inner
+  `catch` exits, `$_` is *not* reliably restored to the outer caught error in PS 5.1
+
+The overwritten `$_` typically becomes a string (the output of `Out-String`), a `MemberDefinition`
+object (from `Get-Member`), or `$null`. Accessing `.Exception` on any of these throws
+`InvalidOperationException: Operation is not valid due to the current state of the object`.
+
+**Symptom:** `InvalidOperationException` on `$_.Exception` or `$_.Exception.Message` — even though
+the exception was successfully caught and `$_` was valid at catch-block entry. The error is blamed
+on the property access, obscuring that `$_` was already clobbered by an earlier line.
+
+**Wrong — `$_` clobbered before `$_.Exception` is accessed:**
+```powershell
+} catch {
+    $members = $_ | Get-Member | Out-String   # $_ is now a string — clobbered
+    script:Write-ISPSSLog ("Members: {0}" -f $members)
+    $exMessage = $_.Exception.Message         # throws: String has no .Exception property
+```
+
+**Correct — capture `$_` as the absolute first statement:**
+```powershell
+} catch {
+    $caughtError = $_   # must be line 1 — nothing else before this
+    $exMessage   = 'Exception details unavailable'
+    $statusCode  = 0
+    $redirectHost = $null
+
+    $members = $caughtError | Get-Member | Out-String   # $caughtError is stable
+    $exMessage = try { $caughtError.Exception.Message } catch { 'unavailable' }
+    ...
+}
+```
+
+**Rule:** The first statement of every `catch` block that accesses `$_` more than once **must**
+be `$capturedName = $_`. Use the captured name everywhere after that. Never pipe `$_` directly
+inside a catch block.
+
+---
+
+### 14.2 `.Response` access on exception objects requires a type guard, not just `try/catch`
+
+**Two distinct failures, same symptom:**
+
+**Failure A — `InvalidOperationException` on invalid-state `WebException.Response`:**
+When `Invoke-WebRequest` fails at the SSL/TLS layer, .NET constructs a `WebException` whose
+`.Response` is non-null but internally invalid (socket closed before the response was read).
+A null-check passes, then the property read throws `InvalidOperationException`.
+
+**Failure B — `PropertyNotFoundException` from strict mode on non-`WebException` types:**
+Under `Set-StrictMode -Version Latest`, accessing `.Response` on ANY exception type that is NOT
+`System.Net.WebException` throws `PropertyNotFoundException: The property 'Response' cannot be
+found on this object.` This includes `CmdletInvocationException`, `RuntimeException`,
+`HttpRequestException`, `UriFormatException`, and any other exception PS or .NET raises.
+
+A `try/catch` wrapping the access **should** catch this, but in PS 5.1 under some conditions
+(particularly `$x = try { ... } catch { ... }` expression form combined with `Set-StrictMode -Version
+Latest` and `$ErrorActionPreference = 'Stop'`) the `PropertyNotFoundException` can escape the
+catch block and propagate up the call stack uncaught.
+
+**Root cause (both failures):** The assumption that `$_.Exception` is always a `WebException`
+when `Invoke-WebRequest` throws is not always true. PS 5.1 can surface the exception as a
+wrapping type. When it is not a `WebException`, `.Response` doesn't exist as a .NET property,
+and strict mode makes that a hard error.
+
+**Wrong — null-check plus try/catch is insufficient:**
+```powershell
+# Fails when $ex is not a WebException (strict-mode PropertyNotFoundException)
+$statusCode = try {
+    if ($caughtError.Exception.Response) {
+        [int]($caughtError.Exception.Response.StatusCode)
+    } else { 0 }
+} catch { 0 }
+
+# Fails when .Response is non-null but invalid (InvalidOperationException)
+function Get-ExceptionRedirectHost {
+    param($ErrorRecord)
+    $ex = $ErrorRecord.Exception
+    if ($ex -and $ex.Response -and $ex.Response.ResponseUri) {
+        return $ex.Response.ResponseUri.Host   # throws if response is in invalid state
+    }
+    return $null
+}
+```
+
+**Correct — type check first, then try/catch for invalid-state:**
+
+Walk the exception chain to find the `WebException`, then only access `.Response` on that.
+Any other exception type is skipped entirely — no `.Response` access, no strict-mode throw.
+
+```powershell
+# Extracting StatusCode safely — walk chain, type-check, then access
+$webExForCode = $null
+$exCurrent = $null
+try { $exCurrent = $caughtError.Exception } catch { }
+while ($exCurrent) {
+    if ($exCurrent -is [System.Net.WebException]) { $webExForCode = $exCurrent; break }
+    $exNext = $null
+    try { $exNext = $exCurrent.InnerException } catch { }
+    $exCurrent = $exNext
+}
+$statusCode = 0
+if ($webExForCode) {
+    try { $statusCode = [int]($webExForCode.Response.StatusCode) } catch { }
+}
+
+# Extracting redirect host safely — walk chain, type-check, then try/catch for invalid-state
+function Get-ExceptionRedirectHost {
+    param($ErrorRecord)
+    if (-not $ErrorRecord) { return $null }
+    $current = $null
+    try { $current = $ErrorRecord.Exception } catch { return $null }
+    while ($current) {
+        if ($current -is [System.Net.WebException]) {
+            try {
+                if ($current.Response -and $current.Response.ResponseUri) {
+                    return $current.Response.ResponseUri.Host
+                }
+            } catch {
+                # Response is non-null but internally invalid (SSL/TLS or connection abort)
+            }
+            return $null
+        }
+        $next = $null
+        try { $next = $current.InnerException } catch { }
+        $current = $next
+    }
+    return $null
+}
+```
+
+**Which exception types trigger each failure:**
+
+| Network condition | `$_.Exception` type | `.Response` state |
+|---|---|---|
+| HTTP redirect (MaximumRedirection 0) | `WebException` | Valid — `.ResponseUri` readable |
+| DNS resolution failure | `WebException` | `$null` — safe |
+| TCP connection refused | `WebException` | `$null` — safe |
+| SSL/TLS handshake failure | `WebException` | Non-null but **invalid** — `InvalidOperationException` |
+| Certificate validation error | `WebException` | Non-null but **invalid** — `InvalidOperationException` |
+| Connection abort mid-stream | `WebException` | Non-null but **invalid** — `InvalidOperationException` |
+| URI format error | `UriFormatException` | No `.Response` property — **PropertyNotFoundException** |
+| Script-level throw inside try | `RuntimeException` | No `.Response` property — **PropertyNotFoundException** |
+| Wrapped cmdlet error | `CmdletInvocationException` | No `.Response` property — **PropertyNotFoundException** |
+
+**Rule:** Never access `.Response` without first confirming the exception IS a
+`[System.Net.WebException]`. Walk `InnerException` to find it if wrapped. Once confirmed,
+still wrap in `try/catch` for the invalid-state case (Failure A).

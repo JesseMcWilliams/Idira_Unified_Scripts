@@ -147,6 +147,9 @@ function Initialize-CyberArkLog {
         Minimum log level written. Default: INFO. Values: VERBOSE, DEBUG, INFO, WARN, ERROR.
     .PARAMETER Destination
         Where to write log output. Default: Both. Values: File, Console, Both.
+    .PARAMETER OverwriteFile
+        When present, writes to a fixed 'startup.log' filename (overwriting any previous content)
+        instead of creating a timestamped log file. Intended for the pre-session startup phase.
     .PARAMETER SystemType
         ISPSS or SelfHosted - included in the startup header line.
     .PARAMETER AuthMethod
@@ -162,6 +165,7 @@ function Initialize-CyberArkLog {
         [string]$ProfileName    = 'Unknown',
         [string]$MinLevel       = 'INFO',
         [string]$Destination    = 'Both',
+        [switch]$OverwriteFile,
         [string]$SystemType     = '',
         [string]$AuthMethod     = '',
         [string]$BaseURL        = '',
@@ -186,10 +190,15 @@ function Initialize-CyberArkLog {
         if (-not (Test-Path -LiteralPath $LogFolder)) {
             New-Item -ItemType Directory -Path $LogFolder -Force | Out-Null
         }
-        $timestamp = (Get-Date).ToString('yyyy-MM-dd_HHmmss')
-        $safeName  = $ProfileName -replace '[\\/:*?"<>|]', '_'
-        $fileName  = "$timestamp`_$safeName`_$PID.log"
-        $script:LogState.FilePath = Join-Path $LogFolder $fileName
+        if ($OverwriteFile) {
+            $script:LogState.FilePath = Join-Path $LogFolder 'startup.log'
+            [System.IO.File]::WriteAllText($script:LogState.FilePath, [string]::Empty, [System.Text.Encoding]::UTF8)
+        } else {
+            $timestamp = (Get-Date).ToString('yyyy-MM-dd_HHmmss')
+            $safeName  = $ProfileName -replace '[\\/:*?"<>|]', '_'
+            $fileName  = "$timestamp`_$safeName`_$PID.log"
+            $script:LogState.FilePath = Join-Path $LogFolder $fileName
+        }
     } else {
         $script:LogState.FilePath = $null
     }
