@@ -23,45 +23,6 @@ function script:Write-ISPSSLog {
     }
 }
 
-function Get-WebResponseHost {
-    param($Response)
-    if (-not $Response) { return $null }
-    try {
-        if ($Response.BaseResponse -and $Response.BaseResponse.ResponseUri) {
-            return $Response.BaseResponse.ResponseUri.Host
-        }
-    } catch {
-        # BaseResponse may be disposed or in an invalid state; treat as no host
-    }
-    return $null
-}
-
-function Get-ExceptionRedirectHost {
-    param($ErrorRecord)
-    if (-not $ErrorRecord) { return $null }
-    # Walk the exception chain to find a WebException — only WebException has .Response.
-    # Under Set-StrictMode -Version Latest, accessing .Response on any other exception type
-    # throws PropertyNotFoundException even inside try/catch in some PS 5.1 scenarios.
-    $current = $null
-    try { $current = $ErrorRecord.Exception } catch { return $null }
-    while ($current) {
-        if ($current -is [System.Net.WebException]) {
-            try {
-                if ($current.Response -and $current.Response.ResponseUri) {
-                    return $current.Response.ResponseUri.Host
-                }
-            } catch {
-                # Response may be non-null but internally invalid (SSL/TLS or connection abort)
-            }
-            return $null
-        }
-        $next = $null
-        try { $next = $current.InnerException } catch { }
-        $current = $next
-    }
-    return $null
-}
-
 #endregion
 
 #region Identity Tenant Discovery
@@ -71,9 +32,10 @@ function Resolve-IdentityTenantURL {
     .SYNOPSIS
         Discovers the CyberArk Identity tenant URL for a given Privilege Cloud subdomain.
     .DESCRIPTION
-        Probes three candidate URLs using MaximumRedirection 0 so that the first HTTP redirect
-        throws an exception. The redirect target is examined for the *.id.cyberark.cloud pattern.
-        Falls back to constructing {subdomain}.id.cyberark.cloud if no redirect is detected.
+        Probes three candidate URLs using System.Net.HttpWebRequest with AllowAutoRedirect = $false.
+        3xx responses are returned as normal response objects; the Location header is read directly.
+        200 responses are checked for the *.id.cyberark.cloud host pattern.
+        Falls back to constructing {subdomain}.id.cyberark.cloud if no identity host is detected.
     .PARAMETER PCloudSubdomain
         The subdomain portion of the Privilege Cloud URL (e.g. 'acme' from acme.privilegecloud.cyberark.cloud).
     .PARAMETER ExistingIdentityHost
@@ -104,67 +66,60 @@ function Resolve-IdentityTenantURL {
 
     foreach ($candidate in $candidates) {
         script:Write-ISPSSLog -Message "Probing candidate: $candidate" -Level 'DEBUG' -Fn $fn
+        $webResp = $null
         try {
-            $resp         = Invoke-WebRequest -Uri $candidate -Method Get -MaximumRedirection 0 -TimeoutSec 20 -ErrorAction Stop -UseBasicParsing
-            script:Write-ISPSSLog -Message ("Response: {0}" -f $resp) -Level 'DEBUG' -Fn $fn
-            $responseHost = Get-WebResponseHost -Response $resp
-            script:Write-ISPSSLog -Message "  200 OK — response host: $(if ($responseHost) { $responseHost } else { '(none)' })" -Level 'DEBUG' -Fn $fn
-            if ($responseHost -match '\.id\.cyberark\.cloud$') {
-                $url = "https://$responseHost"
-                script:Write-ISPSSLog -Message "Identity tenant resolved via 200 response from '$candidate': $url" -Level 'INFO' -Fn $fn
-                return $url
+            $req                   = [System.Net.HttpWebRequest][System.Net.WebRequest]::Create($candidate)
+            $req.Method            = 'GET'
+            $req.AllowAutoRedirect = $false
+            $req.Timeout           = 20000
+            $webResp               = [System.Net.HttpWebResponse]$req.GetResponse()
+            $statusCode            = [int]$webResp.StatusCode
+            $responseHost          = $webResp.ResponseUri.Host
+
+            script:Write-ISPSSLog -Message "  HTTP $statusCode from '$candidate' — host: $responseHost" -Level 'DEBUG' -Fn $fn
+
+            if ($statusCode -ge 300 -and $statusCode -lt 400) {
+                $redirectHost = $null
+                $location     = $webResp.GetResponseHeader('Location')
+                if ($location) {
+                    try { $redirectHost = ([System.Uri]$location).Host } catch { }
+                }
+                if (-not $redirectHost) { $redirectHost = $responseHost }
+                script:Write-ISPSSLog -Message "  Redirect — target host: $(if ($redirectHost) { $redirectHost } else { '(none)' })" -Level 'DEBUG' -Fn $fn
+                if ($redirectHost -match '\.id\.cyberark\.cloud$') {
+                    $url = "https://$redirectHost"
+                    script:Write-ISPSSLog -Message "Identity tenant resolved via redirect from '$candidate': $url" -Level 'INFO' -Fn $fn
+                    return $url
+                }
+                if ($redirectHost) {
+                    script:Write-ISPSSLog -Message "  Redirect host '$redirectHost' is not an identity host. Trying next candidate." -Level 'DEBUG' -Fn $fn
+                }
+            } elseif ($statusCode -eq 200) {
+                if ($responseHost -match '\.id\.cyberark\.cloud$') {
+                    $url = "https://$responseHost"
+                    script:Write-ISPSSLog -Message "Identity tenant resolved via 200 response from '$candidate': $url" -Level 'INFO' -Fn $fn
+                    return $url
+                }
+                script:Write-ISPSSLog -Message "  Response host '$responseHost' is not an identity host. Trying next candidate." -Level 'DEBUG' -Fn $fn
+            } else {
+                script:Write-ISPSSLog -Message "  Unexpected HTTP $statusCode from '$candidate'. Trying next candidate." -Level 'WARN' -Fn $fn
             }
-            script:Write-ISPSSLog -Message "  Response host '$responseHost' is not an identity host. Trying next candidate." -Level 'DEBUG' -Fn $fn
+        } catch [System.Net.WebException] {
+            # Typed catch — .Response is always safe to access on System.Net.WebException
+            $webEx      = $_.Exception
+            $statusCode = 0
+            try {
+                if ($webEx.Response) {
+                    $statusCode = [int]([System.Net.HttpWebResponse]$webEx.Response).StatusCode
+                }
+            } catch { }
+            script:Write-ISPSSLog -Message "  WebException from '$candidate' [HTTP $statusCode]: $($webEx.Message)" -Level 'WARN' -Fn $fn
         } catch {
-            # MUST be first — ANY pipeline, function call, or inner try/catch overwrites $_ in PS 5.1
-            $caughtError  = $_
-            $exMessage    = 'Exception details unavailable'
-            $exTypeName   = 'unknown'
-            $statusCode   = 0
-            $redirectHost = $null
-
-            # Log the raw error using the captured reference (never pipe $_ directly)
-            script:Write-ISPSSLog -Message ("Raw Error: `r`n`t{0}" -f $caughtError) -Level 'VERBOSE' -Fn $fn
-            $errorMembers = $caughtError | Get-Member | Out-String
-            script:Write-ISPSSLog -Message ("Error Members: `r`n`t{0}" -f $errorMembers) -Level 'VERBOSE' -Fn $fn
-
-            # Each property access wrapped individually — .Exception itself can throw
-            # InvalidOperationException when the underlying WebException state is invalid
-            try { $exMessage  = $caughtError.Exception.Message           } catch { }
-            try { $exTypeName = $caughtError.Exception.GetType().FullName } catch { }
-
-            script:Write-ISPSSLog -Message "  Probe threw for '$candidate' [$exTypeName]: $exMessage" -Level 'DEBUG' -Fn $fn
-
-            # Walk the exception chain for a WebException — only it has .Response/.StatusCode.
-            # Accessing .Response on any other type throws PropertyNotFoundException under strict mode.
-            $webExForCode = $null
-            $exCurrent    = $null
-            try { $exCurrent = $caughtError.Exception } catch { }
-            while ($exCurrent) {
-                if ($exCurrent -is [System.Net.WebException]) { $webExForCode = $exCurrent; break }
-                $exNext = $null
-                try { $exNext = $exCurrent.InnerException } catch { }
-                $exCurrent = $exNext
-            }
-            if ($webExForCode) {
-                try { $statusCode = [int]($webExForCode.Response.StatusCode) } catch { }
-            }
-
-            $redirectHost = Get-ExceptionRedirectHost -ErrorRecord $caughtError
-
-            script:Write-ISPSSLog -Message "  HTTP $statusCode from '$candidate' — redirect host: $(if ($redirectHost) { $redirectHost } else { '(none)' })" -Level 'DEBUG' -Fn $fn
-
-            if (-not $redirectHost) {
-                script:Write-ISPSSLog -Message "  No redirect host detected from '$candidate'. Exception: $exMessage" -Level 'WARN' -Fn $fn
-            }
-            if ($redirectHost -match '\.id\.cyberark\.cloud$') {
-                $url = "https://$redirectHost"
-                script:Write-ISPSSLog -Message "Identity tenant resolved via redirect from '$candidate': $url" -Level 'INFO' -Fn $fn
-                return $url
-            }
-            if ($redirectHost) {
-                script:Write-ISPSSLog -Message "  Redirect host '$redirectHost' is not an identity host. Trying next candidate." -Level 'DEBUG' -Fn $fn
-            }
+            $exMessage = 'Exception details unavailable'
+            try { $exMessage = $_.Exception.Message } catch { }
+            script:Write-ISPSSLog -Message "  Error probing '$candidate': $exMessage" -Level 'WARN' -Fn $fn
+        } finally {
+            if ($webResp) { try { $webResp.Close() } catch { } }
         }
     }
 

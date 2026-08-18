@@ -1845,3 +1845,34 @@ function Get-ExceptionRedirectHost {
 **Rule:** Never access `.Response` without first confirming the exception IS a
 `[System.Net.WebException]`. Walk `InnerException` to find it if wrapped. Once confirmed,
 still wrap in `try/catch` for the invalid-state case (Failure A).
+
+**Preferred alternative for redirect detection:** Use `System.Net.HttpWebRequest` with
+`AllowAutoRedirect = $false` instead of `Invoke-WebRequest -MaximumRedirection 0`. With
+`HttpWebRequest`, 3xx responses come back as normal response objects (not exceptions), so
+the `Location` header is available directly on the response. This eliminates the entire
+`.Response`-on-exception problem for redirect probing:
+
+```powershell
+$req                   = [System.Net.HttpWebRequest][System.Net.WebRequest]::Create($url)
+$req.Method            = 'GET'
+$req.AllowAutoRedirect = $false
+$req.Timeout           = 20000
+$webResp = $null
+try {
+    $webResp    = [System.Net.HttpWebResponse]$req.GetResponse()
+    $statusCode = [int]$webResp.StatusCode
+    if ($statusCode -ge 300 -and $statusCode -lt 400) {
+        $location     = $webResp.GetResponseHeader('Location')
+        $redirectHost = $null
+        if ($location) { try { $redirectHost = ([System.Uri]$location).Host } catch { } }
+    }
+} catch [System.Net.WebException] {
+    # Typed catch — $_.Exception IS a WebException, so .Response is safe
+    $webEx = $_.Exception
+    if ($webEx.Response) {
+        try { $statusCode = [int]([System.Net.HttpWebResponse]$webEx.Response).StatusCode } catch { }
+    }
+} finally {
+    if ($webResp) { try { $webResp.Close() } catch { } }
+}
+```
