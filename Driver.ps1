@@ -1358,7 +1358,7 @@ function Invoke-ProactiveRefresh {
     try {
         $refreshed = Update-ISPSSAuthToken -TokenObject $script:SessionToken
         if ($refreshed -and $refreshed.Token) {
-            $script:SessionToken = $refreshed
+            Set-SessionToken -NewToken $refreshed
             $null = Save-AuthToken -TokenObject $refreshed -ProfileName $script:ActiveProfile.AuthTokenProfile
             Write-CyberArkLog -Message 'Proactive token refresh succeeded.' -Level 'INFO'
         }
@@ -1369,7 +1369,7 @@ function Invoke-ProactiveRefresh {
 
 function Invoke-TokenRefresh {
     $status = Test-TokenExpiry
-    if ($status -eq 'Valid') { return $true }
+    if ($status -in @('Valid', 'Warning')) { return $true }
 
     $method = $script:SessionToken.AuthMethod
     $type   = $script:SessionToken.SystemType
@@ -1388,7 +1388,7 @@ function Invoke-TokenRefresh {
         try {
             $refreshed = Update-ISPSSAuthToken -TokenObject $script:SessionToken
             if ($refreshed -and $refreshed.Token) {
-                $script:SessionToken = $refreshed
+                Set-SessionToken -NewToken $refreshed
                 $null = Save-AuthToken -TokenObject $refreshed -ProfileName $script:ActiveProfile.AuthTokenProfile
                 Write-CyberArkLog -Message 'Token refreshed successfully.' -Level 'INFO'
                 return $true
@@ -1425,7 +1425,7 @@ function Invoke-TokenRefresh {
                 -ConcurrentSession:([switch]::new($concurrent)) `
                 -IgnoreSSL:        $script:ActiveProfile.IgnoreSSL
             if ($newToken -and $newToken.Token) {
-                $script:SessionToken = $newToken
+                Set-SessionToken -NewToken $newToken
                 $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
                 Write-CyberArkLog -Message 'Re-authentication successful.' -Level 'INFO'
                 return $true
@@ -1447,7 +1447,7 @@ function Invoke-TokenRefresh {
     try {
         $newToken = Update-SelfHostedAuthToken -TokenObject $script:SessionToken
         if ($newToken -and $newToken.Token) {
-            $script:SessionToken = $newToken
+            Set-SessionToken -NewToken $newToken
             $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
             Write-CyberArkLog -Message 'Re-authentication successful.' -Level 'INFO'
             return $true
@@ -1524,6 +1524,20 @@ function Invoke-TokenInvalidate {
         $script:SessionToken.Expiry = [DateTime]::UtcNow.AddHours(-1)
     }
     Write-CyberArkLog -Message '401 Unauthorized - session token invalidated and file removed.' -Level 'WARN'
+}
+
+function Set-SessionToken {
+    # Assigns a refreshed token to $script:SessionToken, copying any NoteProperties
+    # (e.g. MaxResults injected from the profile limit) so they survive token renewal.
+    param([PSCustomObject]$NewToken)
+    if ($script:SessionToken) {
+        foreach ($np in @($script:SessionToken.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' })) {
+            if (-not $NewToken.PSObject.Properties[$np.Name]) {
+                try { $NewToken | Add-Member -NotePropertyName $np.Name -NotePropertyValue $np.Value -Force } catch { }
+            }
+        }
+    }
+    $script:SessionToken = $NewToken
 }
 
 #endregion
@@ -1972,7 +1986,6 @@ function Invoke-SessionLoop {
             }
             'Warning' {
                 Invoke-SelfHostedKeepalive
-                Invoke-TokenRefresh | Out-Null
             }
         }
 

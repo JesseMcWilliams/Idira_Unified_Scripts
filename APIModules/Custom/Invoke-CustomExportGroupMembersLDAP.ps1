@@ -94,8 +94,9 @@ function Invoke-CustomExportGroupMembersLDAP {
         @($groupsResponse.Data.value)
     } else { @() }
 
-    # Filter to LDAP / Directory groups
-    $ldapGroups = [System.Collections.Generic.List[PSCustomObject]]::new()
+    # Filter to LDAP / Directory groups; explicitly skip Vault-type groups
+    $ldapGroups  = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $vaultSkipped = 0
     foreach ($g in $allGroups) {
         $gtype  = if ($g.PSObject.Properties['groupType'] -and $g.groupType) { "$($g.groupType)" } else { '' }
         $dirType= if ($g.PSObject.Properties['directory'] -and $g.directory -and
@@ -103,7 +104,16 @@ function Invoke-CustomExportGroupMembersLDAP {
             "$($g.directory.directoryType)"
         } else { '' }
 
-        $isLdap = ($gtype -match '(?i)directory') -or ($dirType -match '(?i)ldap|external|directory')
+        # Vault-type groups are internal to CyberArk and have no AD representation
+        if ($gtype -match '(?i)^vault$' -or $dirType -match '(?i)^vault$') {
+            $vaultSkipped++
+            $vname = if ($g.PSObject.Properties['groupName'] -and $g.groupName) { "$($g.groupName)" } else { '(unnamed)' }
+            Write-CyberArkLog -Level 'DEBUG' -Message "Skipping Vault-type group '$vname' (groupType='$gtype')."
+            continue
+        }
+
+        $isLdap = ($gtype -match '(?i)^(directory|ldap|external|activedirectory|microsoftad)$') -or
+                  ($dirType -match '(?i)ldap|external|directory|activedirectory|microsoftad')
         if ($isLdap) {
             $gname = if ($g.PSObject.Properties['groupName'] -and $g.groupName) { "$($g.groupName)" } else { '' }
             $ldapGroups.Add([PSCustomObject]@{
@@ -112,6 +122,11 @@ function Invoke-CustomExportGroupMembersLDAP {
                 DirectoryType     = $dirType
             })
         }
+    }
+
+    if ($vaultSkipped -gt 0) {
+        Write-CyberArkLog -Level 'INFO' -Message "Skipped $vaultSkipped Vault-type group(s) — not searchable in an LDAP directory."
+        Write-Host "  ($vaultSkipped Vault-type group$(if ($vaultSkipped -ne 1) { 's' }) skipped — not in LDAP directory)" -ForegroundColor DarkGray
     }
 
     if ($ldapGroups.Count -eq 0) {
@@ -220,11 +235,15 @@ function Invoke-CustomExportGroupMembersLDAP {
         $adGroupDN = & $fnFindGroupDN -GroupSAM $adGroupSAM -Root $searchRoot
 
         if (-not $adGroupDN) {
-            Write-Host ' - AD group not found.' -ForegroundColor Yellow
-            Write-CyberArkLog -Level 'WARN' -Message "Export LDAP Group Members: AD group '$adGroupSAM' not found."
+            $typeHint = ''
+            if ($cyberArkGroup.GroupType -or $cyberArkGroup.DirectoryType) {
+                $typeHint = " (groupType='$($cyberArkGroup.GroupType)' directoryType='$($cyberArkGroup.DirectoryType)')"
+            }
+            Write-Host " - not found in domain$typeHint." -ForegroundColor Yellow
+            Write-CyberArkLog -Level 'WARN' -Message "Export LDAP Group Members: '$adGroupSAM' not found in domain$typeHint — may belong to a different directory or have been deleted."
             $result.Errors.Add([PSCustomObject]@{
-                InputData    = @{ CyberArkGroupName = $cyGroupName; ADGroupSAM = $adGroupSAM }
-                ErrorMessage = "AD group '$adGroupSAM' not found."
+                InputData    = @{ CyberArkGroupName = $cyGroupName; ADGroupSAM = $adGroupSAM; GroupType = $cyberArkGroup.GroupType; DirectoryType = $cyberArkGroup.DirectoryType }
+                ErrorMessage = "AD group '$adGroupSAM' not found in domain$typeHint."
                 ErrorDetails = $null
             })
             $result.Failures++
