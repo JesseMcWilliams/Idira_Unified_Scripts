@@ -313,7 +313,7 @@ function Get-AllDriverProfiles {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
             # Normalize: add any fields introduced after this profile was saved
-            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
+            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder', 'TenantPortal', 'TenantVault', 'TenantAuth', 'Role_Template_Safe', 'Role_Group_Prefix')) {
                 $defaultVal = if ($field -eq 'AppName') { 'PasswordVault' } else { '' }
                 if (-not $p.PSObject.Properties[$field]) {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $defaultVal -Force
@@ -410,8 +410,10 @@ function New-BlankProfile {
         Limit            = 0
         TenantPortal     = ''
         TenantVault      = ''
-        TenantAuth       = ''
-        LastUsed         = $null
+        TenantAuth         = ''
+        Role_Template_Safe = ''
+        Role_Group_Prefix  = ''
+        LastUsed           = $null
         Created          = (Get-Date).ToUniversalTime().ToString('o')
         Modified         = (Get-Date).ToUniversalTime().ToString('o')
     }
@@ -507,6 +509,8 @@ function Show-ProfileDetail {
     Field 'Output Folder'   $(if ($p.OutputFolder) { $p.OutputFolder } else { '(launch directory)' })
     Field 'Ignore SSL'      $p.IgnoreSSL     $(if ($p.IgnoreSSL)     { 'Yellow' } else { 'Gray' })
     Field 'WhatIf Default'  $p.WhatIfDefault $(if ($p.WhatIfDefault) { 'Yellow' } else { 'Gray' })
+    if ($p.PSObject.Properties['Role_Template_Safe'] -and $p.Role_Template_Safe) { Field 'Role Template Safe' $p.Role_Template_Safe }
+    if ($p.PSObject.Properties['Role_Group_Prefix']  -and $p.Role_Group_Prefix)  { Field 'Role Group Prefix'  $p.Role_Group_Prefix  }
     $created  = try { ([datetime]$p.Created).ToLocalTime().ToString('yyyy-MM-dd HH:mm') }  catch { $p.Created }
     $modified = try { ([datetime]$p.Modified).ToLocalTime().ToString('yyyy-MM-dd HH:mm') } catch { $p.Modified }
     Field 'Created'         $created
@@ -697,6 +701,14 @@ function Invoke-ProfileEditFlow {
     if ($limitStr) { try { $parsedLimit = [int]$limitStr } catch { } }
     if ($parsedLimit -lt 0) { $parsedLimit = 0 }
     $currentProfile.Limit = $parsedLimit
+
+    $currentProfile.Role_Template_Safe = Show-FieldPrompt -Label 'Role Template Safe' `
+        -Default $(if ($currentProfile.PSObject.Properties['Role_Template_Safe']) { $currentProfile.Role_Template_Safe } else { '' }) `
+        -Description 'Safe name used as a permission template when assigning roles. Used by Add/Update Safe Member role operations.'
+
+    $currentProfile.Role_Group_Prefix = Show-FieldPrompt -Label 'Role Group Prefix' `
+        -Default $(if ($currentProfile.PSObject.Properties['Role_Group_Prefix']) { $currentProfile.Role_Group_Prefix } else { '' }) `
+        -Description 'Prefix for CyberArk role groups (e.g. "CyberArk_"). Used by Add/Update Safe Member role operations.'
 
     Write-Host ''
     Save-DriverProfile -currentProfile $currentProfile
@@ -2015,8 +2027,10 @@ function Invoke-SessionLoop {
                     $selectedCat = $categories[$catNum - 1]
                     $catName     = $selectedCat.Name
                     $catModules  = @($selectedCat.Group |
-                        Sort-Object { if ($_.Meta.PSObject.Properties['Priority']) { $_.Meta.Priority } else { 99 } },
-                                    { $_.Meta.Action })
+                        Sort-Object @(
+                            @{ Expression = { [int]($_.Meta.Action -ne 'List') }; Descending = $false }
+                            @{ Expression = { if ($_.Meta.PSObject.Properties['Priority']) { [int]$_.Meta.Priority } else { 99 } }; Descending = $false }
+                        ))
                     $catCrumbs   = $crumbs + @($catName)
 
                     # --- Action loop for this category ---
