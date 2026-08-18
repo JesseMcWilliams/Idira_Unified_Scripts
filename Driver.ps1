@@ -1828,7 +1828,8 @@ function Invoke-ActionModule {
     Write-CyberArkLog -Message "Invoking $fnName" -Level 'DEBUG'
 
     $result = & $fnName -Token $script:SessionToken -InputData $inputData -WhatIf:$script:WhatIfMode
-    $isAllSafeMembers = ($meta.Category -eq 'SafeMembers' -and $meta.Action -eq 'List' -and -not $inputData['SafeName'])
+    $isAllSafeMembers    = ($meta.Category -eq 'SafeMembers' -and $meta.Action -eq 'List' -and -not $inputData['SafeName'])
+    $truncateDisplay     = $isAllSafeMembers -or ($meta.Category -eq 'Custom' -and $meta.Action -eq 'ExportEntitlements')
 
     Write-Host ''
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {
@@ -1842,7 +1843,7 @@ function Invoke-ActionModule {
                     [PSCustomObject]$props
                 })
             } else { @($result.Results) }
-            $displayData = if ($isAllSafeMembers -and $tableData.Count -gt 10) {
+            $displayData = if ($truncateDisplay -and $tableData.Count -gt 10) {
                 Write-Host "  Showing first 10 of $($result.Results.Count) results." -ForegroundColor DarkGray
                 $tableData[0..9]
             } else { $tableData }
