@@ -313,12 +313,14 @@ function Invoke-CyberArkAPI {
     $effectivePageSize = if ($profilePageSize -gt 0) { $profilePageSize } else { $PageSize }
 
     # --- Pagination state ---
-    $allItems     = [System.Collections.Generic.List[object]]::new()
+    $allItems      = [System.Collections.Generic.List[object]]::new()
     # PIMServices.svc (legacy WCF REST) does not accept offset/limit pagination params
-    $paginate     = ($Method -eq 'GET' -and $effectivePageSize -gt 0 -and $Uri -notlike '*/PIMServices.svc/*')
-    $offset       = 0
-    $firstPage    = $true
-    $lastResponse = $null
+    $paginate      = ($Method -eq 'GET' -and $effectivePageSize -gt 0 -and $Uri -notlike '*/PIMServices.svc/*')
+    $offset        = 0
+    $firstPage     = $true
+    $lastResponse  = $null
+    $pageNum       = 1
+    $progressShown = $false
 
     # --- Rate limit state ---
     $retryCount   = 0
@@ -380,6 +382,7 @@ function Invoke-CyberArkAPI {
                     if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
                         Write-CyberArkLog -Message $msg -Level 'ERROR' -FunctionName 'Invoke-CyberArkAPI'
                     }
+                    if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }
                     return script:New-ApiResponse -IsSuccess $false -StatusCode 429 `
                         -RawResponse $rawBody -ErrorMessage $msg
                 }
@@ -400,14 +403,17 @@ function Invoke-CyberArkAPI {
             if ($rawBody -and (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue)) {
                 Write-CyberArkLog -Message "HTTP $statusCode response body: $rawBody" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI' -FileOnly
             }
+            if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }
             return script:New-ApiResponse -IsSuccess $false -StatusCode $statusCode `
                 -RawResponse $rawBody -ErrorMessage $errMsg -ErrorDetails $errDetails
 
         } catch {
-            $msg = "Unexpected error calling $fullUri : $_"
+            $caughtErr = $_
+            $msg = "Unexpected error calling $fullUri : $caughtErr"
             if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
                 Write-CyberArkLog -Message $msg -Level 'ERROR' -FunctionName 'Invoke-CyberArkAPI'
             }
+            if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }
             return script:New-ApiResponse -IsSuccess $false -StatusCode 0 -ErrorMessage $msg
         }
 
@@ -451,6 +457,9 @@ function Invoke-CyberArkAPI {
                 if ($hasNextLink -or $hasMoreByCount) {
                     $offset   += $effectivePageSize
                     $firstPage = $false
+                    $pageNum++
+                    Write-Progress -Activity 'Fetching results' -Status "Page $pageNum — $($allItems.Count) items retrieved" -Id 1
+                    $progressShown = $true
                     $lastResponse = [PSCustomObject]@{
                         IsSuccess = $isSuccess; StatusCode = $statusCode; RawResponse = $rawBody
                         Data = $data; DataType = $dataType
@@ -487,6 +496,7 @@ function Invoke-CyberArkAPI {
             $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode" }
         }
 
+        if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }
         return script:New-ApiResponse -IsSuccess $isSuccess -StatusCode $statusCode `
             -RawResponse $rawBody -Data $data -DataType $dataType `
             -ErrorMessage $errMsg -ErrorDetails $errDetails

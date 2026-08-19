@@ -920,11 +920,18 @@ function Invoke-ProfileManagementLoop {
         if (-not $selectedProfiles -or $selectedProfiles.Count -eq 0) {
             $choice = Read-MenuChoice -Prompt '[N] New    [Q] Quit'
         } else {
-            $defaultHint = if ($DefaultProfileName) { " (default: $DefaultProfileName)" } else { ' (default: 1)' }
-            $choice = Read-MenuChoice -Prompt "Number / [N]ew / [Q]uit$defaultHint"
-            if (-not $choice) {
-                $choice = if ($DefaultProfileName) { $DefaultProfileName } else { '1' }
+            # Resolve the default profile name to its current 1-based list index
+            $defaultIdx = 1
+            if ($DefaultProfileName) {
+                for ($i = 0; $i -lt $selectedProfiles.Count; $i++) {
+                    if ($selectedProfiles[$i].ProfileName -ieq $DefaultProfileName) {
+                        $defaultIdx = $i + 1
+                        break
+                    }
+                }
             }
+            $choice = Read-MenuChoice -Prompt "Number / [N]ew / [Q]uit (default: $defaultIdx)"
+            if (-not $choice) { $choice = "$defaultIdx" }
         }
 
         switch -Regex ($choice.ToUpper()) {

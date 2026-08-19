@@ -61,13 +61,21 @@ function Invoke-CustomExportAll {
     Write-Host "  Found $($listModules.Count) list module$(if ($listModules.Count -ne 1) { 's' }) to export." -ForegroundColor Cyan
     Write-Host ''
 
-    $defaultFolder = if ($script:ActiveProfile -and $script:ActiveProfile.OutputFolder) {
+    $outputFolder = if ($script:ActiveProfile -and $script:ActiveProfile.OutputFolder) {
         $script:ActiveProfile.OutputFolder
     } else { (Get-Location).Path }
+    if (-not [System.IO.Path]::IsPathRooted($outputFolder)) {
+        $outputFolder = Join-Path $PSScriptRoot $outputFolder
+    }
+    if (-not (Test-Path -LiteralPath $outputFolder)) {
+        try { New-Item -ItemType Directory -Path $outputFolder -Force | Out-Null } catch {}
+    }
 
     foreach ($module in $listModules) {
-        $fnName  = "Invoke-$($module.Meta.Category)$($module.Meta.Action)"
-        $modName = $module.Meta.Name
+        $fnName      = "Invoke-$($module.Meta.Category)$($module.Meta.Action)"
+        $modName     = $module.Meta.Name
+        $safeModName = "$($module.Meta.Category)$($module.Meta.Action)"
+        $csvPath     = Join-Path $outputFolder "Export_$safeModName.csv"
 
         Write-Host "  [$($result.ItemsProcessed + 1)/$($listModules.Count)] $modName" -ForegroundColor White -NoNewline
 
@@ -82,22 +90,23 @@ function Invoke-CustomExportAll {
             if ($recordCount -gt 0) {
                 Write-Host " - $recordCount record$(if ($recordCount -ne 1) { 's' })" -ForegroundColor Green
 
-                $csvPath = Get-CsvSavePath -DefaultFolder $defaultFolder -ModuleName $modName
-                if ($csvPath) {
-                    $moduleResult.Results | Export-Csv -Path $csvPath -NoTypeInformation -Force
+                try {
+                    $moduleResult.Results | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Force
                     Write-Host "    Saved: $csvPath" -ForegroundColor DarkGreen
+                    Write-CyberArkLog -Level 'INFO' -Message "Export All: saved '$safeModName' ($recordCount records) to '$csvPath'."
                     $result.Results.Add([PSCustomObject]@{
                         Module    = $modName
                         Records   = $recordCount
                         Status    = 'Saved'
                         SavedPath = $csvPath
                     })
-                } else {
-                    Write-Host '    Skipped (no save path).' -ForegroundColor DarkGray
+                } catch {
+                    Write-Host "    Failed to save: $_" -ForegroundColor Red
+                    Write-CyberArkLog -Level 'ERROR' -Message "Export All: failed to write '$csvPath': $_"
                     $result.Results.Add([PSCustomObject]@{
                         Module    = $modName
                         Records   = $recordCount
-                        Status    = 'Skipped'
+                        Status    = 'SaveFailed'
                         SavedPath = ''
                     })
                 }
