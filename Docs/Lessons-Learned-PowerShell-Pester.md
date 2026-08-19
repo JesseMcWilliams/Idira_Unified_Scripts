@@ -2231,3 +2231,179 @@ resolution anchor for profile-relative folder settings.
 construct a file path or dialog initial directory, always check `IsPathRooted` first and resolve
 relative values against `$PSScriptRoot`. Use `-PathType Container` on the `Test-Path` call to
 reject file paths that happen to exist but are not directories.
+
+---
+
+## 21. CyberArk API Request Body Field Casing Is Endpoint-Specific
+
+### 21.1 PascalCase vs camelCase in request bodies — not consistent across endpoints
+
+The CyberArk REST API is inconsistent about request body field naming. Some endpoints expect
+**PascalCase** keys; others expect **camelCase**. Assuming one convention across all endpoints
+will produce HTTP 400 errors with no descriptive message from the server.
+
+Known examples:
+
+| Endpoint | Body key style | Example |
+|---|---|---|
+| `POST /API/Safes` | PascalCase | `SafeName`, `OLACEnabled`, `ManagingCPM` |
+| `POST /API/Accounts/{id}/LinkAccount` | camelCase | `name`, `safe`, `folder`, `extraPasswordIndex` |
+| `POST /API/Accounts` | camelCase | `name`, `userName`, `platformId`, `safeName` |
+| `POST /API/Safes/{safe}/Members` | camelCase | `memberName`, `searchIn`, `permissions` |
+
+**Wrong (LinkAccount body using PascalCase — causes HTTP 400):**
+```powershell
+$body = @{
+    Name               = $name        # should be 'name'
+    Safe               = $safe        # should be 'safe'
+    Folder             = $folder      # should be 'folder'
+    ExtraPasswordIndex = $index       # should be 'extraPasswordIndex'
+}
+```
+
+**Correct:**
+```powershell
+$body = @{
+    name               = $name
+    safe               = $safe
+    folder             = $folder
+    extraPasswordIndex = $index
+}
+```
+
+**Rule:** Verify the exact body field names for each endpoint independently against the CyberArk
+API reference or a captured request. Do not assume the body casing matches the response casing —
+the `GET /API/Safes` response uses camelCase, but `POST /API/Safes` accepts PascalCase.
+
+---
+
+## 22. Numeric API Fields Must Be Typed as Integer, Not String
+
+### 22.1 PowerShell hashtable values from user input are strings by default
+
+User input collected via `Read-Host` or `Show-FieldPrompt` is always a `[string]`. When that
+string is placed directly into a request body hashtable and serialized to JSON, it becomes a
+JSON string (`"1"` instead of `1`). Some CyberArk API fields require a JSON number; sending a
+string causes an HTTP 400 with no field-level explanation.
+
+**Affected field:** `extraPasswordIndex` in `POST /API/Accounts/{id}/LinkAccount`.
+
+**Wrong:**
+```powershell
+$body['ExtraPasswordIndex'] = $extraPasswordIndex   # string "1" → JSON "1" → 400
+```
+
+**Correct:**
+```powershell
+$body['extraPasswordIndex'] = [int]$extraPasswordIndex   # int 1 → JSON 1 → 204
+```
+
+**Rule:** Any API field documented as an integer must be explicitly cast with `[int]` before
+inclusion in the body hashtable. Add the cast at body-construction time, not at validation time.
+
+---
+
+## 23. Safe `lastModificationTime` Is in Microseconds Since Unix Epoch
+
+### 23.1 `creationTime` is seconds; `lastModificationTime` is microseconds
+
+CyberArk Safe objects return two timestamp fields with different epoch units:
+
+| Field | Unit | Example value | Converted |
+|---|---|---|---|
+| `creationTime` | Seconds | `1608827926` | 2020-12-24 |
+| `lastModificationTime` | Microseconds | `1610319618268452` | 2021-01-10 |
+
+The 16-digit value `1610319618268452` cannot be passed to `FromUnixTimeSeconds` or
+`FromUnixTimeMilliseconds` directly:
+- `FromUnixTimeSeconds(1610319618268452)` — overflow (too large)
+- `FromUnixTimeMilliseconds(1610319618268452)` — year ~52985 (wrong)
+
+**Correct conversion:**
+```powershell
+# Divide by 1000 to get milliseconds, then use FromUnixTimeMilliseconds
+[DateTimeOffset]::FromUnixTimeMilliseconds([long]([double]$safe.lastModificationTime / 1000))
+    .LocalDateTime.ToString('yyyy-MM-dd')
+```
+
+The intermediate cast to `[double]` is needed because dividing a `[long]` by 1000 in PowerShell
+performs integer division and drops the remainder, but `[double]` preserves the fractional
+portion before the outer `[long]` cast truncates it.
+
+**Rule:** Always check the unit of timestamp fields. `creationTime` and Unix-epoch account fields
+are in seconds; `lastModificationTime` on Safes is in microseconds. When in doubt, inspect the
+raw value: a 10-digit number is seconds, a 13-digit is milliseconds, a 16-digit is microseconds.
+
+---
+
+## 24. PSObject.Properties Guard Required for All Nested Property Access
+
+### 24.1 Checking the parent object is not enough under strict mode
+
+Under `Set-StrictMode -Version Latest`, accessing a property that does not exist on an object
+throws `PropertyNotFoundException`. This includes properties on *nested* objects — checking that
+the parent exists is not sufficient; you must also guard the child property access.
+
+**Root cause of the AccountsAdd crash:**
+```powershell
+# $acct.secretManagement exists but may not have a 'status' property.
+# The guard only checks secretManagement, not status → throws at line 231.
+CPMStatus = if ($acct.secretManagement) { $acct.secretManagement.status } else { '' }
+```
+
+**Correct — guard each level independently:**
+```powershell
+CPMStatus = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
+                $acct.secretManagement.PSObject.Properties['status']) {
+                $acct.secretManagement.status
+            } else { '' }
+```
+
+**General pattern for nested property access:**
+```powershell
+# For each level: check PSObject.Properties, then access the value
+$val = if ($obj.PSObject.Properties['parent'] -and $obj.parent -and
+           $obj.parent.PSObject.Properties['child']) {
+    $obj.parent.child
+} else { $defaultValue }
+```
+
+**Rule:** Apply `PSObject.Properties` guards at *every* level of a property chain. A guard on the
+parent object does not protect against a missing property on the child object. This is especially
+common in response-mapping blocks where the API may omit nested sections (e.g. `secretManagement`
+may be absent entirely, or present but without a `status` field).
+
+---
+
+## 25. Request Body and Error Response Logging
+
+### 25.1 POST/PUT/PATCH bodies and 4xx/5xx responses are now logged at DEBUG level (file-only)
+
+`Invoke-CyberArkAPI` logs two additional entries at `DEBUG` level when the log level is set to
+`DEBUG`:
+
+1. **Request body** — logged immediately after the `POST/PUT/PATCH URL` line, before the API call.
+   Sensitive fields (`secret`, `password`, `token`, etc.) are automatically masked by
+   `Mask-SensitiveData` before the entry is written.
+
+2. **Error response body** — when the server returns HTTP 4xx or 5xx, the raw response body
+   (which contains the CyberArk-specific error code and message) is logged.
+
+Both entries are written with `-FileOnly` — they appear in the log **file** but are suppressed
+from the console. This prevents large or sensitive content from cluttering the terminal while
+still making it available for post-session diagnosis.
+
+**`Write-CyberArkLog -FileOnly` switch:**
+```powershell
+# Write to log file only — not printed to console.
+Write-CyberArkLog -Message "Request body: $bodyString" -Level 'DEBUG' -FileOnly
+```
+
+**When to use `-FileOnly`:**
+- Large structured content (JSON bodies, full error responses)
+- Content that is already masked but would flood the terminal at DEBUG level
+- Diagnostic data that is only useful when opening the log file after a failure
+
+**Rule:** Use `Write-CyberArkLog -FileOnly` for any log entry that is useful for post-failure
+diagnosis but would be noisy on the console. Do not use it for `ERROR` or `WARN` entries — those
+should always appear on screen.

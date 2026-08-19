@@ -334,6 +334,7 @@ result object. See [API-Module-Development-Guide.md](API-Module-Development-Guid
 | Table display truncation | Driver truncates List actions and all Custom export operations to `DisplayLimit` rows (default 20); full data still exported to CSV | Avoids flooding the terminal with hundreds of rows while keeping the full dataset available for downstream processing. Condition is `Action -eq 'List'` OR `Category -eq 'Custom' -and ProducesOutput`. Configurable per-profile. 0 = show all. |
 | Accounts List — By-Safe mode | Optional mode fetches accounts per-safe rather than a single global query | CyberArk's `/API/Accounts` endpoint caps returns at ~20,000 accounts without a safe filter. Per-safe iteration bypasses this limit while remaining within the existing pagination infrastructure. |
 | Role profile fields | `Role_Template_Safe` and `Role_Group_Prefix` stored in the profile, not hardcoded | These values are environment-specific (safe naming conventions, group prefix conventions differ per tenant). Storing them in the profile makes modules portable across environments. |
+| Request body and error logging | POST/PUT/PATCH bodies and HTTP 4xx/5xx response bodies logged at DEBUG level with `-FileOnly` | Large structured content would flood the terminal at DEBUG. Writing to the log file only preserves the diagnostic data for post-session review without cluttering the console. Sensitive fields are masked by `Mask-SensitiveData` before the entry is written. |
 
 ---
 
