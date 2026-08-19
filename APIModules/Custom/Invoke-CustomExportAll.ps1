@@ -80,7 +80,11 @@ function Invoke-CustomExportAll {
         Write-Host "  [$($result.ItemsProcessed + 1)/$($listModules.Count)] $modName" -ForegroundColor White -NoNewline
 
         try {
-            $moduleResult = & $fnName -Token $Token -InputData @{}
+            # Accounts List: use by-safe iteration to bypass the ~20,000 account API cap
+            $moduleInputData = if ($module.Meta.Category -eq 'Accounts' -and $module.Meta.Action -eq 'List') {
+                @{ IterateBySafe = $true }
+            } else { @{} }
+            $moduleResult = & $fnName -Token $Token -InputData $moduleInputData
 
             $recordCount = 0
             if ($null -ne $moduleResult -and $null -ne $moduleResult.Results) {
