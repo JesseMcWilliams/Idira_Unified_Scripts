@@ -106,7 +106,7 @@ function Invoke-CustomExportGroupMembersLDAP {
                       $g.directory.PSObject.Properties['directoryType'] -and $g.directory.directoryType) {
             "$($g.directory.directoryType)"
         } else { '' }
-        if ($gname) {
+        if ($gname -and $gname -match '@') {
             $ldapGroups.Add([PSCustomObject]@{
                 CyberArkGroupName = $gname
                 GroupType         = $gtype
@@ -212,10 +212,14 @@ function Invoke-CustomExportGroupMembersLDAP {
         $groupIdx++
         $cyGroupName = $cyberArkGroup.CyberArkGroupName
 
-        # Strip domain prefix if present (e.g. DOMAIN\GroupName)
+        # Strip domain prefix (e.g. DOMAIN\GroupName -> GroupName) then UPN suffix (e.g. GroupName@domain.com -> GroupName)
         $adGroupSAM = if ($cyGroupName -match '^[^\\]+\\(.+)$') { $Matches[1] } else { $cyGroupName }
+        $adGroupSAM = if ($adGroupSAM  -match '^([^@]+)@.+$')   { $Matches[1] } else { $adGroupSAM  }
 
         Write-Host "  [$groupIdx/$($ldapGroups.Count)] $cyGroupName" -ForegroundColor White -NoNewline
+
+        $ldapFilter = "(&(objectClass=group)(sAMAccountName=$adGroupSAM))"
+        Write-CyberArkLog -Level 'DEBUG' -Message "Export LDAP Group Members: LDAP query: $ldapFilter"
 
         # Find the AD group
         $adGroupDN = & $fnFindGroupDN -GroupSAM $adGroupSAM -Root $searchRoot
