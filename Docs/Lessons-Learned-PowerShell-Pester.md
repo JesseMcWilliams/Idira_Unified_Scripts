@@ -1986,20 +1986,41 @@ not a client-side limitation.
 
 This pattern is implemented in `Invoke-AccountsList` as the "By Safe" retrieval mode.
 
-### 16.3 OData filter values must be single-quoted for safe names with spaces
+### 16.3 CyberArk OData filter values must NOT be single-quoted
 
-CyberArk filter parameters use an OData-like syntax. String values containing spaces must
-be enclosed in single quotes to prevent the parser from splitting on the space:
+`Invoke-CyberArkAPI` passes filter strings through `New-CyberArkQuery`, which calls
+`[Uri]::EscapeDataString()` on every query parameter value. `EscapeDataString` encodes single
+quotes as `%27`. After URL decoding, the server receives the filter with literal quote characters
+as part of the value string:
 
+```
+# Filter built in code:        safeName eq 'My Safe'
+# After EscapeDataString:      safeName%20eq%20%27My%20Safe%27
+# Server receives (decoded):   safeName eq 'My Safe'   ← quotes are part of the name
+# Result:                      no safe found → zero accounts returned
+```
+
+The CyberArk Accounts API filter parser does **not** support OData-style single-quoted string
+literals. The value after `eq ` is taken literally; if the name does not include the quote
+characters, no match is found and the API returns an empty result with HTTP 200.
+
+**Wrong — quotes become part of the literal name lookup:**
 ```powershell
-# Wrong — parser may split "My Safe" as two tokens
-$filter = "safeName eq $safeName"
-
-# Correct — single-quoted per OData convention; escape embedded single quotes by doubling
 $filter = "safeName eq '$($safeName -replace "'", "''")'"
 ```
 
-This applies to any OData filter field where the value may contain whitespace.
+**Correct — no quotes; URL encoding of the whole filter value handles spaces:**
+```powershell
+$filter = "safeName eq $safeName"
+```
+
+When `New-CyberArkQuery` encodes this, the server receives `safeName eq My Safe` (after
+decoding). The CyberArk filter parser treats everything after `eq ` as the value, so safe names
+with spaces are matched correctly without quoting.
+
+**Rule:** Do not add OData-style single quotes to CyberArk filter values when using
+`Invoke-CyberArkAPI`. The `EscapeDataString` call in `New-CyberArkQuery` handles all
+special characters at the HTTP transport layer.
 
 ---
 
@@ -2029,3 +2050,184 @@ foreach ($acct in $accounts) {
 
 **Rule:** Always prefix module-internal helpers with `script:` to avoid cross-module
 function name collisions and to signal that the function is not part of the public API.
+
+---
+
+## 18. PowerShell Module Import Scope
+
+### 18.1 `Import-Module -Force` inside a `.psm1` removes the module from global scope
+
+**Root cause:** When a `.psm1` module calls `Import-Module SomeModule -Force`, PowerShell
+reimports `SomeModule` as a **nested module** of the calling module. A nested module's exported
+functions are available within the calling module's scope but are **not** added to the global
+session state. If `SomeModule` was previously imported globally (e.g. by the driver script),
+the `-Force` flag removes that global registration and replaces it with the nested registration.
+
+After the parent module finishes loading, `SomeModule`'s functions are only accessible from
+within that parent module — any call from the driver script or any other module
+fails with `CommandNotFoundException`.
+
+This is exactly the failure pattern behind `Save-AuthToken is not recognized`: the driver imports
+`CyberArk.Auth.Common.psm1` (globally), then imports `CyberArk.Auth.SelfHosted.psm1`, which
+internally calls `Import-Module CyberArk.Auth.Common.psm1 -Force` without `-Global`. That
+reimport removes Common from global scope. The driver then imports `CyberArk.Auth.ISPSS.psm1`,
+which does the same thing again. After startup, `Save-AuthToken` exists only inside the ISPSS
+module scope and is invisible to any caller outside it.
+
+**Symptom:**
+```
+Could not save refreshed token*** term 'Save-AuthToken' is not recognized as the name of a cmdlet,
+function, script file, or operable program.
+```
+The function exists in the module and IS exported — but the module is no longer globally visible.
+
+**Wrong (nested import removes global registration):**
+```powershell
+# Inside CyberArk.Auth.SelfHosted.psm1 or CyberArk.Auth.ISPSS.psm1
+Import-Module (Join-Path $PSScriptRoot 'CyberArk.Auth.Common.psm1') -Force
+```
+
+**Correct (import into global session state):**
+```powershell
+Import-Module (Join-Path $PSScriptRoot 'CyberArk.Auth.Common.psm1') -Force -Global
+```
+
+The `-Global` parameter tells PowerShell to import the module into the global session state
+regardless of where the `Import-Module` call is made. This ensures the module's exported
+functions remain accessible to all callers, including the driver script.
+
+**Rule:** Any time a `.psm1` module calls `Import-Module` on another module that must remain
+globally accessible (i.e. its functions are called directly from the driver or other modules),
+always add `-Global`. Without it, the inner module becomes a nested module and loses its global
+registration on reload.
+
+---
+
+## 19. CyberArk API Response Field Case Sensitivity
+
+### 19.1 SafeMembers permissions are returned in camelCase, not PascalCase
+
+The `GET /API/Safes/{safe}/Members` endpoint returns all permission fields in **camelCase**:
+
+```json
+{
+    "permissions": {
+        "useAccounts": true,
+        "retrieveAccounts": true,
+        "manageSafe": true,
+        ...
+    }
+}
+```
+
+If the code looks up a PascalCase property name, `PSObject.Properties` returns `$null` silently:
+
+```powershell
+# WRONG — 'UseAccounts' does not exist on the permissions object; returns $null
+$perms.PSObject.Properties['UseAccounts']   # → $null
+
+# The guard evaluates as ($null -and ...) → false → else branch executes
+UseAccounts = if ($perms -and $perms.PSObject.Properties['UseAccounts']) { $perms.UseAccounts } else { $false }
+# Result: UseAccounts = $false for every member, even when the API returned true
+```
+
+Because `PSObject.Properties` returns `$null` for an absent property (it does not throw under
+strict mode), the outer `if` silently evaluates false and all permissions default to `$false`.
+There is no error, warning, or visible symptom other than every permission showing as false
+in the output.
+
+**Correct — match the exact case returned by the API:**
+```powershell
+UseAccounts = if ($perms -and $perms.PSObject.Properties['useAccounts']) { $perms.useAccounts } else { $false }
+```
+
+**Full permission list (camelCase as returned by the API):**
+
+| Output column name | API property name (case-sensitive) |
+|---|---|
+| UseAccounts | `useAccounts` |
+| RetrieveAccounts | `retrieveAccounts` |
+| ListAccounts | `listAccounts` |
+| AddAccounts | `addAccounts` |
+| UpdateAccountContent | `updateAccountContent` |
+| UpdateAccountProperties | `updateAccountProperties` |
+| InitiateCPMAccountManagementOperations | `initiateCPMAccountManagementOperations` |
+| SpecifyNextAccountContent | `specifyNextAccountContent` |
+| RenameAccounts | `renameAccounts` |
+| DeleteAccounts | `deleteAccounts` |
+| UnlockAccounts | `unlockAccounts` |
+| ManageSafe | `manageSafe` |
+| ManageSafeMembers | `manageSafeMembers` |
+| BackupSafe | `backupSafe` |
+| ViewAuditLog | `viewAuditLog` |
+| ViewSafeMembers | `viewSafeMembers` |
+| AccessWithoutConfirmation | `accessWithoutConfirmation` |
+| CreateFolders | `createFolders` |
+| DeleteFolders | `deleteFolders` |
+| MoveAccountsAndFolders | `moveAccountsAndFolders` |
+| RequestsAuthorizationLevel1 | `requestsAuthorizationLevel1` |
+| RequestsAuthorizationLevel2 | `requestsAuthorizationLevel2` |
+
+**Missing header fields** (not in older implementations — verify against a live response):
+
+| Column | API field |
+|---|---|
+| SafeUrlId | `safeUrlId` |
+| SafeNumber | `safeNumber` |
+| MemberId | `memberId` |
+| IsExpiredMembershipEnable | `isExpiredMembershipEnable` |
+
+**Rule:** Before implementing any API response mapping, capture a live response at DEBUG level
+(`Write-CyberArkLog -Level 'DEBUG' -Message "$($obj.PSObject.Properties.Name -join ', ')"`)
+to confirm exact field names and casing. Never assume PascalCase matches a JSON API that was not
+explicitly verified — PowerShell's `PSObject.Properties` silently returns `$null` for mismatched
+names under strict mode, producing wrong values rather than errors.
+
+---
+
+## 20. Relative Path Resolution in Dialog Helpers
+
+### 20.1 `Test-Path` resolves relative paths against `Get-Location`, not `$PSScriptRoot`
+
+**Root cause:** `Test-Path -LiteralPath $path` and `[IO.Path]::IsPathRooted()` treat paths
+differently. When `$path` is a relative string (e.g. `'Output'` or `'.\Logs'`), `Test-Path`
+resolves it against the *current working directory* (`Get-Location`), which is whatever
+directory was active when the process started — not the directory containing the script.
+
+If the user launches the driver from `C:\Tools` but the script lives in `C:\Scripts` and the
+profile stores `OutputFolder = 'Output'`, `Test-Path` checks for `C:\Tools\Output`. When that
+folder doesn't exist (but `C:\Scripts\Output` does), the path test fails and the dialog falls
+back to a different default — the configured output folder is silently ignored.
+
+**Wrong:**
+```powershell
+$defaultDir = if ($DefaultFolder -and (Test-Path -LiteralPath $DefaultFolder)) {
+    $DefaultFolder          # relative path — resolved against Get-Location, not script dir
+} else {
+    (Get-Location).Path     # wrong fallback — also Get-Location, not $PSScriptRoot
+}
+```
+
+**Correct — resolve relative paths against `$PSScriptRoot` before testing:**
+```powershell
+$defaultDir = if ($DefaultFolder) {
+    $resolved = if ([System.IO.Path]::IsPathRooted($DefaultFolder)) {
+        $DefaultFolder
+    } else {
+        Join-Path $PSScriptRoot $DefaultFolder
+    }
+    if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved } else { $PSScriptRoot }
+} else {
+    $PSScriptRoot
+}
+```
+
+`[System.IO.Path]::IsPathRooted()` returns `$true` for any path that begins with a drive letter,
+UNC path, or root slash — and `$false` for any relative path. Joining a relative path with
+`$PSScriptRoot` makes it fully qualified against the script's own directory, which is the correct
+resolution anchor for profile-relative folder settings.
+
+**Rule:** Whenever a profile folder field (OutputFolder, InputFolder, LogFolder) is used to
+construct a file path or dialog initial directory, always check `IsPathRooted` first and resolve
+relative values against `$PSScriptRoot`. Use `-PathType Container` on the `Test-Path` call to
+reject file paths that happen to exist but are not directories.
