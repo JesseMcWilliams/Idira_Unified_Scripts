@@ -1876,3 +1876,683 @@ try {
     if ($webResp) { try { $webResp.Close() } catch { } }
 }
 ```
+
+---
+
+## 15. Session Token and NoteProperty Preservation
+
+### 15.1 NoteProperties are lost when the token object is replaced
+
+When the driver refreshes a session token it creates a fresh `PSCustomObject` from the auth module.
+Any NoteProperties added to the old token (e.g. `MaxResults` injected from the profile `Limit` field)
+are not present on the new object.
+
+**Wrong:**
+```powershell
+$script:SessionToken = $refreshedToken   # MaxResults NoteProperty silently lost
+```
+
+**Correct — copy NoteProperties before assigning:**
+```powershell
+function Set-SessionToken {
+    param([PSCustomObject]$NewToken)
+    if ($script:SessionToken) {
+        foreach ($np in @($script:SessionToken.PSObject.Properties |
+                          Where-Object { $_.MemberType -eq 'NoteProperty' })) {
+            if (-not $NewToken.PSObject.Properties[$np.Name]) {
+                try { $NewToken | Add-Member -NotePropertyName $np.Name -NotePropertyValue $np.Value -Force } catch { }
+            }
+        }
+    }
+    $script:SessionToken = $NewToken
+}
+```
+
+**Rule:** Never assign directly to `$script:SessionToken`; always call `Set-SessionToken` so runtime
+properties survive token renewal.
+
+### 15.2 Token Warning branch must not call the refresh function
+
+The session loop checks token status on each iteration: `Valid` → continue, `Warning` → approaching
+expiry, `Expired` → prompt re-auth.
+
+A common mistake is to call `Invoke-TokenRefresh | Out-Null` in the `Warning` branch to attempt
+a proactive refresh. When the refresh fails (network blip, credentials expired), the failure is
+silently discarded by `| Out-Null`. The session then checks status again on the next iteration,
+finds the token now expired (because the failed refresh invalidated it), and exits — even though the
+original token was still valid.
+
+**Wrong:**
+```powershell
+'Warning' { Invoke-SelfHostedKeepalive; Invoke-TokenRefresh | Out-Null }
+```
+
+**Correct — keepalive only; `Invoke-TokenRefresh` already guards the Warning case:**
+```powershell
+'Warning' { Invoke-SelfHostedKeepalive }
+```
+
+`Invoke-TokenRefresh` must also short-circuit on `Warning` status (not just `Valid`) so that
+callers who do check the return value don't accidentally trigger a full re-auth prompt:
+
+```powershell
+if ($status -in @('Valid', 'Warning')) { return $true }
+```
+
+---
+
+## 16. CyberArk API Runtime Behaviors (ISPSS-Specific)
+
+### 16.1 Groups API returns all groups as groupType='Vault' on ISPSS
+
+On ISPSS (Privilege Cloud), the `/API/UserGroups` endpoint returns **all groups** —
+including LDAP/Active Directory-backed groups — with `groupType = 'Vault'` and no
+`directoryType`. Client-side filtering by `groupType` is therefore unreliable.
+
+**Wrong approach:**
+```powershell
+# Breaks on ISPSS — all groups appear as Vault regardless of actual directory source
+$ldapGroups = $allGroups | Where-Object { $_.groupType -match 'LDAP|directory' }
+```
+
+**Correct approach — use the AD lookup as the filter:**
+```powershell
+# Attempt AD lookup for every group; groups found in AD are LDAP-backed
+foreach ($group in $allGroups) {
+    $dn = & $fnFindGroupDN -GroupSAM $group.groupName -Root $searchRoot
+    if (-not $dn) {
+        Write-CyberArkLog -Level 'DEBUG' -Message "Not found in AD — likely Vault-only, skipping."
+        continue
+    }
+    # ... process LDAP group members
+}
+```
+
+Groups not found in AD are silently skipped (DEBUG log only). This is expected for
+internal Vault-only groups and must not be recorded as a failure.
+
+### 16.2 Accounts API caps at ~20,000 accounts without a safe filter
+
+`GET /API/Accounts` without a `filter=safeName eq ...` query parameter will return at most
+approximately 20,000 accounts regardless of pagination. This is a CyberArk server-side cap,
+not a client-side limitation.
+
+**Workaround — iterate by safe:**
+1. Fetch all safes via `GET /API/Safes`.
+2. For each safe, call `GET /API/Accounts?filter=safeName eq SafeName`.
+3. Each per-safe call is paginated normally by `Invoke-CyberArkAPI`; the 20K cap does not
+   apply per-safe.
+4. Accumulate results across all safes.
+
+This pattern is implemented in `Invoke-AccountsList` as the "By Safe" retrieval mode.
+
+### 16.3 CyberArk OData filter values must NOT be quoted
+
+`Invoke-CyberArkAPI` passes filter strings through `New-CyberArkQuery`, which calls
+`[Uri]::EscapeDataString()` on every query parameter value. `EscapeDataString` encodes double
+quotes as `%22`. After URL decoding, the server receives the filter with literal quote characters
+as part of the value string:
+
+```
+# Filter built in code:        safeName eq "My Safe"
+# After EscapeDataString:      safeName%20eq%20%22My%20Safe%22
+# Server receives (decoded):   safeName eq "My Safe"   ← quotes are part of the name
+# Result:                      no safe found → zero accounts returned
+```
+
+The CyberArk Accounts API filter parser does **not** support OData-style quoted string
+literals. The value after `eq ` is taken literally; if the name does not include the quote
+characters, no match is found and the API returns an empty result with HTTP 200.
+
+**Wrong — quotes become part of the literal name lookup:**
+```powershell
+$filter = "safeName eq `"$safeName`""
+```
+
+**Correct — no quotes; URL encoding of the whole filter value handles spaces:**
+```powershell
+$filter = "safeName eq $safeName"
+```
+
+When `New-CyberArkQuery` encodes this, the server receives `safeName eq My Safe` (after
+decoding). The CyberArk filter parser treats everything after `eq ` as the value, so safe names
+with spaces are matched correctly without quoting.
+
+**Rule:** Do not add OData-style quotes to CyberArk filter values when using
+`Invoke-CyberArkAPI`. The `EscapeDataString` call in `New-CyberArkQuery` handles all
+special characters at the HTTP transport layer.
+
+---
+
+## 17. Script-Scoped Helper Functions in Dot-Sourced Modules
+
+### 17.1 Use `script:` prefix to scope helpers without polluting the global namespace
+
+API modules are dot-sourced into the driver scope. Any function defined at module level
+without qualification becomes a global function and can collide across modules.
+
+Use the `script:` prefix to scope helper functions to the dot-sourcing context (the driver
+script scope). These functions are callable with the `script:` prefix from within the same
+module and from the driver scope, but are not visible to other modules or child scopes:
+
+```powershell
+# In Invoke-AccountsList.ps1 (dot-sourced into Driver.ps1)
+function script:Add-AccountToResult {
+    param([PSCustomObject]$Result, [object]$Account, [hashtable]$ErrorInputData)
+    # ... shared mapping logic ...
+}
+
+# Called from Invoke-AccountsList (entry-point function in same file)
+foreach ($acct in $accounts) {
+    script:Add-AccountToResult -Result $result -Account $acct -ErrorInputData $InputData
+}
+```
+
+**Rule:** Always prefix module-internal helpers with `script:` to avoid cross-module
+function name collisions and to signal that the function is not part of the public API.
+
+---
+
+## 18. PowerShell Module Import Scope
+
+### 18.1 `Import-Module -Force` inside a `.psm1` removes the module from global scope
+
+**Root cause:** When a `.psm1` module calls `Import-Module SomeModule -Force`, PowerShell
+reimports `SomeModule` as a **nested module** of the calling module. A nested module's exported
+functions are available within the calling module's scope but are **not** added to the global
+session state. If `SomeModule` was previously imported globally (e.g. by the driver script),
+the `-Force` flag removes that global registration and replaces it with the nested registration.
+
+After the parent module finishes loading, `SomeModule`'s functions are only accessible from
+within that parent module — any call from the driver script or any other module
+fails with `CommandNotFoundException`.
+
+This is exactly the failure pattern behind `Save-AuthToken is not recognized`: the driver imports
+`CyberArk.Auth.Common.psm1` (globally), then imports `CyberArk.Auth.SelfHosted.psm1`, which
+internally calls `Import-Module CyberArk.Auth.Common.psm1 -Force` without `-Global`. That
+reimport removes Common from global scope. The driver then imports `CyberArk.Auth.ISPSS.psm1`,
+which does the same thing again. After startup, `Save-AuthToken` exists only inside the ISPSS
+module scope and is invisible to any caller outside it.
+
+**Symptom:**
+```
+Could not save refreshed token*** term 'Save-AuthToken' is not recognized as the name of a cmdlet,
+function, script file, or operable program.
+```
+The function exists in the module and IS exported — but the module is no longer globally visible.
+
+**Wrong (nested import removes global registration):**
+```powershell
+# Inside CyberArk.Auth.SelfHosted.psm1 or CyberArk.Auth.ISPSS.psm1
+Import-Module (Join-Path $PSScriptRoot 'CyberArk.Auth.Common.psm1') -Force
+```
+
+**Correct (import into global session state):**
+```powershell
+Import-Module (Join-Path $PSScriptRoot 'CyberArk.Auth.Common.psm1') -Force -Global
+```
+
+The `-Global` parameter tells PowerShell to import the module into the global session state
+regardless of where the `Import-Module` call is made. This ensures the module's exported
+functions remain accessible to all callers, including the driver script.
+
+**Rule:** Any time a `.psm1` module calls `Import-Module` on another module that must remain
+globally accessible (i.e. its functions are called directly from the driver or other modules),
+always add `-Global`. Without it, the inner module becomes a nested module and loses its global
+registration on reload.
+
+---
+
+## 19. CyberArk API Response Field Case Sensitivity
+
+### 19.1 SafeMembers permissions are returned in camelCase, not PascalCase
+
+The `GET /API/Safes/{safe}/Members` endpoint returns all permission fields in **camelCase**:
+
+```json
+{
+    "permissions": {
+        "useAccounts": true,
+        "retrieveAccounts": true,
+        "manageSafe": true,
+        ...
+    }
+}
+```
+
+If the code looks up a PascalCase property name, `PSObject.Properties` returns `$null` silently:
+
+```powershell
+# WRONG — 'UseAccounts' does not exist on the permissions object; returns $null
+$perms.PSObject.Properties['UseAccounts']   # → $null
+
+# The guard evaluates as ($null -and ...) → false → else branch executes
+UseAccounts = if ($perms -and $perms.PSObject.Properties['UseAccounts']) { $perms.UseAccounts } else { $false }
+# Result: UseAccounts = $false for every member, even when the API returned true
+```
+
+Because `PSObject.Properties` returns `$null` for an absent property (it does not throw under
+strict mode), the outer `if` silently evaluates false and all permissions default to `$false`.
+There is no error, warning, or visible symptom other than every permission showing as false
+in the output.
+
+**Correct — match the exact case returned by the API:**
+```powershell
+UseAccounts = if ($perms -and $perms.PSObject.Properties['useAccounts']) { $perms.useAccounts } else { $false }
+```
+
+**Full permission list (camelCase as returned by the API):**
+
+| Output column name | API property name (case-sensitive) |
+|---|---|
+| UseAccounts | `useAccounts` |
+| RetrieveAccounts | `retrieveAccounts` |
+| ListAccounts | `listAccounts` |
+| AddAccounts | `addAccounts` |
+| UpdateAccountContent | `updateAccountContent` |
+| UpdateAccountProperties | `updateAccountProperties` |
+| InitiateCPMAccountManagementOperations | `initiateCPMAccountManagementOperations` |
+| SpecifyNextAccountContent | `specifyNextAccountContent` |
+| RenameAccounts | `renameAccounts` |
+| DeleteAccounts | `deleteAccounts` |
+| UnlockAccounts | `unlockAccounts` |
+| ManageSafe | `manageSafe` |
+| ManageSafeMembers | `manageSafeMembers` |
+| BackupSafe | `backupSafe` |
+| ViewAuditLog | `viewAuditLog` |
+| ViewSafeMembers | `viewSafeMembers` |
+| AccessWithoutConfirmation | `accessWithoutConfirmation` |
+| CreateFolders | `createFolders` |
+| DeleteFolders | `deleteFolders` |
+| MoveAccountsAndFolders | `moveAccountsAndFolders` |
+| RequestsAuthorizationLevel1 | `requestsAuthorizationLevel1` |
+| RequestsAuthorizationLevel2 | `requestsAuthorizationLevel2` |
+
+**Missing header fields** (not in older implementations — verify against a live response):
+
+| Column | API field |
+|---|---|
+| SafeUrlId | `safeUrlId` |
+| SafeNumber | `safeNumber` |
+| MemberId | `memberId` |
+| IsExpiredMembershipEnable | `isExpiredMembershipEnable` |
+
+**Rule:** Before implementing any API response mapping, capture a live response at DEBUG level
+(`Write-CyberArkLog -Level 'DEBUG' -Message "$($obj.PSObject.Properties.Name -join ', ')"`)
+to confirm exact field names and casing. Never assume PascalCase matches a JSON API that was not
+explicitly verified — PowerShell's `PSObject.Properties` silently returns `$null` for mismatched
+names under strict mode, producing wrong values rather than errors.
+
+---
+
+## 20. Relative Path Resolution in Dialog Helpers
+
+### 20.1 `Test-Path` resolves relative paths against `Get-Location`, not `$PSScriptRoot`
+
+**Root cause:** `Test-Path -LiteralPath $path` and `[IO.Path]::IsPathRooted()` treat paths
+differently. When `$path` is a relative string (e.g. `'Output'` or `'.\Logs'`), `Test-Path`
+resolves it against the *current working directory* (`Get-Location`), which is whatever
+directory was active when the process started — not the directory containing the script.
+
+If the user launches the driver from `C:\Tools` but the script lives in `C:\Scripts` and the
+profile stores `OutputFolder = 'Output'`, `Test-Path` checks for `C:\Tools\Output`. When that
+folder doesn't exist (but `C:\Scripts\Output` does), the path test fails and the dialog falls
+back to a different default — the configured output folder is silently ignored.
+
+**Wrong:**
+```powershell
+$defaultDir = if ($DefaultFolder -and (Test-Path -LiteralPath $DefaultFolder)) {
+    $DefaultFolder          # relative path — resolved against Get-Location, not script dir
+} else {
+    (Get-Location).Path     # wrong fallback — also Get-Location, not $PSScriptRoot
+}
+```
+
+**Correct — resolve relative paths against `$PSScriptRoot` before testing:**
+```powershell
+$defaultDir = if ($DefaultFolder) {
+    $resolved = if ([System.IO.Path]::IsPathRooted($DefaultFolder)) {
+        $DefaultFolder
+    } else {
+        Join-Path $PSScriptRoot $DefaultFolder
+    }
+    if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved } else { $PSScriptRoot }
+} else {
+    $PSScriptRoot
+}
+```
+
+`[System.IO.Path]::IsPathRooted()` returns `$true` for any path that begins with a drive letter,
+UNC path, or root slash — and `$false` for any relative path. Joining a relative path with
+`$PSScriptRoot` makes it fully qualified against the script's own directory, which is the correct
+resolution anchor for profile-relative folder settings.
+
+**Rule:** Whenever a profile folder field (OutputFolder, InputFolder, LogFolder) is used to
+construct a file path or dialog initial directory, always check `IsPathRooted` first and resolve
+relative values against `$PSScriptRoot`. Use `-PathType Container` on the `Test-Path` call to
+reject file paths that happen to exist but are not directories.
+
+---
+
+## 21. CyberArk API Request Body Field Casing Is Endpoint-Specific
+
+### 21.1 PascalCase vs camelCase in request bodies — not consistent across endpoints
+
+The CyberArk REST API is inconsistent about request body field naming. Some endpoints expect
+**PascalCase** keys; others expect **camelCase**. Assuming one convention across all endpoints
+will produce HTTP 400 errors with no descriptive message from the server.
+
+Known examples:
+
+| Endpoint | Body key style | Example |
+|---|---|---|
+| `POST /API/Safes` | PascalCase | `SafeName`, `OLACEnabled`, `ManagingCPM` |
+| `POST /API/Accounts/{id}/LinkAccount` | camelCase | `name`, `safe`, `folder`, `extraPasswordIndex` |
+| `POST /API/Accounts` | camelCase | `name`, `userName`, `platformId`, `safeName` |
+| `POST /API/Safes/{safe}/Members` | camelCase | `memberName`, `searchIn`, `permissions` |
+
+**Wrong (LinkAccount body using PascalCase — causes HTTP 400):**
+```powershell
+$body = @{
+    Name               = $name        # should be 'name'
+    Safe               = $safe        # should be 'safe'
+    Folder             = $folder      # should be 'folder'
+    ExtraPasswordIndex = $index       # should be 'extraPasswordIndex'
+}
+```
+
+**Correct:**
+```powershell
+$body = @{
+    name               = $name
+    safe               = $safe
+    folder             = $folder
+    extraPasswordIndex = $index
+}
+```
+
+**Rule:** Verify the exact body field names for each endpoint independently against the CyberArk
+API reference or a captured request. Do not assume the body casing matches the response casing —
+the `GET /API/Safes` response uses camelCase, but `POST /API/Safes` accepts PascalCase.
+
+---
+
+## 22. Numeric API Fields Must Be Typed as Integer, Not String
+
+### 22.1 PowerShell hashtable values from user input are strings by default
+
+User input collected via `Read-Host` or `Show-FieldPrompt` is always a `[string]`. When that
+string is placed directly into a request body hashtable and serialized to JSON, it becomes a
+JSON string (`"1"` instead of `1`). Some CyberArk API fields require a JSON number; sending a
+string causes an HTTP 400 with no field-level explanation.
+
+**Affected field:** `extraPasswordIndex` in `POST /API/Accounts/{id}/LinkAccount`.
+
+**Wrong:**
+```powershell
+$body['ExtraPasswordIndex'] = $extraPasswordIndex   # string "1" → JSON "1" → 400
+```
+
+**Correct:**
+```powershell
+$body['extraPasswordIndex'] = [int]$extraPasswordIndex   # int 1 → JSON 1 → 204
+```
+
+**Rule:** Any API field documented as an integer must be explicitly cast with `[int]` before
+inclusion in the body hashtable. Add the cast at body-construction time, not at validation time.
+
+---
+
+## 23. Safe `lastModificationTime` Is in Microseconds Since Unix Epoch
+
+### 23.1 `creationTime` is seconds; `lastModificationTime` is microseconds
+
+CyberArk Safe objects return two timestamp fields with different epoch units:
+
+| Field | Unit | Example value | Converted |
+|---|---|---|---|
+| `creationTime` | Seconds | `1608827926` | 2020-12-24 |
+| `lastModificationTime` | Microseconds | `1610319618268452` | 2021-01-10 |
+
+The 16-digit value `1610319618268452` cannot be passed to `FromUnixTimeSeconds` or
+`FromUnixTimeMilliseconds` directly:
+- `FromUnixTimeSeconds(1610319618268452)` — overflow (too large)
+- `FromUnixTimeMilliseconds(1610319618268452)` — year ~52985 (wrong)
+
+**Correct conversion:**
+```powershell
+# Divide by 1000 to get milliseconds, then use FromUnixTimeMilliseconds
+[DateTimeOffset]::FromUnixTimeMilliseconds([long]([double]$safe.lastModificationTime / 1000))
+    .LocalDateTime.ToString('yyyy-MM-dd')
+```
+
+The intermediate cast to `[double]` is needed because dividing a `[long]` by 1000 in PowerShell
+performs integer division and drops the remainder, but `[double]` preserves the fractional
+portion before the outer `[long]` cast truncates it.
+
+**Rule:** Always check the unit of timestamp fields. `creationTime` and Unix-epoch account fields
+are in seconds; `lastModificationTime` on Safes is in microseconds. When in doubt, inspect the
+raw value: a 10-digit number is seconds, a 13-digit is milliseconds, a 16-digit is microseconds.
+
+---
+
+## 24. PSObject.Properties Guard Required for All Nested Property Access
+
+### 24.1 Checking the parent object is not enough under strict mode
+
+Under `Set-StrictMode -Version Latest`, accessing a property that does not exist on an object
+throws `PropertyNotFoundException`. This includes properties on *nested* objects — checking that
+the parent exists is not sufficient; you must also guard the child property access.
+
+**Root cause of the AccountsAdd crash:**
+```powershell
+# $acct.secretManagement exists but may not have a 'status' property.
+# The guard only checks secretManagement, not status → throws at line 231.
+CPMStatus = if ($acct.secretManagement) { $acct.secretManagement.status } else { '' }
+```
+
+**Correct — guard each level independently:**
+```powershell
+CPMStatus = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
+                $acct.secretManagement.PSObject.Properties['status']) {
+                $acct.secretManagement.status
+            } else { '' }
+```
+
+**General pattern for nested property access:**
+```powershell
+# For each level: check PSObject.Properties, then access the value
+$val = if ($obj.PSObject.Properties['parent'] -and $obj.parent -and
+           $obj.parent.PSObject.Properties['child']) {
+    $obj.parent.child
+} else { $defaultValue }
+```
+
+**Rule:** Apply `PSObject.Properties` guards at *every* level of a property chain. A guard on the
+parent object does not protect against a missing property on the child object. This is especially
+common in response-mapping blocks where the API may omit nested sections (e.g. `secretManagement`
+may be absent entirely, or present but without a `status` field).
+
+---
+
+## 25. Request Body and Error Response Logging
+
+### 25.1 POST/PUT/PATCH bodies and 4xx/5xx responses are now logged at DEBUG level (file-only)
+
+`Invoke-CyberArkAPI` logs two additional entries at `DEBUG` level when the log level is set to
+`DEBUG`:
+
+1. **Request body** — logged immediately after the `POST/PUT/PATCH URL` line, before the API call.
+   Sensitive fields (`secret`, `password`, `token`, etc.) are automatically masked by
+   `Mask-SensitiveData` before the entry is written.
+
+2. **Error response body** — when the server returns HTTP 4xx or 5xx, the raw response body
+   (which contains the CyberArk-specific error code and message) is logged.
+
+Both entries are written with `-FileOnly` — they appear in the log **file** but are suppressed
+from the console. This prevents large or sensitive content from cluttering the terminal while
+still making it available for post-session diagnosis.
+
+**`Write-CyberArkLog -FileOnly` switch:**
+```powershell
+# Write to log file only — not printed to console.
+Write-CyberArkLog -Message "Request body: $bodyString" -Level 'DEBUG' -FileOnly
+```
+
+**When to use `-FileOnly`:**
+- Large structured content (JSON bodies, full error responses)
+- Content that is already masked but would flood the terminal at DEBUG level
+- Diagnostic data that is only useful when opening the log file after a failure
+
+**Rule:** Use `Write-CyberArkLog -FileOnly` for any log entry that is useful for post-failure
+diagnosis but would be noisy on the console. Do not use it for `ERROR` or `WARN` entries — those
+should always appear on screen.
+
+---
+
+## 26. EM Dash in String Literals Breaks PS 5.1 Parsing on UTF-8-no-BOM Files
+
+### 26.1 EM dash (`—`) terminates a string token under PS 5.1 when file is UTF-8-no-BOM
+
+**Root cause:** PS 5.1 reads source files as Windows-1252 when no BOM is present. The UTF-8
+byte sequence for EM DASH is `E2 80 94`. Byte `94` in Windows-1252 is the right double-quote
+character (`"`), which the parser interprets as the closing delimiter of a string literal —
+truncating the string and corrupting every token after it on that line.
+
+**Symptom:** `ParserError: Unexpected token` or silent string truncation at the EM DASH position;
+the actual character involved is not obvious from the error message.
+
+**EM dash in a comment is safe** — the parser does not tokenise comment text, so bytes inside
+`#` comments are ignored.
+
+**Wrong (EM DASH inside a string literal):**
+```powershell
+Write-CyberArkLog -Level 'WARN' -Message "Account '$name' not found — skipping."
+```
+
+**Correct:**
+```powershell
+Write-CyberArkLog -Level 'WARN' -Message "Account '$name' not found - skipping."
+```
+
+**Rule:** Use ASCII hyphen (`-`) in all string literals. EM dashes are only safe inside
+`# comments`. All project `.ps1` files must be saved as **UTF-8 with BOM** to prevent this class
+of encoding error entirely (see Section 10).
+
+---
+
+## 27. `$null.PSObject` Returns `$null` in PS 5.1 — Guard Before `.Properties`
+
+### 27.1 Accessing `.PSObject.Properties` on `$null` throws `PropertyNotFoundException`
+
+**Root cause:** In PS 5.1, `$null.PSObject` is a language intrinsic that returns `$null` (not
+the base-object PSObject). Chaining `.Properties` on that `$null` then throws
+`PropertyNotFoundException: The property 'Properties' cannot be found on this object`.
+
+This most commonly occurs after an API call where `$response.Data.value` is `$null` (the API
+returned `"value": null`), and the code immediately tries to guard with
+`$response.Data.value.PSObject.Properties['someKey']`.
+
+**Symptom:** `PropertyNotFoundException` pointing at a line that accesses `.PSObject.Properties`
+on a variable that appeared to be checked already.
+
+**Wrong:**
+```powershell
+# $response.Data.value could be $null — $null.PSObject is $null, then .Properties throws
+if ($response.Data.value.PSObject.Properties['id']) { ... }
+```
+
+**Correct — guard `$null` first, then access PSObject.Properties:**
+```powershell
+if ($null -ne $response.Data.value -and
+    $response.Data.value.PSObject.Properties['id']) { ... }
+```
+
+**`$_ -and` short-circuit pattern in `Where-Object`:**
+```powershell
+# $_ could be $null when @($null) is piped (e.g. API returned value:null).
+# $_ -and evaluates false immediately without accessing any properties.
+$acctList | Where-Object {
+    $_ -and
+    (($_.PSObject.Properties['name'] -and $_.name -eq $accountName) -or
+     ($_.PSObject.Properties['userName'] -and $_.userName -eq $accountName))
+}
+```
+
+**How `@($null)` arises:** When `Invoke-CyberArkAPI` returns `Data.value = $null` and the
+caller wraps it in `@(...)`, PS 5.1 creates a one-element array containing `$null` rather
+than an empty array.
+
+```powershell
+[array]$acctList = if ($null -ne $resp.Data.value) { @($resp.Data.value) } else { @() }
+```
+
+**Rule:** Always check `$null -ne $variable` before accessing `.PSObject.Properties`. A
+truthiness check (`if ($variable)`) is not sufficient — it passes for a non-null object that
+happens to be an empty PSObject.
+
+---
+
+## 28. Trailing Slash Required When Last URL Path Segment Contains a Dot
+
+### 28.1 Dots in the final URL path segment are misread as file extensions by proxies and servers
+
+**Root cause:** HTTP/1.1 servers and reverse proxies (including some CyberArk-adjacent
+infrastructure) examine the last path segment for a file extension. If a segment like
+`domain.user` or `12_34.56` is present, the server may return an incorrect content type or
+reject the request entirely. Appending a trailing slash signals that the path is a collection
+(directory), not a file.
+
+**Symptom:** Requests to endpoints where the account name, username, or other ID contains a dot
+return unexpected errors or mismatched content types.
+
+**Fix applied in `Join-CyberArkUrl` (`CyberArkComms.psm1`):**
+```powershell
+# After joining all segments, check the final path segment for a dot.
+if ($result.Split('/')[-1] -match '\.') { $result += '/' }
+```
+
+**Fix applied in `Invoke-CustomTestApi` (direct URL builder):**
+```powershell
+# Applied to $cleanPath before appending query params.
+if ($cleanPath.TrimEnd('/').Split('/')[-1] -match '\.') { $fullUri += '/' }
+```
+
+**Rule:** Any helper that assembles the final request URI must append a trailing slash when the
+last path segment contains a dot. Apply the check **before** appending query parameters so the
+slash falls between the path and the `?`.
+
+---
+
+## 29. PowerShell Switch Parameters: `-SwitchParam $true` Binds `$true` to the Next Positional Parameter
+
+### 29.1 Passing a boolean value after a switch parameter silently fills the next parameter
+
+**Root cause:** `[switch]` parameters in PowerShell do not consume the next token. Writing
+`-Required $true` sets the switch (as if `-Required` were present) and then hands `$true` to
+the binder as a bare argument, which fills the **next positional parameter** in the function
+signature. If that parameter is `[string]$Default`, PowerShell coerces `$true` to the string
+`"True"` — which then shows up as `[default: True]` in the prompt.
+
+**Symptom:** A field prompt displays `[default: True]` or `[default: False]` with no apparent
+reason when the calling code passes `-Required $true` or `-Required $false`.
+
+**Wrong:**
+```powershell
+$apiPath = Show-FieldPrompt -Label 'API Path' -Required $true
+# $true silently becomes the $Default parameter → shows "[default: True]"
+```
+
+**Correct (switch syntax — no value):**
+```powershell
+$apiPath = Show-FieldPrompt -Label 'API Path' -Required
+```
+
+**Rule:** Never pass a value to a `[switch]` parameter. Use the bare flag name to set it, or
+omit it entirely to leave it unset. If you need a variable to control whether the switch is
+present, use splatting:
+```powershell
+$params = @{ Label = 'API Path' }
+if ($isRequired) { $params['Required'] = $true }
+Show-FieldPrompt @params
+```

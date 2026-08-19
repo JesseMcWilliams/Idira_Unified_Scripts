@@ -15,7 +15,7 @@ $ModuleMeta = @{
         @{ Column = 'SafeName'; Required = $false; Description = 'Name of the safe. Leave blank for all safes.' }
     )
     Priority             = 20
-    Version              = '1.0.0'
+    Version              = '1.1.0'
 }
 
 function Get-SafeMembersListInput {
@@ -129,20 +129,37 @@ function Invoke-SafeMembersList {
                 $perms = if ($member.PSObject.Properties['permissions'] -and $member.permissions) { $member.permissions } else { $null }
 
                 $result.Results.Add([PSCustomObject]@{
-                    SafeName          = $member.safeName
-                    MemberName        = $member.memberName
-                    MemberType        = if ($member.PSObject.Properties['memberType'])       { $member.memberType }       else { '' }
-                    SearchIn          = ''
-                    IsPredefined      = if ($member.PSObject.Properties['isPredefinedUser']) { $member.isPredefinedUser } else { $false }
-                    IsMemberOfSafe    = if ($member.PSObject.Properties['isMemberOfSafe'])   { $member.isMemberOfSafe }   else { $false }
-                    ExpirationDate    = $expirationDate
-                    UseAccounts       = if ($perms -and $perms.PSObject.Properties['UseAccounts'])       { $perms.UseAccounts }       else { $false }
-                    RetrieveAccounts  = if ($perms -and $perms.PSObject.Properties['RetrieveAccounts'])  { $perms.RetrieveAccounts }  else { $false }
-                    ListAccounts      = if ($perms -and $perms.PSObject.Properties['ListAccounts'])      { $perms.ListAccounts }      else { $false }
-                    AddAccounts       = if ($perms -and $perms.PSObject.Properties['AddAccounts'])       { $perms.AddAccounts }       else { $false }
-                    ManageSafe        = if ($perms -and $perms.PSObject.Properties['ManageSafe'])        { $perms.ManageSafe }        else { $false }
-                    ManageSafeMembers = if ($perms -and $perms.PSObject.Properties['ManageSafeMembers']) { $perms.ManageSafeMembers } else { $false }
-                    ViewAuditLog      = if ($perms -and $perms.PSObject.Properties['ViewAuditLog'])      { $perms.ViewAuditLog }      else { $false }
+                    SafeUrlId                              = if ($member.PSObject.Properties['safeUrlId'])                  { $member.safeUrlId }                  else { '' }
+                    SafeName                               = if ($member.PSObject.Properties['safeName'])                   { $member.safeName }                   else { '' }
+                    SafeNumber                             = if ($member.PSObject.Properties['safeNumber'])                 { $member.safeNumber }                 else { $null }
+                    MemberId                               = if ($member.PSObject.Properties['memberId'])                   { $member.memberId }                   else { '' }
+                    MemberName                             = if ($member.PSObject.Properties['memberName'])                 { $member.memberName }                 else { '' }
+                    MemberType                             = if ($member.PSObject.Properties['memberType'])                 { $member.memberType }                 else { '' }
+                    MembershipExpirationDate               = $expirationDate
+                    IsExpiredMembershipEnable              = if ($member.PSObject.Properties['isExpiredMembershipEnable'])  { $member.isExpiredMembershipEnable }  else { $false }
+                    IsPredefinedUser                       = if ($member.PSObject.Properties['isPredefinedUser'])           { $member.isPredefinedUser }           else { $false }
+                    UseAccounts                            = if ($perms -and $perms.PSObject.Properties['useAccounts'])                            { $perms.useAccounts }                            else { $false }
+                    RetrieveAccounts                       = if ($perms -and $perms.PSObject.Properties['retrieveAccounts'])                       { $perms.retrieveAccounts }                       else { $false }
+                    ListAccounts                           = if ($perms -and $perms.PSObject.Properties['listAccounts'])                           { $perms.listAccounts }                           else { $false }
+                    AddAccounts                            = if ($perms -and $perms.PSObject.Properties['addAccounts'])                            { $perms.addAccounts }                            else { $false }
+                    UpdateAccountContent                   = if ($perms -and $perms.PSObject.Properties['updateAccountContent'])                   { $perms.updateAccountContent }                   else { $false }
+                    UpdateAccountProperties                = if ($perms -and $perms.PSObject.Properties['updateAccountProperties'])                { $perms.updateAccountProperties }                else { $false }
+                    InitiateCPMAccountManagementOperations = if ($perms -and $perms.PSObject.Properties['initiateCPMAccountManagementOperations']) { $perms.initiateCPMAccountManagementOperations } else { $false }
+                    SpecifyNextAccountContent              = if ($perms -and $perms.PSObject.Properties['specifyNextAccountContent'])              { $perms.specifyNextAccountContent }              else { $false }
+                    RenameAccounts                         = if ($perms -and $perms.PSObject.Properties['renameAccounts'])                         { $perms.renameAccounts }                         else { $false }
+                    DeleteAccounts                         = if ($perms -and $perms.PSObject.Properties['deleteAccounts'])                         { $perms.deleteAccounts }                         else { $false }
+                    UnlockAccounts                         = if ($perms -and $perms.PSObject.Properties['unlockAccounts'])                         { $perms.unlockAccounts }                         else { $false }
+                    ManageSafe                             = if ($perms -and $perms.PSObject.Properties['manageSafe'])                             { $perms.manageSafe }                             else { $false }
+                    ManageSafeMembers                      = if ($perms -and $perms.PSObject.Properties['manageSafeMembers'])                      { $perms.manageSafeMembers }                      else { $false }
+                    BackupSafe                             = if ($perms -and $perms.PSObject.Properties['backupSafe'])                             { $perms.backupSafe }                             else { $false }
+                    ViewAuditLog                           = if ($perms -and $perms.PSObject.Properties['viewAuditLog'])                           { $perms.viewAuditLog }                           else { $false }
+                    ViewSafeMembers                        = if ($perms -and $perms.PSObject.Properties['viewSafeMembers'])                        { $perms.viewSafeMembers }                        else { $false }
+                    AccessWithoutConfirmation              = if ($perms -and $perms.PSObject.Properties['accessWithoutConfirmation'])              { $perms.accessWithoutConfirmation }              else { $false }
+                    CreateFolders                          = if ($perms -and $perms.PSObject.Properties['createFolders'])                          { $perms.createFolders }                          else { $false }
+                    DeleteFolders                          = if ($perms -and $perms.PSObject.Properties['deleteFolders'])                          { $perms.deleteFolders }                          else { $false }
+                    MoveAccountsAndFolders                 = if ($perms -and $perms.PSObject.Properties['moveAccountsAndFolders'])                 { $perms.moveAccountsAndFolders }                 else { $false }
+                    RequestsAuthorizationLevel1            = if ($perms -and $perms.PSObject.Properties['requestsAuthorizationLevel1'])            { $perms.requestsAuthorizationLevel1 }            else { $false }
+                    RequestsAuthorizationLevel2            = if ($perms -and $perms.PSObject.Properties['requestsAuthorizationLevel2'])            { $perms.requestsAuthorizationLevel2 }            else { $false }
                 })
                 $result.Successes++
                 $result.ItemsProcessed++

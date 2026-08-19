@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Update Account'
@@ -11,16 +11,17 @@ $ModuleMeta = @{
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'AccountID';  Required = $true;  Description = 'Account ID to update.' }
-        @{ Column = 'Name';       Required = $false; Description = 'New account name.' }
-        @{ Column = 'Address';    Required = $false; Description = 'New target address.' }
-        @{ Column = 'UserName';   Required = $false; Description = 'New username.' }
-        @{ Column = 'PlatformID'; Required = $false; Description = 'New platform ID.' }
-        @{ Column = 'SafeName';   Required = $false; Description = 'New safe (moves account).' }
-        @{ Column = 'AutoManaged';Required = $false; Description = 'Enable automatic management: true/false.' }
+        @{ Column = 'AccountName'; Required = $true;  Description = 'Account name or username. Matched locally against name and userName fields within the specified Safe.' }
+        @{ Column = 'Safe';        Required = $true;  Description = 'Safe containing the account.' }
+        @{ Column = 'Name';        Required = $false; Description = 'New account name.' }
+        @{ Column = 'Address';     Required = $false; Description = 'New target address.' }
+        @{ Column = 'UserName';    Required = $false; Description = 'New username.' }
+        @{ Column = 'PlatformID';  Required = $false; Description = 'New platform ID.' }
+        @{ Column = 'SafeName';    Required = $false; Description = 'New safe (moves account).' }
+        @{ Column = 'AutoManaged'; Required = $false; Description = 'Enable automatic management: true/false.' }
     )
     Priority         = 33
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-AccountsUpdateInput {
@@ -133,34 +134,98 @@ function Invoke-AccountsUpdate {
         return $result
     }
 
-    # Validate AccountID
-    $accountID = if ($InputData.AccountID) { "$($InputData.AccountID)".Trim() } else { '' }
+    $accountId   = if ($InputData['AccountID'])   { "$($InputData['AccountID'])".Trim()   } else { '' }
+    $accountName = if ($InputData['AccountName']) { "$($InputData['AccountName'])".Trim() } else { '' }
+    $targetSafe  = if ($InputData['Safe'])        { "$($InputData['Safe'])".Trim()        } else { '' }
 
-    if (-not $accountID) {
-        Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-AccountsUpdate: AccountID is required but was empty.'
-        $result.Errors.Add([PSCustomObject]@{
-            InputData    = $InputData
-            ErrorMessage = 'AccountID is required but was empty.'
-            ErrorDetails = $null
-        })
-        $result.Failures++
-        $result.ItemsProcessed++
-        return $result
+    if (-not $accountId) {
+        if (-not $accountName) {
+            $msg = 'AccountName is required when AccountID is not provided.'
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+        if (-not $targetSafe) {
+            $msg = 'Safe is required to locate the account.'
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        Write-CyberArkLog -Level 'DEBUG' -Message "Fetching accounts in safe '$targetSafe' to locate '$accountName'."
+
+        $lookupResp = Invoke-CyberArkAPI `
+            -Token       $Token `
+            -Method      'GET' `
+            -Endpoint    '/API/Accounts' `
+            -QueryParams @{ filter = "safeName eq $targetSafe"; limit = 1000 }
+
+        if (-not $lookupResp.IsSuccess) {
+            $msg = "Account lookup failed (HTTP $($lookupResp.StatusCode)): $($lookupResp.ErrorMessage)"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $lookupResp.ErrorDetails })
+            $result.Failures++
+            $result.ItemsProcessed++
+            $result.IsFatal = ($lookupResp.StatusCode -in @(401, 0))
+            return $result
+        }
+
+        [array]$acctList = if ($lookupResp.Data -and
+                               $lookupResp.Data.PSObject.Properties['value'] -and
+                               $null -ne $lookupResp.Data.value) {
+            @($lookupResp.Data.value)
+        } else { @() }
+
+        $acctMatch = $acctList | Where-Object {
+            $_ -and
+            (($_.PSObject.Properties['name']     -and $_.name     -eq $accountName) -or
+             ($_.PSObject.Properties['userName'] -and $_.userName -eq $accountName))
+        }
+        [array]$acctMatches = @($acctMatch)
+
+        if (-not $acctMatches -or $acctMatches.Count -eq 0) {
+            $msg = "Account '$accountName' not found in safe '$targetSafe'."
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        if ($acctMatches.Count -gt 1) {
+            Write-CyberArkLog -Level 'WARN' -Message "Multiple accounts matched '$accountName' in safe '$targetSafe' - using first match."
+        }
+
+        $accountId = if ($acctMatches[0].PSObject.Properties['id']) { $acctMatches[0].id } else { '' }
+        if (-not $accountId) {
+            $msg = "Account '$accountName' found in safe '$targetSafe' but has no ID."
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        Write-CyberArkLog -Level 'DEBUG' -Message "Resolved account ID: $accountId"
     }
 
-    $encodedID = [System.Uri]::EscapeDataString($accountID)
+    $encodedId = [System.Uri]::EscapeDataString($accountId)
 
-    Write-CyberArkLog -Level 'INFO'  -Message "Starting account update for ID: $accountID"
-    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/Accounts/$encodedID"
+    Write-CyberArkLog -Level 'INFO'  -Message "Starting account update for ID: $accountId"
+    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/Accounts/$encodedId"
 
     # Step 1: GET current account to retrieve values for fields not being updated
     $getResponse = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'GET' `
-        -Endpoint "/API/Accounts/$encodedID"
+        -Endpoint "/API/Accounts/$encodedId"
 
     if (-not $getResponse.IsSuccess) {
-        $msg = "Failed to retrieve account '$accountID' before update (HTTP $($getResponse.StatusCode)): $($getResponse.ErrorMessage)"
+        $msg = "Failed to retrieve account '$accountId' before update (HTTP $($getResponse.StatusCode)): $($getResponse.ErrorMessage)"
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -177,38 +242,38 @@ function Invoke-AccountsUpdate {
 
     # Step 2: Merge - use input value when provided/non-empty, otherwise fall back to current account value
 
-    $mergedName = if ($InputData.ContainsKey('Name') -and "$($InputData.Name)".Trim() -ne '') {
-        "$($InputData.Name)".Trim()
+    $mergedName = if ($InputData.ContainsKey('Name') -and "$($InputData['Name'])".Trim() -ne '') {
+        "$($InputData['Name'])".Trim()
     } else {
         if ($currentAccount.name) { $currentAccount.name } else { '' }
     }
 
-    $mergedAddress = if ($InputData.ContainsKey('Address') -and "$($InputData.Address)".Trim() -ne '') {
-        "$($InputData.Address)".Trim()
+    $mergedAddress = if ($InputData.ContainsKey('Address') -and "$($InputData['Address'])".Trim() -ne '') {
+        "$($InputData['Address'])".Trim()
     } else {
         if ($currentAccount.address) { $currentAccount.address } else { '' }
     }
 
-    $mergedUserName = if ($InputData.ContainsKey('UserName') -and "$($InputData.UserName)".Trim() -ne '') {
-        "$($InputData.UserName)".Trim()
+    $mergedUserName = if ($InputData.ContainsKey('UserName') -and "$($InputData['UserName'])".Trim() -ne '') {
+        "$($InputData['UserName'])".Trim()
     } else {
         if ($currentAccount.userName) { $currentAccount.userName } else { '' }
     }
 
-    $mergedPlatformID = if ($InputData.ContainsKey('PlatformID') -and "$($InputData.PlatformID)".Trim() -ne '') {
-        "$($InputData.PlatformID)".Trim()
+    $mergedPlatformID = if ($InputData.ContainsKey('PlatformID') -and "$($InputData['PlatformID'])".Trim() -ne '') {
+        "$($InputData['PlatformID'])".Trim()
     } else {
         if ($currentAccount.platformId) { $currentAccount.platformId } else { '' }
     }
 
-    $mergedSafeName = if ($InputData.ContainsKey('SafeName') -and "$($InputData.SafeName)".Trim() -ne '') {
-        "$($InputData.SafeName)".Trim()
+    $mergedSafeName = if ($InputData.ContainsKey('SafeName') -and "$($InputData['SafeName'])".Trim() -ne '') {
+        "$($InputData['SafeName'])".Trim()
     } else {
         if ($currentAccount.safeName) { $currentAccount.safeName } else { '' }
     }
 
-    $mergedAutoManaged = if ($InputData.ContainsKey('AutoManaged') -and "$($InputData.AutoManaged)".Trim() -ne '') {
-        "$($InputData.AutoManaged)".Trim() -eq 'true'
+    $mergedAutoManaged = if ($InputData.ContainsKey('AutoManaged') -and "$($InputData['AutoManaged'])".Trim() -ne '') {
+        "$($InputData['AutoManaged'])".Trim() -eq 'true'
     } else {
         if ($currentAccount.secretManagement) { [bool]$currentAccount.secretManagement.automaticManagementEnabled } else { $false }
     }
@@ -231,18 +296,18 @@ function Invoke-AccountsUpdate {
         }
     }
 
-    Write-CyberArkLog -Level 'DEBUG' -Message "PUT /API/Accounts/$encodedID"
+    Write-CyberArkLog -Level 'DEBUG' -Message "PUT /API/Accounts/$encodedId"
 
     # Step 4: PUT updated account
     $putResponse = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'PUT' `
-        -Endpoint "/API/Accounts/$encodedID" `
+        -Endpoint "/API/Accounts/$encodedId" `
         -Body     $body `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $putResponse.IsSuccess) {
-        $msg = "Account update failed for '$accountID' (HTTP $($putResponse.StatusCode)): $($putResponse.ErrorMessage)"
+        $msg = "Account update failed for '$accountId' (HTTP $($putResponse.StatusCode)): $($putResponse.ErrorMessage)"
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -257,9 +322,9 @@ function Invoke-AccountsUpdate {
 
     # WhatIf: Invoke-CyberArkAPI returns IsSuccess=$true without actually calling the API
     if ($WhatIf.IsPresent) {
-        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: Account update suppressed for '$accountID'."
+        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: Account update suppressed for '$accountId'."
         $result.Results.Add([PSCustomObject]@{
-            AccountID   = $accountID
+            AccountID   = $accountId
             AccountName = $mergedName
             Address     = $mergedAddress
             UserName    = $mergedUserName
@@ -303,7 +368,7 @@ function Invoke-AccountsUpdate {
     $result.Successes++
     $result.ItemsProcessed++
 
-    Write-CyberArkLog -Level 'INFO' -Message "Account update complete for '$accountID'."
+    Write-CyberArkLog -Level 'INFO' -Message "Account update complete for '$accountId'."
 
     Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
 

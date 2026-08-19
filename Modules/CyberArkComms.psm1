@@ -164,6 +164,9 @@ function Join-CyberArkUrl {
     foreach ($seg in $Segments) {
         $result = $result.TrimEnd('/') + '/' + $seg.Trim('/')
     }
+    # A dot in the last path segment is misread as a file extension by some proxies/servers.
+    # Appending a trailing slash signals it is a path, not a file.
+    if ($result.Split('/')[-1] -match '\.') { $result += '/' }
     return $result
 }
 
@@ -301,10 +304,18 @@ function Invoke-CyberArkAPI {
         $bodyString = if ($Body -is [string]) { $Body } else { $Body | ConvertTo-Json -Depth 20 -Compress }
     }
 
+    # --- Profile result cap (MaxResults on token, 0 = no limit) ---
+    $maxResults = 0
+    if ($Token.PSObject.Properties['MaxResults']) {
+        try { $maxResults = [int]$Token.MaxResults } catch { }
+    }
+    # Effective page size — never request more per call than the total cap
+    $effectivePageSize = if ($maxResults -gt 0 -and $maxResults -lt $PageSize) { $maxResults } else { $PageSize }
+
     # --- Pagination state ---
     $allItems     = [System.Collections.Generic.List[object]]::new()
     # PIMServices.svc (legacy WCF REST) does not accept offset/limit pagination params
-    $paginate     = ($Method -eq 'GET' -and $PageSize -gt 0 -and $Uri -notlike '*/PIMServices.svc/*')
+    $paginate     = ($Method -eq 'GET' -and $effectivePageSize -gt 0 -and $Uri -notlike '*/PIMServices.svc/*')
     $offset       = 0
     $firstPage    = $true
     $lastResponse = $null
@@ -316,7 +327,9 @@ function Invoke-CyberArkAPI {
         # Build query string for this page
         $qParams = if ($QueryParams) { [hashtable]$QueryParams.Clone() } else { @{} }
         if ($paginate) {
-            $qParams[$PageSizeParam]   = $PageSize
+            # When capped, shrink the last page request to exactly what's still needed
+            $remaining = if ($maxResults -gt 0) { $maxResults - $allItems.Count } else { $effectivePageSize }
+            $qParams[$PageSizeParam]   = [Math]::Min($effectivePageSize, $remaining)
             $qParams[$PageOffsetParam] = $offset
         }
         $query   = New-CyberArkQuery -Params $qParams
@@ -324,6 +337,9 @@ function Invoke-CyberArkAPI {
 
         if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
             Write-CyberArkLog -Message "$Method $fullUri" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI'
+            if ($bodyString -and $Method -in 'POST','PUT','PATCH') {
+                Write-CyberArkLog -Message "Request body: $bodyString" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI' -FileOnly
+            }
         }
 
         # --- Execute request ---
@@ -383,6 +399,9 @@ function Invoke-CyberArkAPI {
             $errDetails = script:Parse-CyberArkError -Body $rawBody
             $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode $($webEx.Message)" }
             if ($statusCode -ge 400) { $errMsg = "$errMsg  [$Method $fullUri]" }
+            if ($rawBody -and (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue)) {
+                Write-CyberArkLog -Message "HTTP $statusCode response body: $rawBody" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI' -FileOnly
+            }
             return script:New-ApiResponse -IsSuccess $false -StatusCode $statusCode `
                 -RawResponse $rawBody -ErrorMessage $errMsg -ErrorDetails $errDetails
 
@@ -426,13 +445,18 @@ function Invoke-CyberArkAPI {
             if ($null -ne $collection) {
                 foreach ($item in $collection) { $allItems.Add($item) }
 
+                # Stop early if the profile result cap has been reached
+                if ($maxResults -gt 0 -and $allItems.Count -ge $maxResults) {
+                    break
+                }
+
                 # Check for nextLink (ISPSS uses OData-style pagination)
                 $hasNextLink = $data.PSObject.Properties['nextLink'] -and $data.nextLink
                 # Also check count-based: if we got a full page, there may be more
-                $hasMoreByCount = ($collection.Count -eq $PageSize)
+                $hasMoreByCount = ($collection.Count -eq $effectivePageSize)
 
                 if ($hasNextLink -or $hasMoreByCount) {
-                    $offset   += $PageSize
+                    $offset   += $effectivePageSize
                     $firstPage = $false
                     $lastResponse = [PSCustomObject]@{
                         IsSuccess = $isSuccess; StatusCode = $statusCode; RawResponse = $rawBody
@@ -445,6 +469,10 @@ function Invoke-CyberArkAPI {
 
         # --- Single-page or final page - build the response ---
         if ($paginate -and $allItems.Count -gt 0) {
+            # Enforce the cap — break may have over-collected on the last page
+            if ($maxResults -gt 0 -and $allItems.Count -gt $maxResults) {
+                $allItems.RemoveRange($maxResults, $allItems.Count - $maxResults)
+            }
             # Merge all accumulated items back onto the last data object
             # Use the first property that held the collection
             $mergedData = if ($null -ne $data) { $data } else { [PSCustomObject]@{} }

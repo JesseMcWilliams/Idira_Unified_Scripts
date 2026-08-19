@@ -110,7 +110,7 @@ function script:Format-LogLine {
 }
 
 function script:Write-ToDestinations {
-    param([string]$Line, [string]$Level, [bool]$IsBare)
+    param([string]$Line, [string]$Level, [bool]$IsBare, [bool]$FileOnly = $false)
 
     $dest  = $script:LogState.Destination
     $color = if ($script:LevelColor.ContainsKey($Level)) { $script:LevelColor[$Level] } else { 'White' }
@@ -121,7 +121,7 @@ function script:Write-ToDestinations {
         }
     }
 
-    if ($dest -in 'Console', 'Both') {
+    if (-not $FileOnly -and $dest -in 'Console', 'Both') {
         if ($IsBare) {
             Write-Host $Line
         } else {
@@ -227,6 +227,9 @@ function Write-CyberArkLog {
         Calling function name. If omitted, auto-detected from call stack.
     .PARAMETER Bare
         When present, writes message only - no PID/timestamp/level/function prefix.
+    .PARAMETER FileOnly
+        When present, suppresses console output. The entry is written to the log file only.
+        Useful for large or sensitive content (e.g. request bodies) that should not appear on screen.
     #>
     [CmdletBinding()]
     param(
@@ -238,7 +241,9 @@ function Write-CyberArkLog {
 
         [string]$FunctionName,
 
-        [switch]$Bare
+        [switch]$Bare,
+
+        [switch]$FileOnly
     )
 
     # Level filter
@@ -267,7 +272,7 @@ function Write-CyberArkLog {
     }
 
     $line = script:Format-LogLine -Level $Level.ToUpper() -FunctionName $FunctionName -Message $safeMessage
-    script:Write-ToDestinations -Line $line -Level $Level.ToUpper() -IsBare $false
+    script:Write-ToDestinations -Line $line -Level $Level.ToUpper() -IsBare $false -FileOnly:$FileOnly.IsPresent
 }
 
 function Add-CyberArkLogSummaryEntry {

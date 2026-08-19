@@ -170,10 +170,15 @@ function Get-CsvSavePath {
     )
     $safeName    = ($ModuleName -replace '[\\/:*?"<>|]', '_').Trim()
     $defaultName = "$safeName $(Get-Date -Format 'yyyy-MM-dd').csv"
-    $defaultDir  = if ($DefaultFolder -and (Test-Path -LiteralPath $DefaultFolder)) {
-        $DefaultFolder
+    $defaultDir = if ($DefaultFolder) {
+        $resolved = if ([System.IO.Path]::IsPathRooted($DefaultFolder)) {
+            $DefaultFolder
+        } else {
+            Join-Path $PSScriptRoot $DefaultFolder
+        }
+        if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved } else { $PSScriptRoot }
     } else {
-        (Get-Location).Path
+        $PSScriptRoot
     }
     $defaultPath = Join-Path $defaultDir $defaultName
 
@@ -313,16 +318,22 @@ function Get-AllDriverProfiles {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
             # Normalize: add any fields introduced after this profile was saved
-            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder')) {
+            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder', 'TenantPortal', 'TenantVault', 'TenantAuth', 'Role_Template_Safe', 'Role_Group_Prefix')) {
                 $defaultVal = if ($field -eq 'AppName') { 'PasswordVault' } else { '' }
                 if (-not $p.PSObject.Properties[$field]) {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $defaultVal -Force
                 }
             }
-            foreach ($field in @('IgnoreSSL', 'WhatIfDefault')) {
+            foreach ($field in @('IgnoreSSL', 'WhatIfDefault', 'IsDefault')) {
                 if (-not $p.PSObject.Properties[$field]) {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $false -Force
                 }
+            }
+            if (-not $p.PSObject.Properties['Limit']) {
+                $p | Add-Member -NotePropertyName 'Limit' -NotePropertyValue 0 -Force
+            }
+            if (-not $p.PSObject.Properties['DisplayLimit']) {
+                $p | Add-Member -NotePropertyName 'DisplayLimit' -NotePropertyValue 20 -Force
             }
             $xmlPath  = Get-ProfileTokenPath -Name $p.AuthTokenProfile
             $hasToken = Test-Path -LiteralPath $xmlPath
@@ -404,10 +415,15 @@ function New-BlankProfile {
         OutputFolder     = ''
         IgnoreSSL        = $false
         WhatIfDefault    = $false
+        IsDefault        = $false
+        Limit            = 0
         TenantPortal     = ''
         TenantVault      = ''
-        TenantAuth       = ''
-        LastUsed         = $null
+        TenantAuth         = ''
+        Role_Template_Safe = ''
+        Role_Group_Prefix  = ''
+        DisplayLimit       = 20
+        LastUsed           = $null
         Created          = (Get-Date).ToUniversalTime().ToString('o')
         Modified         = (Get-Date).ToUniversalTime().ToString('o')
     }
@@ -449,6 +465,7 @@ function Show-ProfileList {
     Write-Host ('  ' + ('-' * ($hdr.Length - 2))) -ForegroundColor DarkGray
 
     $i = 1
+    $anyDefault = $false
     foreach ($p in $selectedProfiles) {
         $lastUsed = if ($p.LastUsed) {
             try { ([datetime]$p.LastUsed).ToLocalTime().ToString('yyyy-MM-dd HH:mm') } catch { '?' }
@@ -461,13 +478,18 @@ function Show-ProfileList {
             default       { 'DarkGray' }
         }
 
-        $row = "  {0,-$numW}  {1,-$nameW}  {2,-$sysW}  {3,-$authW}  {4,-$useW}" -f $i, $p.ProfileName, $p.SystemType, $p.AuthMethod, $lastUsed
+        $isDefault = $p.currentProfile.PSObject.Properties['IsDefault'] -and [bool]$p.currentProfile.IsDefault
+        if ($isDefault) { $anyDefault = $true }
+        $numLabel = if ($isDefault) { "$i*" } else { "$i" }
+
+        $row = "  {0,-$numW}  {1,-$nameW}  {2,-$sysW}  {3,-$authW}  {4,-$useW}" -f $numLabel, $p.ProfileName, $p.SystemType, $p.AuthMethod, $lastUsed
         Write-Host $row -NoNewline
         Write-Host ("  {0,-$statW}" -f $p.TokenStatus) -ForegroundColor $statusColor
         $i++
     }
 
     Write-Host ''
+    if ($anyDefault) { Write-Host '  (* = default profile)' -ForegroundColor DarkGray }
     Show-Divider
     Write-Host '  Enter a number to view details, or:' -ForegroundColor DarkGray
     Write-Host '  [N] New Profile    [Q] Quit' -ForegroundColor White
@@ -503,6 +525,12 @@ function Show-ProfileDetail {
     Field 'Output Folder'   $(if ($p.OutputFolder) { $p.OutputFolder } else { '(launch directory)' })
     Field 'Ignore SSL'      $p.IgnoreSSL     $(if ($p.IgnoreSSL)     { 'Yellow' } else { 'Gray' })
     Field 'WhatIf Default'  $p.WhatIfDefault $(if ($p.WhatIfDefault) { 'Yellow' } else { 'Gray' })
+    $isDefault = $p.PSObject.Properties['IsDefault'] -and [bool]$p.IsDefault
+    Field 'Default Profile' $(if ($isDefault) { 'Yes' } else { 'No' }) $(if ($isDefault) { 'Green' } else { 'Gray' })
+    $dpLimit = if ($p.PSObject.Properties['DisplayLimit']) { [int]$p.DisplayLimit } else { 20 }
+    Field 'Display Limit'   $(if ($dpLimit -eq 0) { 'Show all' } else { "$dpLimit rows" })
+    if ($p.PSObject.Properties['Role_Template_Safe'] -and $p.Role_Template_Safe) { Field 'Role Template Safe' $p.Role_Template_Safe }
+    if ($p.PSObject.Properties['Role_Group_Prefix']  -and $p.Role_Group_Prefix)  { Field 'Role Group Prefix'  $p.Role_Group_Prefix  }
     $created  = try { ([datetime]$p.Created).ToLocalTime().ToString('yyyy-MM-dd HH:mm') }  catch { $p.Created }
     $modified = try { ([datetime]$p.Modified).ToLocalTime().ToString('yyyy-MM-dd HH:mm') } catch { $p.Modified }
     Field 'Created'         $created
@@ -535,7 +563,8 @@ function Show-ProfileDetail {
 
     Write-Host ''
     Show-Divider
-    Write-Host '  [C] Continue    [E] Edit    [P] Copy    [D] Delete    [T] Test Connection    [L] Log Out    [B] Back' -ForegroundColor White
+    $fLabel = if ($isDefault) { '[F] Clear Default' } else { '[F] Set as Default' }
+    Write-Host "  [C] Continue    [E] Edit    [P] Copy    [D] Delete    [T] Test Connection    [L] Log Out    $fLabel    [B] Back" -ForegroundColor White
 }
 
 #endregion
@@ -685,6 +714,30 @@ function Invoke-ProfileEditFlow {
     $wiStr = Show-FieldPrompt -Label 'WhatIf Default' -Default $(if ($currentProfile.WhatIfDefault) { 'Y' } else { 'N' }) `
         -Description 'Default to WhatIf mode for this profile? (Y/N) - Recommended for production.'
     $currentProfile.WhatIfDefault = $wiStr -match '^[Yy]$'
+
+    $currentLimitDefault = if ($currentProfile.PSObject.Properties['Limit'] -and $currentProfile.Limit -gt 0) { "$($currentProfile.Limit)" } else { '0' }
+    $limitStr = Show-FieldPrompt -Label 'Result Limit' -Default $currentLimitDefault `
+        -Description 'Maximum results returned by List/Get operations (0 = no limit, e.g. 500).'
+    $parsedLimit = 0
+    if ($limitStr) { try { $parsedLimit = [int]$limitStr } catch { } }
+    if ($parsedLimit -lt 0) { $parsedLimit = 0 }
+    $currentProfile.Limit = $parsedLimit
+
+    $currentDisplayLimitDefault = if ($currentProfile.PSObject.Properties['DisplayLimit'] -and $currentProfile.DisplayLimit -ge 0) { "$($currentProfile.DisplayLimit)" } else { '20' }
+    $displayLimitStr = Show-FieldPrompt -Label 'Display Limit' -Default $currentDisplayLimitDefault `
+        -Description 'Maximum rows shown in table output for List operations (0 = show all, default 20).'
+    $parsedDisplayLimit = 20
+    if ($displayLimitStr) { try { $parsedDisplayLimit = [int]$displayLimitStr } catch { } }
+    if ($parsedDisplayLimit -lt 0) { $parsedDisplayLimit = 0 }
+    $currentProfile.DisplayLimit = $parsedDisplayLimit
+
+    $currentProfile.Role_Template_Safe = Show-FieldPrompt -Label 'Role Template Safe' `
+        -Default $(if ($currentProfile.PSObject.Properties['Role_Template_Safe']) { $currentProfile.Role_Template_Safe } else { '' }) `
+        -Description 'Safe name used as a permission template when assigning roles. Used by Add/Update Safe Member role operations.'
+
+    $currentProfile.Role_Group_Prefix = Show-FieldPrompt -Label 'Role Group Prefix' `
+        -Default $(if ($currentProfile.PSObject.Properties['Role_Group_Prefix']) { $currentProfile.Role_Group_Prefix } else { '' }) `
+        -Description 'Prefix for CyberArk role groups (e.g. "CyberArk_"). Used by Add/Update Safe Member role operations.'
 
     Write-Host ''
     Save-DriverProfile -currentProfile $currentProfile
@@ -846,6 +899,14 @@ function Invoke-ProfileManagementLoop {
     param([string]$DefaultProfileName = '')
 
     Initialize-ProfileDirectory
+
+    # Seed the default selection from the stored IsDefault flag when none was passed in
+    if (-not $DefaultProfileName) {
+        $isDefaultEntry = @(Get-AllDriverProfiles) | Where-Object {
+            $_.currentProfile.PSObject.Properties['IsDefault'] -and [bool]$_.currentProfile.IsDefault
+        } | Select-Object -First 1
+        if ($isDefaultEntry) { $DefaultProfileName = $isDefaultEntry.ProfileName }
+    }
 
     $breadcrumbRoot = @('Profile Selection')
     $selected       = $null   # initialize so StrictMode doesn't throw if a branch skips setting it
@@ -1107,6 +1168,14 @@ function Invoke-ProfileManagementLoop {
                         $script:SessionToken  = $token
                         $script:ActiveProfile = $selectedProfile
                         $script:WhatIfMode    = $selectedProfile.WhatIfDefault -or $script:WhatIfMode
+                        # Inject profile result limit into token so Invoke-CyberArkAPI can apply it
+                        $profileLimit = 0
+                        if ($selectedProfile.PSObject.Properties['Limit']) {
+                            try { $profileLimit = [int]$selectedProfile.Limit } catch { }
+                        }
+                        if ($profileLimit -gt 0) {
+                            $script:SessionToken | Add-Member -NotePropertyName 'MaxResults' -NotePropertyValue $profileLimit -Force
+                        }
 
                         # Persist discovered identity URL back to profile so future logins skip rediscovery
                         if ($token.SystemType -eq 'ISPSS' -and $token.IdentityURL -and
@@ -1128,6 +1197,33 @@ function Invoke-ProfileManagementLoop {
                     # Edit profile
                     Invoke-ProfileEditFlow -currentProfile $selected.currentProfile `
                         -Breadcrumbs ($detailCrumbs + @('Edit'))
+                }
+
+                'F' {
+                    # Toggle default profile flag
+                    $isCurrentlyDefault = $selected.currentProfile.PSObject.Properties['IsDefault'] -and [bool]$selected.currentProfile.IsDefault
+                    if ($isCurrentlyDefault) {
+                        $selected.currentProfile.IsDefault = $false
+                        Save-DriverProfile -currentProfile $selected.currentProfile
+                        Write-CyberArkLog -Level 'INFO' -Message "Cleared default flag from profile '$($selected.ProfileName)'."
+                        Write-Host "  '$($selected.ProfileName)' is no longer the default profile." -ForegroundColor Yellow
+                    } else {
+                        # Clear the previous default profile first
+                        foreach ($other in (Get-AllDriverProfiles)) {
+                            if ($other.ProfileName -ne $selected.ProfileName -and
+                                $other.currentProfile.PSObject.Properties['IsDefault'] -and
+                                [bool]$other.currentProfile.IsDefault) {
+                                $other.currentProfile.IsDefault = $false
+                                Save-DriverProfile -currentProfile $other.currentProfile
+                                Write-CyberArkLog -Level 'DEBUG' -Message "Cleared default flag from profile '$($other.ProfileName)'."
+                            }
+                        }
+                        $selected.currentProfile.IsDefault = $true
+                        Save-DriverProfile -currentProfile $selected.currentProfile
+                        Write-CyberArkLog -Level 'INFO' -Message "Profile '$($selected.ProfileName)' set as default."
+                        Write-Host "  '$($selected.ProfileName)' is now the default profile." -ForegroundColor Green
+                    }
+                    Start-Sleep -Seconds 1
                 }
 
                 'P' {
@@ -1152,6 +1248,7 @@ function Invoke-ProfileManagementLoop {
                     $copy.AuthTokenProfile = $newName
                     $copy.Created          = (Get-Date).ToUniversalTime().ToString('o')
                     $copy.LastUsed         = $null
+                    $copy.IsDefault        = $false
                     # Save draft first so edit flow can check for existing file
                     Save-DriverProfile -currentProfile $copy
                     Invoke-ProfileEditFlow -currentProfile $copy -Breadcrumbs ($detailCrumbs + @("Copy to $newName"))
@@ -1338,7 +1435,7 @@ function Invoke-ProactiveRefresh {
     try {
         $refreshed = Update-ISPSSAuthToken -TokenObject $script:SessionToken
         if ($refreshed -and $refreshed.Token) {
-            $script:SessionToken = $refreshed
+            Set-SessionToken -NewToken $refreshed
             $null = Save-AuthToken -TokenObject $refreshed -ProfileName $script:ActiveProfile.AuthTokenProfile
             Write-CyberArkLog -Message 'Proactive token refresh succeeded.' -Level 'INFO'
         }
@@ -1349,7 +1446,7 @@ function Invoke-ProactiveRefresh {
 
 function Invoke-TokenRefresh {
     $status = Test-TokenExpiry
-    if ($status -eq 'Valid') { return $true }
+    if ($status -in @('Valid', 'Warning')) { return $true }
 
     $method = $script:SessionToken.AuthMethod
     $type   = $script:SessionToken.SystemType
@@ -1368,7 +1465,7 @@ function Invoke-TokenRefresh {
         try {
             $refreshed = Update-ISPSSAuthToken -TokenObject $script:SessionToken
             if ($refreshed -and $refreshed.Token) {
-                $script:SessionToken = $refreshed
+                Set-SessionToken -NewToken $refreshed
                 $null = Save-AuthToken -TokenObject $refreshed -ProfileName $script:ActiveProfile.AuthTokenProfile
                 Write-CyberArkLog -Message 'Token refreshed successfully.' -Level 'INFO'
                 return $true
@@ -1405,7 +1502,7 @@ function Invoke-TokenRefresh {
                 -ConcurrentSession:([switch]::new($concurrent)) `
                 -IgnoreSSL:        $script:ActiveProfile.IgnoreSSL
             if ($newToken -and $newToken.Token) {
-                $script:SessionToken = $newToken
+                Set-SessionToken -NewToken $newToken
                 $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
                 Write-CyberArkLog -Message 'Re-authentication successful.' -Level 'INFO'
                 return $true
@@ -1427,7 +1524,7 @@ function Invoke-TokenRefresh {
     try {
         $newToken = Update-SelfHostedAuthToken -TokenObject $script:SessionToken
         if ($newToken -and $newToken.Token) {
-            $script:SessionToken = $newToken
+            Set-SessionToken -NewToken $newToken
             $null = Save-AuthToken -TokenObject $newToken -ProfileName $script:ActiveProfile.AuthTokenProfile
             Write-CyberArkLog -Message 'Re-authentication successful.' -Level 'INFO'
             return $true
@@ -1506,6 +1603,20 @@ function Invoke-TokenInvalidate {
     Write-CyberArkLog -Message '401 Unauthorized - session token invalidated and file removed.' -Level 'WARN'
 }
 
+function Set-SessionToken {
+    # Assigns a refreshed token to $script:SessionToken, copying any NoteProperties
+    # (e.g. MaxResults injected from the profile limit) so they survive token renewal.
+    param([PSCustomObject]$NewToken)
+    if ($script:SessionToken) {
+        foreach ($np in @($script:SessionToken.PSObject.Properties | Where-Object { $_.MemberType -eq 'NoteProperty' })) {
+            if (-not $NewToken.PSObject.Properties[$np.Name]) {
+                try { $NewToken | Add-Member -NotePropertyName $np.Name -NotePropertyValue $np.Value -Force } catch { }
+            }
+        }
+    }
+    $script:SessionToken = $NewToken
+}
+
 #endregion
 
 #region --- Input and CSV Processing ---
@@ -1516,9 +1627,13 @@ function Select-InputFiles {
     $dialog.Title       = 'Select Input CSV File(s)'
     $dialog.Filter      = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'
     $dialog.Multiselect = $true
-    $dialog.InitialDirectory = if ($script:ActiveProfile.InputFolder -and
-            (Test-Path -LiteralPath $script:ActiveProfile.InputFolder)) {
-        $script:ActiveProfile.InputFolder
+    $dialog.InitialDirectory = if ($script:ActiveProfile.InputFolder) {
+        $resolved = if ([System.IO.Path]::IsPathRooted($script:ActiveProfile.InputFolder)) {
+            $script:ActiveProfile.InputFolder
+        } else {
+            Join-Path $PSScriptRoot $script:ActiveProfile.InputFolder
+        }
+        if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved } else { $PSScriptRoot }
     } else { $PSScriptRoot }
 
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -1529,9 +1644,13 @@ function Select-InputFiles {
 
 function Get-OutputCsvPath {
     param([string]$InputPath)
-    $folder = if ($script:ActiveProfile.OutputFolder -and
-            (Test-Path -LiteralPath $script:ActiveProfile.OutputFolder)) {
-        $script:ActiveProfile.OutputFolder
+    $folder = if ($script:ActiveProfile.OutputFolder) {
+        $resolved = if ([System.IO.Path]::IsPathRooted($script:ActiveProfile.OutputFolder)) {
+            $script:ActiveProfile.OutputFolder
+        } else {
+            Join-Path $PSScriptRoot $script:ActiveProfile.OutputFolder
+        }
+        if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved } else { Split-Path $InputPath }
     } else { Split-Path $InputPath }
     $base = [System.IO.Path]::GetFileNameWithoutExtension($InputPath)
     return Join-Path $folder "$($base)_$((Get-Date).ToString('yyyy-MM-dd'))_output.csv"
@@ -1647,8 +1766,13 @@ function Invoke-CsvProcessing {
         }
 
         if ($outputRows.Count -gt 0) {
-            $outputRows | Export-Csv -LiteralPath $outputPath -NoTypeInformation -Encoding UTF8
-            Write-Host "  Output: $outputPath" -ForegroundColor Green
+            try {
+                $outputRows | Export-Csv -LiteralPath $outputPath -NoTypeInformation -Encoding UTF8
+                Write-Host "  Output: $outputPath" -ForegroundColor Green
+            } catch {
+                Write-Host "  Failed to write output file: $_" -ForegroundColor Red
+                Write-CyberArkLog -Level 'ERROR' -Message "Failed to write output CSV '$outputPath': $_"
+            }
         }
 
         $msg = "'$fileName': $($outputRows.Count) processed - $okCount OK, $failCount failed."
@@ -1776,8 +1900,13 @@ function Invoke-ActionModule {
                         -ModuleName "$($meta.Name) Template"
                     if ($csvPath) {
                         $header = ($cols | ForEach-Object { "`"$_`"" }) -join ','
-                        [System.IO.File]::WriteAllLines($csvPath, [string[]]@($header), [System.Text.Encoding]::UTF8)
-                        Write-Host "  Template saved: $csvPath" -ForegroundColor Green
+                        try {
+                            [System.IO.File]::WriteAllLines($csvPath, [string[]]@($header), [System.Text.Encoding]::UTF8)
+                            Write-Host "  Template saved: $csvPath" -ForegroundColor Green
+                        } catch {
+                            Write-Host "  Failed to write template: $_" -ForegroundColor Red
+                            Write-CyberArkLog -Level 'ERROR' -Message "Failed to write template to '$csvPath': $_"
+                        }
                     }
                 }
                 return
@@ -1808,7 +1937,11 @@ function Invoke-ActionModule {
     Write-CyberArkLog -Message "Invoking $fnName" -Level 'DEBUG'
 
     $result = & $fnName -Token $script:SessionToken -InputData $inputData -WhatIf:$script:WhatIfMode
-    $isAllSafeMembers = ($meta.Category -eq 'SafeMembers' -and $meta.Action -eq 'List' -and -not $inputData['SafeName'])
+    $displayLimit    = if ($script:ActiveProfile -and $script:ActiveProfile.PSObject.Properties['DisplayLimit']) {
+        [int]$script:ActiveProfile.DisplayLimit
+    } else { 20 }
+    # 0 = show all; otherwise truncate List actions and all Custom export operations
+    $truncateDisplay = ($displayLimit -gt 0) -and (($meta.Action -eq 'List') -or ($meta.Category -eq 'Custom' -and $meta.ProducesOutput))
 
     Write-Host ''
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {
@@ -1822,9 +1955,9 @@ function Invoke-ActionModule {
                     [PSCustomObject]$props
                 })
             } else { @($result.Results) }
-            $displayData = if ($isAllSafeMembers -and $tableData.Count -gt 10) {
-                Write-Host "  Showing first 10 of $($result.Results.Count) results." -ForegroundColor DarkGray
-                $tableData[0..9]
+            $displayData = if ($truncateDisplay -and $tableData.Count -gt $displayLimit) {
+                Write-Host "  Showing first $displayLimit of $($result.Results.Count) results. (Change 'Display Limit' in Profile Settings)" -ForegroundColor DarkGray
+                $tableData[0..($displayLimit - 1)]
             } else { $tableData }
             $displayData | Format-Table -AutoSize | Out-String |
                 Where-Object { $_.Trim() } |
@@ -1951,7 +2084,6 @@ function Invoke-SessionLoop {
             }
             'Warning' {
                 Invoke-SelfHostedKeepalive
-                Invoke-TokenRefresh | Out-Null
             }
         }
 
@@ -1981,8 +2113,10 @@ function Invoke-SessionLoop {
                     $selectedCat = $categories[$catNum - 1]
                     $catName     = $selectedCat.Name
                     $catModules  = @($selectedCat.Group |
-                        Sort-Object { if ($_.Meta.PSObject.Properties['Priority']) { $_.Meta.Priority } else { 99 } },
-                                    { $_.Meta.Action })
+                        Sort-Object @(
+                            @{ Expression = { [int]($_.Meta.Action -ne 'List') }; Descending = $false }
+                            @{ Expression = { if ($_.Meta.PSObject.Properties['Priority']) { [int]$_.Meta.Priority } else { 99 } }; Descending = $false }
+                        ))
                     $catCrumbs   = $crumbs + @($catName)
 
                     # --- Action loop for this category ---

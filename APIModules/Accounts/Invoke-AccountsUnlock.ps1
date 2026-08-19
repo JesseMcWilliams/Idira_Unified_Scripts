@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Unlock Account'
@@ -11,10 +11,11 @@ $ModuleMeta = @{
     ProducesOutput   = $false
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'AccountID'; Required = $true; Description = 'Account ID, or leave blank to search.' }
+        @{ Column = 'AccountName'; Required = $true;  Description = 'Account name or username. Matched locally against name and userName fields within the specified Safe.' }
+        @{ Column = 'Safe';        Required = $true;  Description = 'Safe containing the account.' }
     )
     Priority         = 39
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-AccountsUnlockInput {
@@ -83,18 +84,83 @@ function Invoke-AccountsUnlock {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $accountId = if ($InputData['AccountID']) { "$($InputData['AccountID'])".Trim() } else { '' }
+    $accountId   = if ($InputData['AccountID'])   { "$($InputData['AccountID'])".Trim()   } else { '' }
+    $accountName = if ($InputData['AccountName']) { "$($InputData['AccountName'])".Trim() } else { '' }
+    $targetSafe  = if ($InputData['Safe'])        { "$($InputData['Safe'])".Trim()        } else { '' }
 
     if (-not $accountId) {
-        Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-AccountsUnlock: AccountID is required.'
-        $result.Errors.Add([PSCustomObject]@{
-            InputData    = $InputData
-            ErrorMessage = 'AccountID is required.'
-            ErrorDetails = $null
-        })
-        $result.Failures++
-        $result.IsFatal = $false
-        return $result
+        if (-not $accountName) {
+            $msg = 'AccountName is required when AccountID is not provided.'
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+        if (-not $targetSafe) {
+            $msg = 'Safe is required to locate the account.'
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        Write-CyberArkLog -Level 'DEBUG' -Message "Fetching accounts in safe '$targetSafe' to locate '$accountName'."
+
+        $lookupResp = Invoke-CyberArkAPI `
+            -Token       $Token `
+            -Method      'GET' `
+            -Endpoint    '/API/Accounts' `
+            -QueryParams @{ filter = "safeName eq $targetSafe"; limit = 1000 }
+
+        if (-not $lookupResp.IsSuccess) {
+            $msg = "Account lookup failed (HTTP $($lookupResp.StatusCode)): $($lookupResp.ErrorMessage)"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $lookupResp.ErrorDetails })
+            $result.Failures++
+            $result.ItemsProcessed++
+            $result.IsFatal = ($lookupResp.StatusCode -in @(401, 0))
+            return $result
+        }
+
+        [array]$acctList = if ($lookupResp.Data -and
+                               $lookupResp.Data.PSObject.Properties['value'] -and
+                               $null -ne $lookupResp.Data.value) {
+            @($lookupResp.Data.value)
+        } else { @() }
+
+        $acctMatch = $acctList | Where-Object {
+            $_ -and
+            (($_.PSObject.Properties['name']     -and $_.name     -eq $accountName) -or
+             ($_.PSObject.Properties['userName'] -and $_.userName -eq $accountName))
+        }
+        [array]$acctMatches = @($acctMatch)
+
+        if (-not $acctMatches -or $acctMatches.Count -eq 0) {
+            $msg = "Account '$accountName' not found in safe '$targetSafe'."
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        if ($acctMatches.Count -gt 1) {
+            Write-CyberArkLog -Level 'WARN' -Message "Multiple accounts matched '$accountName' in safe '$targetSafe' - using first match."
+        }
+
+        $accountId = if ($acctMatches[0].PSObject.Properties['id']) { $acctMatches[0].id } else { '' }
+        if (-not $accountId) {
+            $msg = "Account '$accountName' found in safe '$targetSafe' but has no ID."
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        Write-CyberArkLog -Level 'DEBUG' -Message "Resolved account ID: $accountId"
     }
 
     $encodedId = [Uri]::EscapeDataString($accountId)

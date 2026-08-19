@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $true
     InputSchema      = @()
     Priority         = 10
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-SafesListInput {
@@ -136,17 +136,32 @@ function Invoke-SafesList {
                 catch { '' }
             } else { '' }
 
+            $lastModDate = if ($safe.PSObject.Properties['lastModificationTime'] -and $safe.lastModificationTime) {
+                try { [DateTimeOffset]::FromUnixTimeMilliseconds([long]([double]$safe.lastModificationTime / 1000)).LocalDateTime.ToString('yyyy-MM-dd') }
+                catch { '' }
+            } else { '' }
+
+            $creatorId   = if ($safe.PSObject.Properties['creator'] -and $safe.creator -and
+                               $safe.creator.PSObject.Properties['id'])   { $safe.creator.id   } else { '' }
+            $creatorName = if ($safe.PSObject.Properties['creator'] -and $safe.creator -and
+                               $safe.creator.PSObject.Properties['name']) { $safe.creator.name } else { '' }
+
             $result.Results.Add([PSCustomObject]@{
-                SafeName          = $safe.safeName
-                Description       = $safe.description
-                Location          = $safe.location
-                ManagingCPM       = $safe.managingCPM
-                VersionRetention  = $safe.numberOfVersionsRetention
-                DayRetention      = $safe.numberOfDaysRetention
-                AutoPurge         = $safe.autoPurgeEnabled
-                OLACEnabled       = $safe.olacEnabled
-                Creator           = if ($safe.PSObject.Properties['creator'] -and $safe.creator) { $safe.creator.name } else { '' }
-                Created           = $creationDate
+                SafeUrlId        = if ($safe.PSObject.Properties['safeUrlId'])               { $safe.safeUrlId               } else { '' }
+                SafeName         = if ($safe.PSObject.Properties['safeName'])                { $safe.safeName                } else { '' }
+                SafeNumber       = if ($safe.PSObject.Properties['safeNumber'])              { $safe.safeNumber              } else { $null }
+                Description      = if ($safe.PSObject.Properties['description'])             { $safe.description             } else { '' }
+                Location         = if ($safe.PSObject.Properties['location'])                { $safe.location                } else { '' }
+                CreatorId        = $creatorId
+                Creator          = $creatorName
+                OLACEnabled      = if ($safe.PSObject.Properties['olacEnabled'])             { $safe.olacEnabled             } else { $false }
+                ManagingCPM      = if ($safe.PSObject.Properties['managingCPM'])             { $safe.managingCPM             } else { '' }
+                VersionRetention = if ($safe.PSObject.Properties['numberOfVersionsRetention']) { $safe.numberOfVersionsRetention } else { $null }
+                DayRetention     = if ($safe.PSObject.Properties['numberOfDaysRetention'])   { $safe.numberOfDaysRetention   } else { $null }
+                AutoPurge        = if ($safe.PSObject.Properties['autoPurgeEnabled'])        { $safe.autoPurgeEnabled        } else { $false }
+                Created          = $creationDate
+                LastModified     = $lastModDate
+                IsExpiredMember  = if ($safe.PSObject.Properties['isExpiredMember'])         { $safe.isExpiredMember         } else { $false }
             })
             $result.Successes++
             $result.ItemsProcessed++
