@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $true
     InputSchema      = @(
         @{ Column = 'AccountID';          Required = $true;  Description = 'Account ID to link to, or leave blank to search.' }
-        @{ Column = 'ExtraPasswordIndex'; Required = $true;  Description = '1 = logon, 2 = reconcile, 3 = link3.' }
+        @{ Column = 'ExtraPasswordIndex'; Required = $true;  Description = '1 = logon, 2 = enable, 3 = reconcile.' }
         @{ Column = 'Name';               Required = $true;  Description = 'Name of the linked account.' }
         @{ Column = 'Folder';             Required = $false; Description = 'Folder of the linked account (default: Root).' }
         @{ Column = 'Safe';               Required = $true;  Description = 'Safe containing the linked account.' }
@@ -136,9 +136,9 @@ function Get-AccountsLinkAccountInput {
     # ── Link type ────────────────────────────────────────────────────────────
     Write-Host ''
     Write-Host '  Link Type:' -ForegroundColor DarkGray
-    Write-Host '    1 = Logon Account      (ExtraPasswordIndex 1)'
-    Write-Host '    2 = Reconcile Account  (ExtraPasswordIndex 2)'
-    Write-Host '    3 = Jump Account       (ExtraPasswordIndex 3)'
+    Write-Host '    1 = Logon Account   (ExtraPasswordIndex 1)'
+    Write-Host '    2 = Enable Account  (ExtraPasswordIndex 2)'
+    Write-Host '    3 = Reconcile       (ExtraPasswordIndex 3)'
     Write-Host ''
 
     $defaultIdx = if ($Defaults['ExtraPasswordIndex']) { $Defaults['ExtraPasswordIndex'] } else { '1' }
@@ -229,7 +229,7 @@ function Invoke-AccountsLinkAccount {
     $extraPasswordIndex = 0
     try { $extraPasswordIndex = [int]"$($InputData['ExtraPasswordIndex'])".Trim() } catch {}
     if ($extraPasswordIndex -lt 1) {
-        $msg = 'ExtraPasswordIndex is required and must be a positive integer (1=logon, 2=reconcile, 3=link3).'
+        $msg = 'ExtraPasswordIndex is required and must be a positive integer (1=logon, 2=enable, 3=reconcile).'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
         $result.Failures++
