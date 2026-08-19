@@ -1168,13 +1168,13 @@ function Invoke-ProfileManagementLoop {
                         $script:SessionToken  = $token
                         $script:ActiveProfile = $selectedProfile
                         $script:WhatIfMode    = $selectedProfile.WhatIfDefault -or $script:WhatIfMode
-                        # Inject profile result limit into token so Invoke-CyberArkAPI can apply it
+                        # Inject profile page size into token so Invoke-CyberArkAPI can apply it per paginated request
                         $profileLimit = 0
                         if ($selectedProfile.PSObject.Properties['Limit']) {
                             try { $profileLimit = [int]$selectedProfile.Limit } catch { }
                         }
                         if ($profileLimit -gt 0) {
-                            $script:SessionToken | Add-Member -NotePropertyName 'MaxResults' -NotePropertyValue $profileLimit -Force
+                            $script:SessionToken | Add-Member -NotePropertyName 'PageSize' -NotePropertyValue $profileLimit -Force
                         }
 
                         # Persist discovered identity URL back to profile so future logins skip rediscovery

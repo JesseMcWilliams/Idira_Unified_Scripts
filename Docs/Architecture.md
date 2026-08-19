@@ -122,10 +122,11 @@ PowerShell\
 │   ├── Reports\
 │   │   └── Invoke-ReportsList.ps1          # SelfHosted only (GET /API/Reports)
 │   ├── Custom\
-│   │   ├── Invoke-CustomExportAll.ps1              # Export all list-module results to CSV
-│   │   ├── Invoke-CustomExportEntitlements.ps1     # All safes + members → single CSV
+│   │   ├── Invoke-CustomExportAll.ps1               # Export all list-module results to CSV
+│   │   ├── Invoke-CustomExportEntitlements.ps1      # All safes + members → single CSV
 │   │   ├── Invoke-CustomExportGroupMembersLocal.ps1 # Local group members with nesting
-│   │   └── Invoke-CustomExportGroupMembersLDAP.ps1 # LDAP/Directory group members via ADSI
+│   │   ├── Invoke-CustomExportGroupMembersLDAP.ps1  # LDAP/Directory group members via ADSI (@ groups only)
+│   │   └── Invoke-CustomTestApi.ps1                 # Interactive raw API tester
 │   └── Applications\
 │       ├── Invoke-ApplicationsList.ps1             # SelfHosted only (GET /WebServices/PIMServices.svc/Applications)
 │       ├── Invoke-ApplicationsGet.ps1              # SelfHosted only
