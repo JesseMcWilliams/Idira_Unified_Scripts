@@ -13,7 +13,7 @@ $ModuleMeta = @{
     InputSchema      = @(
         @{ Column = 'SafeName';       Required = $true;  Description = 'Name of the safe.' }
         @{ Column = 'MemberName';     Required = $true;  Description = 'Username, group name, or role name to add.' }
-        @{ Column = 'SearchIn';       Required = $false; Description = 'Where to search: Vault, or domain FQDN.' }
+        @{ Column = 'SearchIn';       Required = $false; Description = 'Domain ID (UUID from GetDirectoryServices) or Vault for system component users. Leave blank to use the API default (Vault).' }
         @{ Column = 'MemberType';     Required = $false; Description = 'User / Group / Role (default: User).' }
         @{ Column = 'PermissionRole'; Required = $false; Description = 'Role or Specified. Role values: ReadOnly / EndUser / PowerUser / SafeManager. Use Specified to set individual permissions.' }
         @{ Column = 'ExpirationDate'; Required = $false; Description = 'Membership expiration date (yyyy-MM-dd) or blank.' }
@@ -41,12 +41,12 @@ $ModuleMeta = @{
         @{ Column = 'RequestsAuthorizationLevel2';            Required = $false; Description = 'Dual-control: require 2 approvers (True/False). Mutually exclusive with RequestsAuthorizationLevel1.' }
     )
     Priority         = 21
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function script:Get-PermissionSet {
     <#
-        Returns a hashtable of all 22 CyberArk safe member permission fields
+        Returns a hashtable of all 22 CyberArk safe member permission fields (camelCase API keys)
         set to the values appropriate for the requested role.
     #>
     param(
@@ -54,81 +54,82 @@ function script:Get-PermissionSet {
         [string]$Role
     )
 
-    # Base: all permissions off
+    # Base: all permissions off — keys are camelCase to match the API request body
     $perms = @{
-        UseAccounts                            = $false
-        RetrieveAccounts                       = $false
-        ListAccounts                           = $false
-        AddAccounts                            = $false
-        UpdateAccountContent                   = $false
-        UpdateAccountProperties                = $false
-        InitiateCPMAccountManagementOperations = $false
-        SpecifyNextAccountContent              = $false
-        RenameAccounts                         = $false
-        DeleteAccounts                         = $false
-        UnlockAccounts                         = $false
-        ManageSafe                             = $false
-        ManageSafeMembers                      = $false
-        BackupSafe                             = $false
-        ViewAuditLog                           = $false
-        ViewSafeMembers                        = $false
-        AccessWithoutConfirmation              = $false
-        CreateFolders                          = $false
-        DeleteFolders                          = $false
-        MoveAccountsAndFolders                 = $false
-        RequestsAuthorizationLevel1            = $false
-        RequestsAuthorizationLevel2            = $false
+        useAccounts                            = $false
+        retrieveAccounts                       = $false
+        listAccounts                           = $false
+        addAccounts                            = $false
+        updateAccountContent                   = $false
+        updateAccountProperties                = $false
+        initiateCPMAccountManagementOperations = $false
+        specifyNextAccountContent              = $false
+        renameAccounts                         = $false
+        deleteAccounts                         = $false
+        unlockAccounts                         = $false
+        manageSafe                             = $false
+        manageSafeMembers                      = $false
+        backupSafe                             = $false
+        viewAuditLog                           = $false
+        viewSafeMembers                        = $false
+        accessWithoutConfirmation              = $false
+        createFolders                          = $false
+        deleteFolders                          = $false
+        moveAccountsAndFolders                 = $false
+        requestsAuthorizationLevel1            = $false
+        requestsAuthorizationLevel2            = $false
     }
 
     switch ($Role) {
         'EndUser' {
-            $perms.UseAccounts      = $true
-            $perms.RetrieveAccounts = $true
-            $perms.ListAccounts     = $true
+            $perms.useAccounts      = $true
+            $perms.retrieveAccounts = $true
+            $perms.listAccounts     = $true
         }
         'PowerUser' {
-            $perms.UseAccounts             = $true
-            $perms.RetrieveAccounts        = $true
-            $perms.ListAccounts            = $true
-            $perms.AddAccounts             = $true
-            $perms.UpdateAccountContent    = $true
-            $perms.UpdateAccountProperties = $true
-            $perms.RenameAccounts          = $true
-            $perms.DeleteAccounts          = $true
-            $perms.UnlockAccounts          = $true
+            $perms.useAccounts             = $true
+            $perms.retrieveAccounts        = $true
+            $perms.listAccounts            = $true
+            $perms.addAccounts             = $true
+            $perms.updateAccountContent    = $true
+            $perms.updateAccountProperties = $true
+            $perms.renameAccounts          = $true
+            $perms.deleteAccounts          = $true
+            $perms.unlockAccounts          = $true
         }
         'SafeManager' {
-            $perms.UseAccounts                            = $true
-            $perms.RetrieveAccounts                       = $true
-            $perms.ListAccounts                           = $true
-            $perms.AddAccounts                            = $true
-            $perms.UpdateAccountContent                   = $true
-            $perms.UpdateAccountProperties                = $true
-            $perms.InitiateCPMAccountManagementOperations = $true
-            $perms.RenameAccounts                         = $true
-            $perms.DeleteAccounts                         = $true
-            $perms.UnlockAccounts                         = $true
-            $perms.ManageSafe                             = $true
-            $perms.ManageSafeMembers                      = $true
-            $perms.BackupSafe                             = $true
-            $perms.ViewAuditLog                           = $true
-            $perms.ViewSafeMembers                        = $true
-            $perms.CreateFolders                          = $true
-            $perms.DeleteFolders                          = $true
-            $perms.MoveAccountsAndFolders                 = $true
+            $perms.useAccounts                            = $true
+            $perms.retrieveAccounts                       = $true
+            $perms.listAccounts                           = $true
+            $perms.addAccounts                            = $true
+            $perms.updateAccountContent                   = $true
+            $perms.updateAccountProperties                = $true
+            $perms.initiateCPMAccountManagementOperations = $true
+            $perms.renameAccounts                         = $true
+            $perms.deleteAccounts                         = $true
+            $perms.unlockAccounts                         = $true
+            $perms.manageSafe                             = $true
+            $perms.manageSafeMembers                      = $true
+            $perms.backupSafe                             = $true
+            $perms.viewAuditLog                           = $true
+            $perms.viewSafeMembers                        = $true
+            $perms.createFolders                          = $true
+            $perms.deleteFolders                          = $true
+            $perms.moveAccountsAndFolders                 = $true
         }
         default {
             # ReadOnly (and unknown roles)
-            $perms.ListAccounts    = $true
-            $perms.ViewAuditLog    = $true
-            $perms.ViewSafeMembers = $true
+            $perms.listAccounts    = $true
+            $perms.viewAuditLog    = $true
+            $perms.viewSafeMembers = $true
         }
     }
 
     return $perms
 }
 
-# 20 standard boolean permissions — used for the interactive Specified loop and CSV parsing.
+# 20 standard boolean permission column names (PascalCase, matching InputSchema and CSV headers).
+# Used for interactive prompts and CSV parsing. API body uses camelCase — first letter lowercased.
 $script:PermissionColumns = @(
     'UseAccounts', 'RetrieveAccounts', 'ListAccounts', 'AddAccounts',
     'UpdateAccountContent', 'UpdateAccountProperties',
@@ -143,15 +144,16 @@ function script:Get-SpecifiedPermissions {
     param([hashtable]$Data)
     $perms = @{}
     foreach ($col in $script:PermissionColumns) {
-        $raw = if ($Data.ContainsKey($col)) { "$($Data[$col])".Trim() } else { '' }
-        $perms[$col] = ($raw -match '^(true|yes|1|y)$')
+        $raw      = if ($Data.ContainsKey($col)) { "$($Data[$col])".Trim() } else { '' }
+        $camelKey = $col.Substring(0,1).ToLower() + $col.Substring(1)
+        $perms[$camelKey] = ($raw -match '^(true|yes|1|y)$')
     }
     # Authorization levels — mutually exclusive; validated separately in Invoke-SafeMembersAdd
-    $perms['RequestsAuthorizationLevel1'] = (
+    $perms['requestsAuthorizationLevel1'] = (
         $Data.ContainsKey('RequestsAuthorizationLevel1') -and
         "$($Data['RequestsAuthorizationLevel1'])".Trim() -match '^(true|yes|1|y)$'
     )
-    $perms['RequestsAuthorizationLevel2'] = (
+    $perms['requestsAuthorizationLevel2'] = (
         $Data.ContainsKey('RequestsAuthorizationLevel2') -and
         "$($Data['RequestsAuthorizationLevel2'])".Trim() -match '^(true|yes|1|y)$'
     )
@@ -195,8 +197,8 @@ function Get-SafeMembersAddInput {
         -Description 'Username, group name, or role name to add.'
 
     $searchIn = Show-FieldPrompt -Label 'SearchIn' `
-        -Default $(if ($Defaults['SearchIn']) { $Defaults['SearchIn'] } else { 'Vault' }) `
-        -Description 'Vault for local users; domain FQDN for AD users (e.g. domain.com).'
+        -Default $(if ($Defaults['SearchIn']) { $Defaults['SearchIn'] } else { '' }) `
+        -Description 'Leave blank to use the API default (Vault). Enter Vault for system component users, or a domain ID (UUID from GetDirectoryServices) for directory members.'
 
     $memberType = Show-FieldPrompt -Label 'MemberType' `
         -Default $(if ($Defaults['MemberType']) { $Defaults['MemberType'] } else { 'User' }) `
@@ -224,20 +226,21 @@ function Get-SafeMembersAddInput {
         Write-Host ''
         $specifiedPerms = @{}
         foreach ($col in $script:PermissionColumns) {
-            $answer = Show-FieldPrompt -Label $col -Default 'N' -Description "Grant $col permission? (Y/N)"
-            $specifiedPerms[$col] = ($answer -match '^[Yy]$')
+            $answer   = Show-FieldPrompt -Label $col -Default 'N' -Description "Grant $col permission? (Y/N)"
+            $camelKey = $col.Substring(0,1).ToLower() + $col.Substring(1)
+            $specifiedPerms[$camelKey] = ($answer -match '^[Yy]$')
         }
 
         # Dual-control authorization level — mutually exclusive; present as a single 3-way choice
         Write-Host ''
         Write-Host '  Dual-Control Authorization Level  (mutually exclusive):' -ForegroundColor DarkGray
         Write-Host '    0 = None'
-        Write-Host '    1 = Level 1  (RequestsAuthorizationLevel1 — requires 1 approver)'
-        Write-Host '    2 = Level 2  (RequestsAuthorizationLevel2 — requires 2 approvers)'
+        Write-Host '    1 = Level 1  (requestsAuthorizationLevel1 — requires 1 approver)'
+        Write-Host '    2 = Level 2  (requestsAuthorizationLevel2 — requires 2 approvers)'
         Write-Host ''
         $authChoice = Read-Host '  Select (0-2, default=0)'
-        $specifiedPerms['RequestsAuthorizationLevel1'] = ($authChoice -eq '1')
-        $specifiedPerms['RequestsAuthorizationLevel2'] = ($authChoice -eq '2')
+        $specifiedPerms['requestsAuthorizationLevel1'] = ($authChoice -eq '1')
+        $specifiedPerms['requestsAuthorizationLevel2'] = ($authChoice -eq '2')
     } else {
         Write-Host ''
         Write-Host '  Permission Role:' -ForegroundColor DarkGray
@@ -329,6 +332,8 @@ function Invoke-SafeMembersAdd {
     }
 
     $encodedSafe    = [Uri]::EscapeDataString($safeName)
+    $memberType     = if ($InputData['MemberType']) { "$($InputData['MemberType'])".Trim() } else { '' }
+    $searchIn       = if ($InputData['SearchIn']) { "$($InputData['SearchIn'])".Trim() } else { '' }
     $permissionRole = if ($InputData['PermissionRole']) { $InputData['PermissionRole'] } else { 'ReadOnly' }
 
     # Resolve permissions: interactive Specified > CSV Specified columns > named role
@@ -341,10 +346,10 @@ function Invoke-SafeMembersAdd {
     }
 
     # Validate mutual exclusivity of authorization levels
-    $level1 = [bool]($permissions['RequestsAuthorizationLevel1'])
-    $level2 = [bool]($permissions['RequestsAuthorizationLevel2'])
+    $level1 = [bool]($permissions['requestsAuthorizationLevel1'])
+    $level2 = [bool]($permissions['requestsAuthorizationLevel2'])
     if ($level1 -and $level2) {
-        $msg = 'RequestsAuthorizationLevel1 and RequestsAuthorizationLevel2 are mutually exclusive. Set only one to true.'
+        $msg = 'requestsAuthorizationLevel1 and requestsAuthorizationLevel2 are mutually exclusive. Set only one to true.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
@@ -357,12 +362,15 @@ function Invoke-SafeMembersAdd {
         return $result
     }
 
+    # Build body — all keys camelCase to match the API contract
     $body = @{
-        MemberName               = $memberName
-        SearchIn                 = if ($InputData['SearchIn']) { $InputData['SearchIn'] } else { 'Vault' }
-        MembershipExpirationDate = if ($InputData['ExpirationDate']) { $InputData['ExpirationDate'] } else { $null }
-        Permissions              = $permissions
+        memberName               = $memberName
+        membershipExpirationDate = if ($InputData['ExpirationDate']) { $InputData['ExpirationDate'] } else { $null }
+        permissions              = $permissions
     }
+    # Optional fields — omit when blank so the API applies its defaults
+    if ($memberType) { $body['memberType'] = $memberType }
+    if ($searchIn)   { $body['searchIn']   = $searchIn   }
 
     Write-CyberArkLog -Level 'INFO'  -Message "Adding member '$memberName' to safe '$safeName'."
     Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Safes/$encodedSafe/Members | MemberName='$memberName' Role='$permissionRole'"

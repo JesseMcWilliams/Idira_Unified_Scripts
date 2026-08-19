@@ -227,7 +227,7 @@ function Invoke-IdentityChallengeLoop {
         if (-not $selectedMech) {
             Write-Host "`nSelect an authentication mechanism:"
             for ($i = 0; $i -lt $mechanisms.Count; $i++) {
-                Write-Host ("  [{0}] {1}" -f ($i + 1), $mechanisms[$i].PromptMechChosen)
+                Write-Host ("  [{0}] {1}" -f ($i + 1), ($mechanisms[$i].PromptMechChosen -replace '\bSent\b', 'Send'))
             }
             $idx = 0
             do {
@@ -245,7 +245,7 @@ function Invoke-IdentityChallengeLoop {
                 if ($selectedMech.Name -eq 'UP' -and $Credential) {
                     $answer = $Credential.GetNetworkCredential().Password
                 } else {
-                    $ss     = Read-Host -Prompt $selectedMech.PromptSelectMech -AsSecureString
+                    $ss     = Read-Host -Prompt ($selectedMech.PromptSelectMech -replace '\bSent\b', 'Send') -AsSecureString
                     $answer = ConvertTo-PlainText $ss
                 }
                 $resp = Invoke-IdentityAdvancedAuth -IdentityURL $IdentityURL -TenantId $TenantId `
@@ -255,7 +255,7 @@ function Invoke-IdentityChallengeLoop {
             'StartTextOob' {
                 $resp = Invoke-IdentityAdvancedAuth -IdentityURL $IdentityURL -TenantId $TenantId `
                     -SessionId $SessionId -MechanismId $selectedMech.MechanismId -Action 'StartOOB'
-                Write-Host $selectedMech.PromptMechChosen
+                Write-Host ($selectedMech.PromptMechChosen -replace '\bSent\b', 'Send')
                 $oobStart   = Get-Date
                 $oobTimeout = 300
                 $oobToken   = $null
@@ -282,7 +282,7 @@ function Invoke-IdentityChallengeLoop {
                 if ($oobToken) { return $oobToken }
             }
             default {
-                $ss     = Read-Host -Prompt $selectedMech.PromptSelectMech -AsSecureString
+                $ss     = Read-Host -Prompt ($selectedMech.PromptSelectMech -replace '\bSent\b', 'Send') -AsSecureString
                 $answer = ConvertTo-PlainText $ss
                 $resp = Invoke-IdentityAdvancedAuth -IdentityURL $IdentityURL -TenantId $TenantId `
                     -SessionId $SessionId -MechanismId $selectedMech.MechanismId `

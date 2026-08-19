@@ -324,7 +324,7 @@ function Get-AllDriverProfiles {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $defaultVal -Force
                 }
             }
-            foreach ($field in @('IgnoreSSL', 'WhatIfDefault')) {
+            foreach ($field in @('IgnoreSSL', 'WhatIfDefault', 'IsDefault')) {
                 if (-not $p.PSObject.Properties[$field]) {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $false -Force
                 }
@@ -415,6 +415,7 @@ function New-BlankProfile {
         OutputFolder     = ''
         IgnoreSSL        = $false
         WhatIfDefault    = $false
+        IsDefault        = $false
         Limit            = 0
         TenantPortal     = ''
         TenantVault      = ''
@@ -464,6 +465,7 @@ function Show-ProfileList {
     Write-Host ('  ' + ('-' * ($hdr.Length - 2))) -ForegroundColor DarkGray
 
     $i = 1
+    $anyDefault = $false
     foreach ($p in $selectedProfiles) {
         $lastUsed = if ($p.LastUsed) {
             try { ([datetime]$p.LastUsed).ToLocalTime().ToString('yyyy-MM-dd HH:mm') } catch { '?' }
@@ -476,13 +478,18 @@ function Show-ProfileList {
             default       { 'DarkGray' }
         }
 
-        $row = "  {0,-$numW}  {1,-$nameW}  {2,-$sysW}  {3,-$authW}  {4,-$useW}" -f $i, $p.ProfileName, $p.SystemType, $p.AuthMethod, $lastUsed
+        $isDefault = $p.currentProfile.PSObject.Properties['IsDefault'] -and [bool]$p.currentProfile.IsDefault
+        if ($isDefault) { $anyDefault = $true }
+        $numLabel = if ($isDefault) { "$i*" } else { "$i" }
+
+        $row = "  {0,-$numW}  {1,-$nameW}  {2,-$sysW}  {3,-$authW}  {4,-$useW}" -f $numLabel, $p.ProfileName, $p.SystemType, $p.AuthMethod, $lastUsed
         Write-Host $row -NoNewline
         Write-Host ("  {0,-$statW}" -f $p.TokenStatus) -ForegroundColor $statusColor
         $i++
     }
 
     Write-Host ''
+    if ($anyDefault) { Write-Host '  (* = default profile)' -ForegroundColor DarkGray }
     Show-Divider
     Write-Host '  Enter a number to view details, or:' -ForegroundColor DarkGray
     Write-Host '  [N] New Profile    [Q] Quit' -ForegroundColor White
@@ -518,6 +525,8 @@ function Show-ProfileDetail {
     Field 'Output Folder'   $(if ($p.OutputFolder) { $p.OutputFolder } else { '(launch directory)' })
     Field 'Ignore SSL'      $p.IgnoreSSL     $(if ($p.IgnoreSSL)     { 'Yellow' } else { 'Gray' })
     Field 'WhatIf Default'  $p.WhatIfDefault $(if ($p.WhatIfDefault) { 'Yellow' } else { 'Gray' })
+    $isDefault = $p.PSObject.Properties['IsDefault'] -and [bool]$p.IsDefault
+    Field 'Default Profile' $(if ($isDefault) { 'Yes' } else { 'No' }) $(if ($isDefault) { 'Green' } else { 'Gray' })
     $dpLimit = if ($p.PSObject.Properties['DisplayLimit']) { [int]$p.DisplayLimit } else { 20 }
     Field 'Display Limit'   $(if ($dpLimit -eq 0) { 'Show all' } else { "$dpLimit rows" })
     if ($p.PSObject.Properties['Role_Template_Safe'] -and $p.Role_Template_Safe) { Field 'Role Template Safe' $p.Role_Template_Safe }
@@ -554,7 +563,8 @@ function Show-ProfileDetail {
 
     Write-Host ''
     Show-Divider
-    Write-Host '  [C] Continue    [E] Edit    [P] Copy    [D] Delete    [T] Test Connection    [L] Log Out    [B] Back' -ForegroundColor White
+    $fLabel = if ($isDefault) { '[F] Clear Default' } else { '[F] Set as Default' }
+    Write-Host "  [C] Continue    [E] Edit    [P] Copy    [D] Delete    [T] Test Connection    [L] Log Out    $fLabel    [B] Back" -ForegroundColor White
 }
 
 #endregion
@@ -890,6 +900,14 @@ function Invoke-ProfileManagementLoop {
 
     Initialize-ProfileDirectory
 
+    # Seed the default selection from the stored IsDefault flag when none was passed in
+    if (-not $DefaultProfileName) {
+        $isDefaultEntry = @(Get-AllDriverProfiles) | Where-Object {
+            $_.currentProfile.PSObject.Properties['IsDefault'] -and [bool]$_.currentProfile.IsDefault
+        } | Select-Object -First 1
+        if ($isDefaultEntry) { $DefaultProfileName = $isDefaultEntry.ProfileName }
+    }
+
     $breadcrumbRoot = @('Profile Selection')
     $selected       = $null   # initialize so StrictMode doesn't throw if a branch skips setting it
 
@@ -1181,6 +1199,33 @@ function Invoke-ProfileManagementLoop {
                         -Breadcrumbs ($detailCrumbs + @('Edit'))
                 }
 
+                'F' {
+                    # Toggle default profile flag
+                    $isCurrentlyDefault = $selected.currentProfile.PSObject.Properties['IsDefault'] -and [bool]$selected.currentProfile.IsDefault
+                    if ($isCurrentlyDefault) {
+                        $selected.currentProfile.IsDefault = $false
+                        Save-DriverProfile -currentProfile $selected.currentProfile
+                        Write-CyberArkLog -Level 'INFO' -Message "Cleared default flag from profile '$($selected.ProfileName)'."
+                        Write-Host "  '$($selected.ProfileName)' is no longer the default profile." -ForegroundColor Yellow
+                    } else {
+                        # Clear the previous default profile first
+                        foreach ($other in (Get-AllDriverProfiles)) {
+                            if ($other.ProfileName -ne $selected.ProfileName -and
+                                $other.currentProfile.PSObject.Properties['IsDefault'] -and
+                                [bool]$other.currentProfile.IsDefault) {
+                                $other.currentProfile.IsDefault = $false
+                                Save-DriverProfile -currentProfile $other.currentProfile
+                                Write-CyberArkLog -Level 'DEBUG' -Message "Cleared default flag from profile '$($other.ProfileName)'."
+                            }
+                        }
+                        $selected.currentProfile.IsDefault = $true
+                        Save-DriverProfile -currentProfile $selected.currentProfile
+                        Write-CyberArkLog -Level 'INFO' -Message "Profile '$($selected.ProfileName)' set as default."
+                        Write-Host "  '$($selected.ProfileName)' is now the default profile." -ForegroundColor Green
+                    }
+                    Start-Sleep -Seconds 1
+                }
+
                 'P' {
                     # Copy profile - prompt for new name first
                     Show-Header -Breadcrumbs ($detailCrumbs + @('Copy'))
@@ -1203,6 +1248,7 @@ function Invoke-ProfileManagementLoop {
                     $copy.AuthTokenProfile = $newName
                     $copy.Created          = (Get-Date).ToUniversalTime().ToString('o')
                     $copy.LastUsed         = $null
+                    $copy.IsDefault        = $false
                     # Save draft first so edit flow can check for existing file
                     Save-DriverProfile -currentProfile $copy
                     Invoke-ProfileEditFlow -currentProfile $copy -Breadcrumbs ($detailCrumbs + @("Copy to $newName"))
@@ -1720,8 +1766,13 @@ function Invoke-CsvProcessing {
         }
 
         if ($outputRows.Count -gt 0) {
-            $outputRows | Export-Csv -LiteralPath $outputPath -NoTypeInformation -Encoding UTF8
-            Write-Host "  Output: $outputPath" -ForegroundColor Green
+            try {
+                $outputRows | Export-Csv -LiteralPath $outputPath -NoTypeInformation -Encoding UTF8
+                Write-Host "  Output: $outputPath" -ForegroundColor Green
+            } catch {
+                Write-Host "  Failed to write output file: $_" -ForegroundColor Red
+                Write-CyberArkLog -Level 'ERROR' -Message "Failed to write output CSV '$outputPath': $_"
+            }
         }
 
         $msg = "'$fileName': $($outputRows.Count) processed - $okCount OK, $failCount failed."
@@ -1849,8 +1900,13 @@ function Invoke-ActionModule {
                         -ModuleName "$($meta.Name) Template"
                     if ($csvPath) {
                         $header = ($cols | ForEach-Object { "`"$_`"" }) -join ','
-                        [System.IO.File]::WriteAllLines($csvPath, [string[]]@($header), [System.Text.Encoding]::UTF8)
-                        Write-Host "  Template saved: $csvPath" -ForegroundColor Green
+                        try {
+                            [System.IO.File]::WriteAllLines($csvPath, [string[]]@($header), [System.Text.Encoding]::UTF8)
+                            Write-Host "  Template saved: $csvPath" -ForegroundColor Green
+                        } catch {
+                            Write-Host "  Failed to write template: $_" -ForegroundColor Red
+                            Write-CyberArkLog -Level 'ERROR' -Message "Failed to write template to '$csvPath': $_"
+                        }
                     }
                 }
                 return

@@ -35,94 +35,87 @@ $ModuleMeta = @{
         @{ Column = 'CreateFolders';                          Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
         @{ Column = 'DeleteFolders';                          Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
         @{ Column = 'MoveAccountsAndFolders';                 Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'RequestsAuthorizationLevel1';            Required = $false; Description = 'Dual-control: require 1 approver (True/False). Mutually exclusive with RequestsAuthorizationLevel2.' }
+        @{ Column = 'RequestsAuthorizationLevel2';            Required = $false; Description = 'Dual-control: require 2 approvers (True/False). Mutually exclusive with RequestsAuthorizationLevel1.' }
     )
     Priority         = 22
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
-function Get-PermissionSet {
-    <#
-        Internal helper. Returns a hashtable of all CyberArk safe member permission booleans
-        based on the supplied role name, or prompts for each permission when role is 'Custom'.
-
-        Parameters:
-            Role  - one of: ReadOnly, EndUser, PowerUser, SafeManager, Custom
-                    Any other / blank value defaults to ReadOnly.
-    #>
-    [CmdletBinding()]
+function script:Get-PermissionSet {
     param(
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $false)]
         [string]$Role
     )
 
-    # Base: all permissions off
+    # Base: all permissions off — keys are camelCase to match the API request body
     $p = @{
-        UseAccounts                            = $false
-        RetrieveAccounts                       = $false
-        ListAccounts                           = $false
-        AddAccounts                            = $false
-        UpdateAccountContent                   = $false
-        UpdateAccountProperties                = $false
-        InitiateCPMAccountManagementOperations = $false
-        SpecifyNextAccountContent              = $false
-        RenameAccounts                         = $false
-        DeleteAccounts                         = $false
-        UnlockAccounts                         = $false
-        ManageSafe                             = $false
-        ManageSafeMembers                      = $false
-        BackupSafe                             = $false
-        ViewAuditLog                           = $false
-        ViewSafeMembers                        = $false
-        AccessWithoutConfirmation              = $false
-        CreateFolders                          = $false
-        DeleteFolders                          = $false
-        MoveAccountsAndFolders                 = $false
+        useAccounts                            = $false
+        retrieveAccounts                       = $false
+        listAccounts                           = $false
+        addAccounts                            = $false
+        updateAccountContent                   = $false
+        updateAccountProperties                = $false
+        initiateCPMAccountManagementOperations = $false
+        specifyNextAccountContent              = $false
+        renameAccounts                         = $false
+        deleteAccounts                         = $false
+        unlockAccounts                         = $false
+        manageSafe                             = $false
+        manageSafeMembers                      = $false
+        backupSafe                             = $false
+        viewAuditLog                           = $false
+        viewSafeMembers                        = $false
+        accessWithoutConfirmation              = $false
+        createFolders                          = $false
+        deleteFolders                          = $false
+        moveAccountsAndFolders                 = $false
+        requestsAuthorizationLevel1            = $false
+        requestsAuthorizationLevel2            = $false
     }
 
     switch ($Role) {
-        'ReadOnly' {
-            $p.ListAccounts  = $true
-            $p.ViewAuditLog  = $true
-        }
         'EndUser' {
-            $p.UseAccounts       = $true
-            $p.RetrieveAccounts  = $true
-            $p.ListAccounts      = $true
+            $p.useAccounts      = $true
+            $p.retrieveAccounts = $true
+            $p.listAccounts     = $true
         }
         'PowerUser' {
-            $p.UseAccounts                            = $true
-            $p.RetrieveAccounts                       = $true
-            $p.ListAccounts                           = $true
-            $p.AddAccounts                            = $true
-            $p.UpdateAccountContent                   = $true
-            $p.UpdateAccountProperties                = $true
-            $p.RenameAccounts                         = $true
-            $p.DeleteAccounts                         = $true
-            $p.UnlockAccounts                         = $true
+            $p.useAccounts             = $true
+            $p.retrieveAccounts        = $true
+            $p.listAccounts            = $true
+            $p.addAccounts             = $true
+            $p.updateAccountContent    = $true
+            $p.updateAccountProperties = $true
+            $p.renameAccounts          = $true
+            $p.deleteAccounts          = $true
+            $p.unlockAccounts          = $true
         }
         'SafeManager' {
-            $p.UseAccounts                            = $true
-            $p.RetrieveAccounts                       = $true
-            $p.ListAccounts                           = $true
-            $p.AddAccounts                            = $true
-            $p.UpdateAccountContent                   = $true
-            $p.UpdateAccountProperties                = $true
-            $p.RenameAccounts                         = $true
-            $p.DeleteAccounts                         = $true
-            $p.UnlockAccounts                         = $true
-            $p.ManageSafe                             = $true
-            $p.ManageSafeMembers                      = $true
-            $p.BackupSafe                             = $true
-            $p.ViewAuditLog                           = $true
-            $p.ViewSafeMembers                        = $true
-            $p.CreateFolders                          = $true
-            $p.DeleteFolders                          = $true
-            $p.MoveAccountsAndFolders                 = $true
+            $p.useAccounts                            = $true
+            $p.retrieveAccounts                       = $true
+            $p.listAccounts                           = $true
+            $p.addAccounts                            = $true
+            $p.updateAccountContent                   = $true
+            $p.updateAccountProperties                = $true
+            $p.initiateCPMAccountManagementOperations = $true
+            $p.renameAccounts                         = $true
+            $p.deleteAccounts                         = $true
+            $p.unlockAccounts                         = $true
+            $p.manageSafe                             = $true
+            $p.manageSafeMembers                      = $true
+            $p.backupSafe                             = $true
+            $p.viewAuditLog                           = $true
+            $p.viewSafeMembers                        = $true
+            $p.createFolders                          = $true
+            $p.deleteFolders                          = $true
+            $p.moveAccountsAndFolders                 = $true
         }
         default {
-            # Default to ReadOnly for unrecognised / blank roles
-            $p.ListAccounts = $true
-            $p.ViewAuditLog = $true
+            # ReadOnly (and unknown roles)
+            $p.listAccounts    = $true
+            $p.viewAuditLog    = $true
+            $p.viewSafeMembers = $true
         }
     }
 
@@ -143,9 +136,19 @@ function script:Get-SpecifiedPermissions {
     param([hashtable]$Data)
     $perms = @{}
     foreach ($col in $script:PermissionColumns) {
-        $raw = if ($Data.ContainsKey($col)) { "$($Data[$col])".Trim() } else { '' }
-        $perms[$col] = ($raw -match '^(true|yes|1|y)$')
+        $raw      = if ($Data.ContainsKey($col)) { "$($Data[$col])".Trim() } else { '' }
+        $camelKey = $col.Substring(0,1).ToLower() + $col.Substring(1)
+        $perms[$camelKey] = ($raw -match '^(true|yes|1|y)$')
     }
+    # Authorization levels — mutually exclusive; validated separately in Invoke-SafeMembersUpdate
+    $perms['requestsAuthorizationLevel1'] = (
+        $Data.ContainsKey('RequestsAuthorizationLevel1') -and
+        "$($Data['RequestsAuthorizationLevel1'])".Trim() -match '^(true|yes|1|y)$'
+    )
+    $perms['requestsAuthorizationLevel2'] = (
+        $Data.ContainsKey('RequestsAuthorizationLevel2') -and
+        "$($Data['RequestsAuthorizationLevel2'])".Trim() -match '^(true|yes|1|y)$'
+    )
     return $perms
 }
 
@@ -154,6 +157,8 @@ function script:Test-HasSpecifiedColumns {
     foreach ($col in $script:PermissionColumns) {
         if ($Data.ContainsKey($col)) { return $true }
     }
+    if ($Data.ContainsKey('RequestsAuthorizationLevel1')) { return $true }
+    if ($Data.ContainsKey('RequestsAuthorizationLevel2')) { return $true }
     return $false
 }
 
@@ -203,9 +208,21 @@ function Get-SafeMembersUpdateInput {
         Write-Host ''
         $specifiedPerms = @{}
         foreach ($col in $script:PermissionColumns) {
-            $answer = Show-FieldPrompt -Label $col -Default 'N' -Description "Grant $col permission? (Y/N)"
-            $specifiedPerms[$col] = ($answer -match '^[Yy]$')
+            $answer   = Show-FieldPrompt -Label $col -Default 'N' -Description "Grant $col permission? (Y/N)"
+            $camelKey = $col.Substring(0,1).ToLower() + $col.Substring(1)
+            $specifiedPerms[$camelKey] = ($answer -match '^[Yy]$')
         }
+
+        # Dual-control authorization level — mutually exclusive; present as a single 3-way choice
+        Write-Host ''
+        Write-Host '  Dual-Control Authorization Level  (mutually exclusive):' -ForegroundColor DarkGray
+        Write-Host '    0 = None'
+        Write-Host '    1 = Level 1  (requestsAuthorizationLevel1 - requires 1 approver)'
+        Write-Host '    2 = Level 2  (requestsAuthorizationLevel2 - requires 2 approvers)'
+        Write-Host ''
+        $authChoice = Read-Host '  Select (0-2, default=0)'
+        $specifiedPerms['requestsAuthorizationLevel1'] = ($authChoice -eq '1')
+        $specifiedPerms['requestsAuthorizationLevel2'] = ($authChoice -eq '2')
     } else {
         Write-Host ''
         Write-Host '  Permission Role:' -ForegroundColor DarkGray
@@ -315,7 +332,24 @@ function Invoke-SafeMembersUpdate {
         script:Get-SpecifiedPermissions -Data $InputData
     } else {
         $role = if ($InputData['PermissionRole']) { "$($InputData['PermissionRole'])".Trim() } else { 'ReadOnly' }
-        Get-PermissionSet -Role $role
+        script:Get-PermissionSet -Role $role
+    }
+
+    # Validate mutual exclusivity of authorization levels
+    $level1 = [bool]($permissions['requestsAuthorizationLevel1'])
+    $level2 = [bool]($permissions['requestsAuthorizationLevel2'])
+    if ($level1 -and $level2) {
+        $msg = 'requestsAuthorizationLevel1 and requestsAuthorizationLevel2 are mutually exclusive. Set only one to true.'
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = $msg
+            ErrorDetails = $null
+        })
+        $result.Failures++
+        $result.ItemsProcessed++
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
+        return $result
     }
 
     # Resolve expiration date - null when blank (API expects null for no expiration)
@@ -325,10 +359,10 @@ function Invoke-SafeMembersUpdate {
         $null
     }
 
-    # Build PUT body (MemberName is in the URL, not the body)
+    # Build PUT body — all keys camelCase to match the API contract
     $body = @{
-        MembershipExpirationDate = $expirationDate
-        Permissions              = $permissions
+        membershipExpirationDate = $expirationDate
+        permissions              = $permissions
     }
 
     Write-CyberArkLog -Level 'INFO'  -Message "Updating safe member '$memberName' in safe '$safeName'."
@@ -375,12 +409,12 @@ function Invoke-SafeMembersUpdate {
     $member = if ($response.Data) { $response.Data } else { $null }
 
     $result.Results.Add([PSCustomObject]@{
-        SafeName                 = if ($member -and $member.safeName)   { $member.safeName }   else { $safeName }
-        MemberName               = if ($member -and $member.memberName) { $member.memberName } else { $memberName }
-        MemberType               = if ($member -and $member.memberType) { $member.memberType } else { '' }
-        MembershipExpirationDate = if ($member)                         { $member.membershipExpirationDate } else { $expirationDate }
-        IsPredefinedUser         = if ($member)                         { [bool]$member.isPredefinedUser }   else { $false }
-        Permissions              = if ($member -and $member.permissions) { $member.permissions } else { $permissions }
+        SafeName                 = if ($member -and $member.PSObject.Properties['safeName'])                 { $member.safeName }                 else { $safeName }
+        MemberName               = if ($member -and $member.PSObject.Properties['memberName'])               { $member.memberName }               else { $memberName }
+        MemberType               = if ($member -and $member.PSObject.Properties['memberType'])               { $member.memberType }               else { '' }
+        MembershipExpirationDate = if ($member -and $member.PSObject.Properties['membershipExpirationDate']) { $member.membershipExpirationDate } else { $expirationDate }
+        IsPredefinedUser         = if ($member -and $member.PSObject.Properties['isPredefinedUser'])         { [bool]$member.isPredefinedUser }   else { $false }
+        Permissions              = if ($member -and $member.PSObject.Properties['permissions'])              { $member.permissions }              else { $permissions }
     })
     $result.Successes++
     $result.ItemsProcessed++

@@ -11,20 +11,21 @@ $ModuleMeta = @{
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'AccountID';          Required = $true;  Description = 'Account ID to link to, or leave blank to search.' }
-        @{ Column = 'ExtraPasswordIndex'; Required = $true;  Description = '1 = logon, 2 = enable, 3 = reconcile.' }
-        @{ Column = 'Name';               Required = $true;  Description = 'Name of the linked account.' }
-        @{ Column = 'Folder';             Required = $false; Description = 'Folder of the linked account (default: Root).' }
-        @{ Column = 'Safe';               Required = $true;  Description = 'Safe containing the linked account.' }
+        @{ Column = 'AccountName';       Required = $true;  Description = 'Account name or username of the target account. Matched locally against the name and userName fields of accounts in the specified Safe.' }
+        @{ Column = 'Safe';              Required = $true;  Description = 'Safe containing the target account.' }
+        @{ Column = 'ExtraPasswordIndex'; Required = $true; Description = '1 = logon, 2 = enable, 3 = reconcile.' }
+        @{ Column = 'LinkName';          Required = $true;  Description = 'Name of the linked account (the credential being attached).' }
+        @{ Column = 'LinkSafe';          Required = $true;  Description = 'Safe containing the linked account.' }
+        @{ Column = 'LinkFolder';        Required = $false; Description = 'Folder of the linked account (default: Root).' }
     )
     Priority         = 36
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function script:Search-LinkedAccount {
     <#
-        Prompts the user to search for the account to link and returns a hashtable
-        with Name, Safe, and Folder pre-populated from the selected account.
+        Prompts the user to search for the linked credential and returns a hashtable
+        with LinkName, LinkSafe, and LinkFolder pre-populated from the selected account.
         Returns $null if the user skips the search.
     #>
     param(
@@ -88,9 +89,9 @@ function script:Search-LinkedAccount {
     if (-not $selected) { return $null }
 
     return @{
-        Name   = if ($selected.PSObject.Properties['name'])     { $selected.name }     else { '' }
-        Safe   = if ($selected.PSObject.Properties['safeName']) { $selected.safeName } else { '' }
-        Folder = 'Root'
+        LinkName   = if ($selected.PSObject.Properties['name'])     { $selected.name }     else { '' }
+        LinkSafe   = if ($selected.PSObject.Properties['safeName']) { $selected.safeName } else { '' }
+        LinkFolder = 'Root'
     }
 }
 
@@ -157,36 +158,36 @@ function Get-AccountsLinkAccountInput {
 
     $linkedDefaults = script:Search-LinkedAccount -Token $Token -IgnoreSSL $ignoreSSL
 
-    $defaultName   = if ($linkedDefaults -and $linkedDefaults['Name'])   { $linkedDefaults['Name']   }
-                     elseif ($Defaults['Name'])                           { $Defaults['Name']         }
-                     else { '' }
-    $defaultSafe   = if ($linkedDefaults -and $linkedDefaults['Safe'])   { $linkedDefaults['Safe']   }
-                     elseif ($Defaults['Safe'])                           { $Defaults['Safe']         }
-                     else { '' }
-    $defaultFolder = if ($linkedDefaults -and $linkedDefaults['Folder']) { $linkedDefaults['Folder'] }
-                     elseif ($Defaults['Folder'])                         { $Defaults['Folder']       }
-                     else { 'Root' }
+    $defaultLinkName   = if ($linkedDefaults -and $linkedDefaults['LinkName'])   { $linkedDefaults['LinkName']   }
+                         elseif ($Defaults['LinkName'])                           { $Defaults['LinkName']         }
+                         else { '' }
+    $defaultLinkSafe   = if ($linkedDefaults -and $linkedDefaults['LinkSafe'])   { $linkedDefaults['LinkSafe']   }
+                         elseif ($Defaults['LinkSafe'])                           { $Defaults['LinkSafe']         }
+                         else { '' }
+    $defaultLinkFolder = if ($linkedDefaults -and $linkedDefaults['LinkFolder']) { $linkedDefaults['LinkFolder'] }
+                         elseif ($Defaults['LinkFolder'])                         { $Defaults['LinkFolder']       }
+                         else { 'Root' }
 
-    $name = Show-FieldPrompt -Label 'Name' `
-        -Default $defaultName `
+    $linkName = Show-FieldPrompt -Label 'LinkName' `
+        -Default $defaultLinkName `
         -Required $true `
         -Description 'Name of the linked account (auto-populated if found by search).'
 
-    $safe = Show-FieldPrompt -Label 'Safe' `
-        -Default $defaultSafe `
+    $linkSafe = Show-FieldPrompt -Label 'LinkSafe' `
+        -Default $defaultLinkSafe `
         -Required $true `
         -Description 'Safe containing the linked account (auto-populated if found by search).'
 
-    $folder = Show-FieldPrompt -Label 'Folder' `
-        -Default $defaultFolder `
+    $linkFolder = Show-FieldPrompt -Label 'LinkFolder' `
+        -Default $defaultLinkFolder `
         -Description 'Folder within the safe (default: Root).'
 
     return @{
         AccountID          = $accountID
         ExtraPasswordIndex = $extraPasswordIndex
-        Name               = $name
-        Safe               = $safe
-        Folder             = $folder
+        LinkName           = $linkName
+        LinkSafe           = $linkSafe
+        LinkFolder         = $linkFolder
     }
 }
 
@@ -217,15 +218,92 @@ function Invoke-AccountsLinkAccount {
 
     if (-not $InputData) { $InputData = @{} }
 
-    $accountId = if ($InputData['AccountID']) { "$($InputData['AccountID'])".Trim() } else { '' }
+    # ── Resolve target account ID ─────────────────────────────────────────────
+    $accountId   = if ($InputData['AccountID']) { "$($InputData['AccountID'])".Trim() } else { '' }
+    $accountName = if ($InputData['AccountName']) { "$($InputData['AccountName'])".Trim() } else { '' }
+    $targetSafe  = if ($InputData['Safe']) { "$($InputData['Safe'])".Trim() } else { '' }
+
     if (-not $accountId) {
-        $msg = 'AccountID is required.'
-        Write-CyberArkLog -Level 'ERROR' -Message $msg
-        $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
-        $result.Failures++
-        return $result
+        # CSV path: look up the account ID from AccountName + Safe
+        if (-not $accountName) {
+            $msg = 'AccountName is required when AccountID is not provided.'
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+        if (-not $targetSafe) {
+            $msg = 'Safe is required to locate the target account.'
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        Write-CyberArkLog -Level 'DEBUG' -Message "Fetching accounts in safe '$targetSafe' to locate '$accountName'."
+
+        # Filter server-side by safe only; match name/userName locally to avoid OData search encoding issues
+        $searchResp = Invoke-CyberArkAPI `
+            -Token       $Token `
+            -Method      'GET' `
+            -Endpoint    '/API/Accounts' `
+            -QueryParams @{ filter = "safeName eq $targetSafe"; limit = 1000 }
+
+        if (-not $searchResp.IsSuccess) {
+            $msg = "Account lookup failed (HTTP $($searchResp.StatusCode)): $($searchResp.ErrorMessage)"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $searchResp.ErrorDetails })
+            $result.Failures++
+            $result.ItemsProcessed++
+            $result.IsFatal = ($searchResp.StatusCode -in @(401, 0))
+            return $result
+        }
+
+        [array]$accounts = if ($searchResp.Data -and
+                               $searchResp.Data.PSObject.Properties['value'] -and
+                               $null -ne $searchResp.Data.value) {
+            @($searchResp.Data.value)
+        } else { @() }
+
+        # Match locally against name OR userName; $_ guard prevents null-PSObject crash under strict mode
+        $match = $accounts | Where-Object {
+            $_ -and
+            (
+                ($_.PSObject.Properties['name']     -and $_.name     -eq $accountName) -or
+                ($_.PSObject.Properties['userName'] -and $_.userName -eq $accountName)
+            )
+        }
+        [array]$matches = @($match)
+
+        if (-not $matches -or $matches.Count -eq 0) {
+            $msg = "Account '$accountName' not found in safe '$targetSafe'."
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        if ($matches.Count -gt 1) {
+            Write-CyberArkLog -Level 'WARN' -Message "Multiple accounts named '$accountName' found in safe '$targetSafe' - using first match."
+        }
+
+        $accountId = if ($matches[0].PSObject.Properties['id']) { $matches[0].id } else { '' }
+        if (-not $accountId) {
+            $msg = "Account '$accountName' found in safe '$targetSafe' but has no ID."
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+            $result.Failures++
+            $result.ItemsProcessed++
+            return $result
+        }
+
+        Write-CyberArkLog -Level 'DEBUG' -Message "Resolved account ID: $accountId"
     }
 
+    # ── Validate ExtraPasswordIndex ───────────────────────────────────────────
     $extraPasswordIndex = 0
     try { $extraPasswordIndex = [int]"$($InputData['ExtraPasswordIndex'])".Trim() } catch {}
     if ($extraPasswordIndex -lt 1) {
@@ -233,42 +311,48 @@ function Invoke-AccountsLinkAccount {
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
         $result.Failures++
+        $result.ItemsProcessed++
         return $result
     }
 
-    $name = if ($InputData['Name']) { "$($InputData['Name'])".Trim() } else { '' }
-    if (-not $name) {
-        $msg = 'Name is required.'
+    # ── Linked account fields ─────────────────────────────────────────────────
+    $linkName = if ($InputData['LinkName']) { "$($InputData['LinkName'])".Trim() } else { '' }
+    if (-not $linkName) {
+        $msg = 'LinkName is required.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
         $result.Failures++
+        $result.ItemsProcessed++
         return $result
     }
 
-    $safe = if ($InputData['Safe']) { "$($InputData['Safe'])".Trim() } else { '' }
-    if (-not $safe) {
-        $msg = 'Safe is required.'
+    $linkSafe = if ($InputData['LinkSafe']) { "$($InputData['LinkSafe'])".Trim() } else { '' }
+    if (-not $linkSafe) {
+        $msg = 'LinkSafe is required.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
         $result.Failures++
+        $result.ItemsProcessed++
         return $result
     }
 
-    $folder = if ($InputData['Folder']) { "$($InputData['Folder'])".Trim() } else { 'Root' }
+    $linkFolder = if ($InputData['LinkFolder']) { "$($InputData['LinkFolder'])".Trim() } else { 'Root' }
 
     $encodedId = [Uri]::EscapeDataString($accountId)
 
-    Write-CyberArkLog -Level 'INFO'  -Message "Linking account '$name' (index $extraPasswordIndex) to account ID $accountId."
-    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Accounts/$accountId/LinkAccount | name='$name' safe='$safe' folder='$folder'"
+    Write-CyberArkLog -Level 'INFO'  -Message "Linking '$linkName' (index $extraPasswordIndex) to account ID $accountId."
+    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Accounts/$accountId/LinkAccount | linkName='$linkName' linkSafe='$linkSafe' linkFolder='$linkFolder'"
 
     if ($WhatIf.IsPresent) {
         Write-CyberArkLog -Level 'INFO' -Message "WhatIf: would POST /API/Accounts/$accountId/LinkAccount."
         $result.Results.Add([PSCustomObject]@{
             AccountID          = $accountId
+            AccountName        = $accountName
+            Safe               = $targetSafe
             ExtraPasswordIndex = $extraPasswordIndex
-            LinkedName         = $name
-            LinkedSafe         = $safe
-            LinkedFolder       = $folder
+            LinkName           = $linkName
+            LinkSafe           = $linkSafe
+            LinkFolder         = $linkFolder
             Status             = 'WhatIf'
         })
         $result.Successes++
@@ -279,9 +363,9 @@ function Invoke-AccountsLinkAccount {
 
     $body = @{
         extraPasswordIndex = $extraPasswordIndex
-        name               = $name
-        folder             = $folder
-        safe               = $safe
+        name               = $linkName
+        folder             = $linkFolder
+        safe               = $linkSafe
     }
 
     $response = Invoke-CyberArkAPI `
@@ -308,10 +392,12 @@ function Invoke-AccountsLinkAccount {
 
     $result.Results.Add([PSCustomObject]@{
         AccountID          = $accountId
+        AccountName        = $accountName
+        Safe               = $targetSafe
         ExtraPasswordIndex = $extraPasswordIndex
-        LinkedName         = $name
-        LinkedSafe         = $safe
-        LinkedFolder       = $folder
+        LinkName           = $linkName
+        LinkSafe           = $linkSafe
+        LinkFolder         = $linkFolder
         Status             = 'Linked'
     })
     $result.Successes++

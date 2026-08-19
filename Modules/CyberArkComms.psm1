@@ -164,6 +164,9 @@ function Join-CyberArkUrl {
     foreach ($seg in $Segments) {
         $result = $result.TrimEnd('/') + '/' + $seg.Trim('/')
     }
+    # A dot in the last path segment is misread as a file extension by some proxies/servers.
+    # Appending a trailing slash signals it is a path, not a file.
+    if ($result.Split('/')[-1] -match '\.') { $result += '/' }
     return $result
 }
 

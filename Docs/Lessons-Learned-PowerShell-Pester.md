@@ -2407,3 +2407,152 @@ Write-CyberArkLog -Message "Request body: $bodyString" -Level 'DEBUG' -FileOnly
 **Rule:** Use `Write-CyberArkLog -FileOnly` for any log entry that is useful for post-failure
 diagnosis but would be noisy on the console. Do not use it for `ERROR` or `WARN` entries — those
 should always appear on screen.
+
+---
+
+## 26. EM Dash in String Literals Breaks PS 5.1 Parsing on UTF-8-no-BOM Files
+
+### 26.1 EM dash (`—`) terminates a string token under PS 5.1 when file is UTF-8-no-BOM
+
+**Root cause:** PS 5.1 reads source files as Windows-1252 when no BOM is present. The UTF-8
+byte sequence for EM DASH is `E2 80 94`. Byte `94` in Windows-1252 is the right double-quote
+character (`"`), which the parser interprets as the closing delimiter of a string literal —
+truncating the string and corrupting every token after it on that line.
+
+**Symptom:** `ParserError: Unexpected token` or silent string truncation at the EM DASH position;
+the actual character involved is not obvious from the error message.
+
+**EM dash in a comment is safe** — the parser does not tokenise comment text, so bytes inside
+`#` comments are ignored.
+
+**Wrong (EM DASH inside a string literal):**
+```powershell
+Write-CyberArkLog -Level 'WARN' -Message "Account '$name' not found — skipping."
+```
+
+**Correct:**
+```powershell
+Write-CyberArkLog -Level 'WARN' -Message "Account '$name' not found - skipping."
+```
+
+**Rule:** Use ASCII hyphen (`-`) in all string literals. EM dashes are only safe inside
+`# comments`. All project `.ps1` files must be saved as **UTF-8 with BOM** to prevent this class
+of encoding error entirely (see Section 10).
+
+---
+
+## 27. `$null.PSObject` Returns `$null` in PS 5.1 — Guard Before `.Properties`
+
+### 27.1 Accessing `.PSObject.Properties` on `$null` throws `PropertyNotFoundException`
+
+**Root cause:** In PS 5.1, `$null.PSObject` is a language intrinsic that returns `$null` (not
+the base-object PSObject). Chaining `.Properties` on that `$null` then throws
+`PropertyNotFoundException: The property 'Properties' cannot be found on this object`.
+
+This most commonly occurs after an API call where `$response.Data.value` is `$null` (the API
+returned `"value": null`), and the code immediately tries to guard with
+`$response.Data.value.PSObject.Properties['someKey']`.
+
+**Symptom:** `PropertyNotFoundException` pointing at a line that accesses `.PSObject.Properties`
+on a variable that appeared to be checked already.
+
+**Wrong:**
+```powershell
+# $response.Data.value could be $null — $null.PSObject is $null, then .Properties throws
+if ($response.Data.value.PSObject.Properties['id']) { ... }
+```
+
+**Correct — guard `$null` first, then access PSObject.Properties:**
+```powershell
+if ($null -ne $response.Data.value -and
+    $response.Data.value.PSObject.Properties['id']) { ... }
+```
+
+**`$_ -and` short-circuit pattern in `Where-Object`:**
+```powershell
+# $_ could be $null when @($null) is piped (e.g. API returned value:null).
+# $_ -and evaluates false immediately without accessing any properties.
+$acctList | Where-Object {
+    $_ -and
+    (($_.PSObject.Properties['name'] -and $_.name -eq $accountName) -or
+     ($_.PSObject.Properties['userName'] -and $_.userName -eq $accountName))
+}
+```
+
+**How `@($null)` arises:** When `Invoke-CyberArkAPI` returns `Data.value = $null` and the
+caller wraps it in `@(...)`, PS 5.1 creates a one-element array containing `$null` rather
+than an empty array.
+
+```powershell
+[array]$acctList = if ($null -ne $resp.Data.value) { @($resp.Data.value) } else { @() }
+```
+
+**Rule:** Always check `$null -ne $variable` before accessing `.PSObject.Properties`. A
+truthiness check (`if ($variable)`) is not sufficient — it passes for a non-null object that
+happens to be an empty PSObject.
+
+---
+
+## 28. Trailing Slash Required When Last URL Path Segment Contains a Dot
+
+### 28.1 Dots in the final URL path segment are misread as file extensions by proxies and servers
+
+**Root cause:** HTTP/1.1 servers and reverse proxies (including some CyberArk-adjacent
+infrastructure) examine the last path segment for a file extension. If a segment like
+`domain.user` or `12_34.56` is present, the server may return an incorrect content type or
+reject the request entirely. Appending a trailing slash signals that the path is a collection
+(directory), not a file.
+
+**Symptom:** Requests to endpoints where the account name, username, or other ID contains a dot
+return unexpected errors or mismatched content types.
+
+**Fix applied in `Join-CyberArkUrl` (`CyberArkComms.psm1`):**
+```powershell
+# After joining all segments, check the final path segment for a dot.
+if ($result.Split('/')[-1] -match '\.') { $result += '/' }
+```
+
+**Fix applied in `Invoke-CustomTestApi` (direct URL builder):**
+```powershell
+# Applied to $cleanPath before appending query params.
+if ($cleanPath.TrimEnd('/').Split('/')[-1] -match '\.') { $fullUri += '/' }
+```
+
+**Rule:** Any helper that assembles the final request URI must append a trailing slash when the
+last path segment contains a dot. Apply the check **before** appending query parameters so the
+slash falls between the path and the `?`.
+
+---
+
+## 29. PowerShell Switch Parameters: `-SwitchParam $true` Binds `$true` to the Next Positional Parameter
+
+### 29.1 Passing a boolean value after a switch parameter silently fills the next parameter
+
+**Root cause:** `[switch]` parameters in PowerShell do not consume the next token. Writing
+`-Required $true` sets the switch (as if `-Required` were present) and then hands `$true` to
+the binder as a bare argument, which fills the **next positional parameter** in the function
+signature. If that parameter is `[string]$Default`, PowerShell coerces `$true` to the string
+`"True"` — which then shows up as `[default: True]` in the prompt.
+
+**Symptom:** A field prompt displays `[default: True]` or `[default: False]` with no apparent
+reason when the calling code passes `-Required $true` or `-Required $false`.
+
+**Wrong:**
+```powershell
+$apiPath = Show-FieldPrompt -Label 'API Path' -Required $true
+# $true silently becomes the $Default parameter → shows "[default: True]"
+```
+
+**Correct (switch syntax — no value):**
+```powershell
+$apiPath = Show-FieldPrompt -Label 'API Path' -Required
+```
+
+**Rule:** Never pass a value to a `[switch]` parameter. Use the bare flag name to set it, or
+omit it entirely to leave it unset. If you need a variable to control whether the switch is
+present, use splatting:
+```powershell
+$params = @{ Label = 'API Path' }
+if ($isRequired) { $params['Required'] = $true }
+Show-FieldPrompt @params
+```
