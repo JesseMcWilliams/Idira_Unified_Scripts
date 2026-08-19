@@ -170,10 +170,15 @@ function Get-CsvSavePath {
     )
     $safeName    = ($ModuleName -replace '[\\/:*?"<>|]', '_').Trim()
     $defaultName = "$safeName $(Get-Date -Format 'yyyy-MM-dd').csv"
-    $defaultDir  = if ($DefaultFolder -and (Test-Path -LiteralPath $DefaultFolder)) {
-        $DefaultFolder
+    $defaultDir = if ($DefaultFolder) {
+        $resolved = if ([System.IO.Path]::IsPathRooted($DefaultFolder)) {
+            $DefaultFolder
+        } else {
+            Join-Path $PSScriptRoot $DefaultFolder
+        }
+        if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved } else { $PSScriptRoot }
     } else {
-        (Get-Location).Path
+        $PSScriptRoot
     }
     $defaultPath = Join-Path $defaultDir $defaultName
 
@@ -1576,9 +1581,13 @@ function Select-InputFiles {
     $dialog.Title       = 'Select Input CSV File(s)'
     $dialog.Filter      = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'
     $dialog.Multiselect = $true
-    $dialog.InitialDirectory = if ($script:ActiveProfile.InputFolder -and
-            (Test-Path -LiteralPath $script:ActiveProfile.InputFolder)) {
-        $script:ActiveProfile.InputFolder
+    $dialog.InitialDirectory = if ($script:ActiveProfile.InputFolder) {
+        $resolved = if ([System.IO.Path]::IsPathRooted($script:ActiveProfile.InputFolder)) {
+            $script:ActiveProfile.InputFolder
+        } else {
+            Join-Path $PSScriptRoot $script:ActiveProfile.InputFolder
+        }
+        if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved } else { $PSScriptRoot }
     } else { $PSScriptRoot }
 
     if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -1589,9 +1598,13 @@ function Select-InputFiles {
 
 function Get-OutputCsvPath {
     param([string]$InputPath)
-    $folder = if ($script:ActiveProfile.OutputFolder -and
-            (Test-Path -LiteralPath $script:ActiveProfile.OutputFolder)) {
-        $script:ActiveProfile.OutputFolder
+    $folder = if ($script:ActiveProfile.OutputFolder) {
+        $resolved = if ([System.IO.Path]::IsPathRooted($script:ActiveProfile.OutputFolder)) {
+            $script:ActiveProfile.OutputFolder
+        } else {
+            Join-Path $PSScriptRoot $script:ActiveProfile.OutputFolder
+        }
+        if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved } else { Split-Path $InputPath }
     } else { Split-Path $InputPath }
     $base = [System.IO.Path]::GetFileNameWithoutExtension($InputPath)
     return Join-Path $folder "$($base)_$((Get-Date).ToString('yyyy-MM-dd'))_output.csv"
