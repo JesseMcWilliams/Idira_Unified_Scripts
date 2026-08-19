@@ -6,16 +6,20 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 
 ## Features
 
-- **Profile management** — Store multiple named environments (PVWA URL, auth method, output folder, SSL settings). Profiles are encrypted and stored locally per user.
+- **Profile management** — Store multiple named environments (PVWA URL, auth method, output folder, SSL settings). Profiles are encrypted and stored locally per user. One profile can be marked as default.
 - **Multi-environment support** — ISPSS (Privilege Cloud) and Self-Hosted PVWA v12+.
 - **Authentication methods** — CyberArk, LDAP, RADIUS, SAML, OIDC, Shared, PKI, PKIPN (Self-Hosted); ClientCredentials, Interactive, SSO (ISPSS).
+- **Proactive token refresh** — Silently refreshes client-credentials tokens 10 minutes before expiry; prompts for re-auth on interactive session tokens.
 - **Modular API actions** — Each operation is a standalone `.ps1` module loaded dynamically. The driver discovers and presents only the modules supported by the connected system type.
 - **CSV batch processing** — Every write operation (Add, Update, Delete) can process a CSV file row-by-row, or collect input interactively.
 - **CSV template generation** — Generate a header-only CSV template for any module's input schema.
+- **Safe-scoped account lookup** — Account modules accept `AccountName` + `Safe` in CSV input and resolve the account ID server-side, avoiding the need to know internal account IDs.
 - **List drill-down** — From any list result, enter a row number to open the corresponding Get/Details view pre-populated with that row's data.
 - **WhatIf mode** — Toggle a session-wide dry-run flag; all write operations are suppressed and logged.
+- **Interactive API tester** — Send raw requests to any CyberArk API endpoint, inspect request and response headers, and save full session details to JSON.
 - **Token lifecycle management** — Automatic keepalive, expiry warnings, transparent re-authentication, and token persistence across sessions.
-- **Structured logging** — All actions, errors, and summaries are written to a rotating log file.
+- **Structured logging** — All actions, errors, and summaries are written to a rotating log file. POST/PUT/PATCH bodies and error responses are written to the log file at DEBUG level.
+- **Configurable display limit** — Profile setting controls how many rows are shown on screen for list results (default 20, 0 = unlimited).
 
 ---
 
@@ -79,7 +83,10 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 IdiraUnifiedScripts/
 - Driver.ps1                    # Main interactive driver
 - Auth/
-  - Get-AuthToken.ps1           # Authentication for ISPSS and Self-Hosted
+  - CyberArk.Auth.Common.psm1   # Shared auth utilities: token object, WebView2, profile I/O
+  - CyberArk.Auth.ISPSS.psm1    # Privilege Cloud / CyberArk Identity authentication
+  - CyberArk.Auth.SelfHosted.psm1 # Self-Hosted PVWA authentication
+  - Get-AuthToken.ps1           # Legacy entry point (kept for compatibility)
 - Modules/
   - CyberArkComms.psm1          # REST communication layer (pagination, rate limiting)
   - CyberArkLogging.psm1        # Structured log writer
@@ -92,7 +99,7 @@ IdiraUnifiedScripts/
   - Groups/                     # Add, Get, List, Update, Delete groups; Add/Remove members
   - Applications/               # List, Add auth methods (Self-Hosted only)
   - Reports/                    # List reports (Self-Hosted only)
-  - Custom/                     # Export All, Export Entitlements, Export Group Members
+  - Custom/                     # Export All, Export Entitlements, Export Group Members (Local/LDAP), Test API
 - Tests/
   - Unit/                       # Pester v6 unit tests
 - Docs/
@@ -136,10 +143,20 @@ Profiles are stored as encrypted XML files under `%APPDATA%\IdiraUnifiedScripts\
 | SystemType | `ISPSS` or `SelfHosted` |
 | AuthMethod | Auth method (e.g. `CyberArk`, `LDAP`, `ClientCredentials`) |
 | PVWAUrl | Base URL for Self-Hosted (e.g. `https://pvwa.company.com`) |
+| AppName | PVWA application name for Self-Hosted (default `PasswordVault`) |
 | PCloudSubdomain | Subdomain for ISPSS (e.g. `acme`) |
+| Username | Pre-populated username for auth prompts |
 | OutputFolder | Default folder for CSV exports |
-| IgnoreSSL | Skip TLS certificate validation (not recommended for production) |
 | LogFolder | Override for log file location |
+| IgnoreSSL | Skip TLS certificate validation (not recommended for production) |
+| Limit | Maximum API results to fetch (0 = no limit) |
+| DisplayLimit | Maximum rows to display on screen (default 20, 0 = unlimited) |
+| IsDefault | Marks this profile as the default selection on startup |
+| Role_Template_Safe | Safe name used when exporting role-based entitlement templates |
+| Role_Group_Prefix | Prefix filter for role-based group exports |
+| TenantPortal | Auto-computed ISPSS portal URL (`{sub}.cyberark.com`) |
+| TenantVault | Auto-computed ISPSS vault URL (`vault-{sub}.privilegecloud.cyberark.com`) |
+| TenantAuth | Auto-computed CyberArk Identity tenant URL (discovered on first login, cached) |
 
 ---
 

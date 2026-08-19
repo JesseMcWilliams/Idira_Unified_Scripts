@@ -2022,6 +2022,37 @@ with spaces are matched correctly without quoting.
 `Invoke-CyberArkAPI`. The `EscapeDataString` call in `New-CyberArkQuery` handles all
 special characters at the HTTP transport layer.
 
+### 16.4 ISPSS group names use UPN format (`GroupName@domain.com`) for directory-backed groups
+
+**Observation:** In ISPSS (Privilege Cloud), CyberArk directory-linked groups are returned by
+the `/API/UserGroups` endpoint with their `groupName` in UPN format — e.g.
+`MyGroup@corp.com`. Vault-only (local) groups have plain names with no `@`.
+
+**Implication for ADSI lookup:** Active Directory `sAMAccountName` is the portion *before* the
+`@`. Passing the full UPN to the ADSI filter returns no results.
+
+**Two-step name normalisation before ADSI search:**
+```powershell
+# Step 1: strip DOMAIN\ prefix (legacy netlogon format)
+$sam = if ($name -match '^[^\\]+\\(.+)$') { $Matches[1] } else { $name }
+# Step 2: strip @domain suffix (UPN format used by ISPSS)
+$sam = if ($sam  -match '^([^@]+)@.+$')   { $Matches[1] } else { $sam  }
+# $sam is now the bare sAMAccountName for ADSI filter
+```
+
+**Filtering strategy:** Because only `@`-containing names represent directory-backed groups in
+ISPSS, filtering the candidate list to names that match `@` before any ADSI work is done avoids
+unnecessary queries for Vault-only groups and makes the progress counter accurate.
+
+```powershell
+# Include only groups whose name contains '@' — these are directory-backed
+if ($gname -and $gname -match '@') { $ldapGroups.Add(...) }
+```
+
+**Rule:** Before performing an ADSI lookup for a CyberArk group, normalise the group name by
+stripping both the `DOMAIN\` prefix and the `@domain.com` suffix. Use the presence of `@` as
+the reliable indicator that a group is directory-backed and worth querying.
+
 ---
 
 ## 17. Script-Scoped Helper Functions in Dot-Sourced Modules
