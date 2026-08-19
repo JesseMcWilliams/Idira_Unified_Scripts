@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Add Safe Member'
@@ -37,14 +37,16 @@ $ModuleMeta = @{
         @{ Column = 'CreateFolders';                          Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
         @{ Column = 'DeleteFolders';                          Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
         @{ Column = 'MoveAccountsAndFolders';                 Required = $false; Description = 'Permission (True/False). Used when PermissionRole is Specified.' }
+        @{ Column = 'RequestsAuthorizationLevel1';            Required = $false; Description = 'Dual-control: require 1 approver (True/False). Mutually exclusive with RequestsAuthorizationLevel2.' }
+        @{ Column = 'RequestsAuthorizationLevel2';            Required = $false; Description = 'Dual-control: require 2 approvers (True/False). Mutually exclusive with RequestsAuthorizationLevel1.' }
     )
     Priority         = 21
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function script:Get-PermissionSet {
     <#
-        Returns a hashtable of all 20 CyberArk safe member permission fields
+        Returns a hashtable of all 22 CyberArk safe member permission fields
         set to the values appropriate for the requested role.
     #>
     param(
@@ -74,6 +76,8 @@ function script:Get-PermissionSet {
         CreateFolders                          = $false
         DeleteFolders                          = $false
         MoveAccountsAndFolders                 = $false
+        RequestsAuthorizationLevel1            = $false
+        RequestsAuthorizationLevel2            = $false
     }
 
     switch ($Role) {
@@ -115,15 +119,16 @@ function script:Get-PermissionSet {
         }
         default {
             # ReadOnly (and unknown roles)
-            $perms.ListAccounts     = $true
-            $perms.ViewAuditLog     = $true
-            $perms.ViewSafeMembers  = $true
+            $perms.ListAccounts    = $true
+            $perms.ViewAuditLog    = $true
+            $perms.ViewSafeMembers = $true
         }
     }
 
     return $perms
 }
 
+# 20 standard boolean permissions — used for the interactive Specified loop and CSV parsing.
 $script:PermissionColumns = @(
     'UseAccounts', 'RetrieveAccounts', 'ListAccounts', 'AddAccounts',
     'UpdateAccountContent', 'UpdateAccountProperties',
@@ -141,6 +146,15 @@ function script:Get-SpecifiedPermissions {
         $raw = if ($Data.ContainsKey($col)) { "$($Data[$col])".Trim() } else { '' }
         $perms[$col] = ($raw -match '^(true|yes|1|y)$')
     }
+    # Authorization levels — mutually exclusive; validated separately in Invoke-SafeMembersAdd
+    $perms['RequestsAuthorizationLevel1'] = (
+        $Data.ContainsKey('RequestsAuthorizationLevel1') -and
+        "$($Data['RequestsAuthorizationLevel1'])".Trim() -match '^(true|yes|1|y)$'
+    )
+    $perms['RequestsAuthorizationLevel2'] = (
+        $Data.ContainsKey('RequestsAuthorizationLevel2') -and
+        "$($Data['RequestsAuthorizationLevel2'])".Trim() -match '^(true|yes|1|y)$'
+    )
     return $perms
 }
 
@@ -149,6 +163,8 @@ function script:Test-HasSpecifiedColumns {
     foreach ($col in $script:PermissionColumns) {
         if ($Data.ContainsKey($col)) { return $true }
     }
+    if ($Data.ContainsKey('RequestsAuthorizationLevel1')) { return $true }
+    if ($Data.ContainsKey('RequestsAuthorizationLevel2')) { return $true }
     return $false
 }
 
@@ -211,6 +227,17 @@ function Get-SafeMembersAddInput {
             $answer = Show-FieldPrompt -Label $col -Default 'N' -Description "Grant $col permission? (Y/N)"
             $specifiedPerms[$col] = ($answer -match '^[Yy]$')
         }
+
+        # Dual-control authorization level — mutually exclusive; present as a single 3-way choice
+        Write-Host ''
+        Write-Host '  Dual-Control Authorization Level  (mutually exclusive):' -ForegroundColor DarkGray
+        Write-Host '    0 = None'
+        Write-Host '    1 = Level 1  (RequestsAuthorizationLevel1 — requires 1 approver)'
+        Write-Host '    2 = Level 2  (RequestsAuthorizationLevel2 — requires 2 approvers)'
+        Write-Host ''
+        $authChoice = Read-Host '  Select (0-2, default=0)'
+        $specifiedPerms['RequestsAuthorizationLevel1'] = ($authChoice -eq '1')
+        $specifiedPerms['RequestsAuthorizationLevel2'] = ($authChoice -eq '2')
     } else {
         Write-Host ''
         Write-Host '  Permission Role:' -ForegroundColor DarkGray
@@ -313,6 +340,23 @@ function Invoke-SafeMembersAdd {
         script:Get-PermissionSet -Role $permissionRole
     }
 
+    # Validate mutual exclusivity of authorization levels
+    $level1 = [bool]($permissions['RequestsAuthorizationLevel1'])
+    $level2 = [bool]($permissions['RequestsAuthorizationLevel2'])
+    if ($level1 -and $level2) {
+        $msg = 'RequestsAuthorizationLevel1 and RequestsAuthorizationLevel2 are mutually exclusive. Set only one to true.'
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = $msg
+            ErrorDetails = $null
+        })
+        $result.Failures++
+        $result.ItemsProcessed++
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
+        return $result
+    }
+
     $body = @{
         MemberName               = $memberName
         SearchIn                 = if ($InputData['SearchIn']) { $InputData['SearchIn'] } else { 'Vault' }
@@ -362,9 +406,9 @@ function Invoke-SafeMembersAdd {
     $member = if ($response.Data) { $response.Data } else { $null }
 
     $result.Results.Add([PSCustomObject]@{
-        SafeName       = if ($member -and $member.safeName)    { $member.safeName }    else { $safeName }
-        MemberName     = if ($member -and $member.memberName)  { $member.memberName }  else { $memberName }
-        MemberType     = if ($member -and $member.memberType)  { $member.memberType }  else { if ($InputData['MemberType']) { $InputData['MemberType'] } else { 'User' } }
+        SafeName       = if ($member -and $member.PSObject.Properties['safeName'])   { $member.safeName }   else { $safeName }
+        MemberName     = if ($member -and $member.PSObject.Properties['memberName']) { $member.memberName } else { $memberName }
+        MemberType     = if ($member -and $member.PSObject.Properties['memberType']) { $member.memberType } else { if ($InputData['MemberType']) { $InputData['MemberType'] } else { 'User' } }
         PermissionRole = $permissionRole
     })
     $result.Successes++
