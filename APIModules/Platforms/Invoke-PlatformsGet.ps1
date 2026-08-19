@@ -14,7 +14,7 @@ $ModuleMeta = @{
         @{ Column = 'PlatformID'; Required = $true; Description = 'Platform ID (e.g. WinServerLocal).' }
     )
     Priority         = 41
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-PlatformsGetInput {
@@ -135,27 +135,46 @@ function Invoke-PlatformsGet {
         $platform.general
     } else { $platform }
 
+    # Collect required and optional account properties defined by this platform
+    $reqProps = @()
+    $optProps = @()
+    if ($platform.PSObject.Properties['properties'] -and $platform.properties) {
+        $propsSection = $platform.properties
+        if ($propsSection.PSObject.Properties['required'] -and $propsSection.required) {
+            foreach ($p in @($propsSection.required)) {
+                if ($p.PSObject.Properties['name']) { $reqProps += $p.name }
+            }
+        }
+        if ($propsSection.PSObject.Properties['optional'] -and $propsSection.optional) {
+            foreach ($p in @($propsSection.optional)) {
+                if ($p.PSObject.Properties['name']) { $optProps += $p.name }
+            }
+        }
+    }
+
     $result.Results.Add([PSCustomObject]@{
-        PlatformID   = if ($gen.PSObject.Properties['id'])                { $gen.id                }
-                       elseif ($gen.PSObject.Properties['PlatformID'])    { $gen.PlatformID        }
-                       elseif ($platform.PSObject.Properties['id'])       { $platform.id           }
-                       elseif ($platform.PSObject.Properties['PlatformID']) { $platform.PlatformID } else { $platformID }
-        Name         = if ($gen.PSObject.Properties['name'])              { $gen.name              }
-                       elseif ($gen.PSObject.Properties['Name'])          { $gen.Name              }
-                       elseif ($platform.PSObject.Properties['name'])     { $platform.name         }
-                       elseif ($platform.PSObject.Properties['Name'])     { $platform.Name         } else { '' }
-        Description  = if ($gen.PSObject.Properties['description'])       { $gen.description       }
-                       elseif ($gen.PSObject.Properties['Description'])   { $gen.Description       }
-                       elseif ($platform.PSObject.Properties['description']) { $platform.description }
-                       elseif ($platform.PSObject.Properties['Description']) { $platform.Description } else { '' }
-        Active       = if ($gen.PSObject.Properties['active'])            { $gen.active            }
-                       elseif ($gen.PSObject.Properties['Active'])        { $gen.Active            }
-                       elseif ($platform.PSObject.Properties['active'])   { $platform.active       }
-                       elseif ($platform.PSObject.Properties['Active'])   { $platform.Active       } else { $false }
-        PlatformType = if ($gen.PSObject.Properties['platformType'])      { $gen.platformType      }
-                       elseif ($gen.PSObject.Properties['SystemType'])    { $gen.SystemType        }
-                       elseif ($platform.PSObject.Properties['platformType']) { $platform.platformType }
-                       elseif ($platform.PSObject.Properties['SystemType']) { $platform.SystemType } else { '' }
+        PlatformID         = if ($gen.PSObject.Properties['id'])                { $gen.id                }
+                             elseif ($gen.PSObject.Properties['PlatformID'])    { $gen.PlatformID        }
+                             elseif ($platform.PSObject.Properties['id'])       { $platform.id           }
+                             elseif ($platform.PSObject.Properties['PlatformID']) { $platform.PlatformID } else { $platformID }
+        Name               = if ($gen.PSObject.Properties['name'])              { $gen.name              }
+                             elseif ($gen.PSObject.Properties['Name'])          { $gen.Name              }
+                             elseif ($platform.PSObject.Properties['name'])     { $platform.name         }
+                             elseif ($platform.PSObject.Properties['Name'])     { $platform.Name         } else { '' }
+        Description        = if ($gen.PSObject.Properties['description'])       { $gen.description       }
+                             elseif ($gen.PSObject.Properties['Description'])   { $gen.Description       }
+                             elseif ($platform.PSObject.Properties['description']) { $platform.description }
+                             elseif ($platform.PSObject.Properties['Description']) { $platform.Description } else { '' }
+        Active             = if ($gen.PSObject.Properties['active'])            { $gen.active            }
+                             elseif ($gen.PSObject.Properties['Active'])        { $gen.Active            }
+                             elseif ($platform.PSObject.Properties['active'])   { $platform.active       }
+                             elseif ($platform.PSObject.Properties['Active'])   { $platform.Active       } else { $false }
+        PlatformType       = if ($gen.PSObject.Properties['platformType'])      { $gen.platformType      }
+                             elseif ($gen.PSObject.Properties['SystemType'])    { $gen.SystemType        }
+                             elseif ($platform.PSObject.Properties['platformType']) { $platform.platformType }
+                             elseif ($platform.PSObject.Properties['SystemType']) { $platform.SystemType } else { '' }
+        RequiredProperties = $reqProps -join ', '
+        OptionalProperties = $optProps -join ', '
     })
     $result.Successes++
     $result.ItemsProcessed++

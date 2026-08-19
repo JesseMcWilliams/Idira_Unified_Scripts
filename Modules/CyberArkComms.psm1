@@ -334,6 +334,9 @@ function Invoke-CyberArkAPI {
 
         if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
             Write-CyberArkLog -Message "$Method $fullUri" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI'
+            if ($bodyString -and $Method -in 'POST','PUT','PATCH') {
+                Write-CyberArkLog -Message "Request body: $bodyString" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI' -FileOnly
+            }
         }
 
         # --- Execute request ---
@@ -393,6 +396,9 @@ function Invoke-CyberArkAPI {
             $errDetails = script:Parse-CyberArkError -Body $rawBody
             $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode $($webEx.Message)" }
             if ($statusCode -ge 400) { $errMsg = "$errMsg  [$Method $fullUri]" }
+            if ($rawBody -and (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue)) {
+                Write-CyberArkLog -Message "HTTP $statusCode response body: $rawBody" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI' -FileOnly
+            }
             return script:New-ApiResponse -IsSuccess $false -StatusCode $statusCode `
                 -RawResponse $rawBody -ErrorMessage $errMsg -ErrorDetails $errDetails
 

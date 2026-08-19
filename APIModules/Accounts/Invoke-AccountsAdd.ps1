@@ -21,7 +21,7 @@ $ModuleMeta = @{
         @{ Column = 'AutoManaged'; Required = $false; Description = 'Enable automatic CPM management: true/false (default: true).' }
     )
     Priority         = 32
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-AccountsAddInput {
@@ -214,21 +214,27 @@ function Invoke-AccountsAdd {
 
     $acct = $response.Data
 
-    $created = if ($acct.createdTime) {
+    $created = if ($acct.PSObject.Properties['createdTime'] -and $acct.createdTime) {
         try { [DateTimeOffset]::FromUnixTimeSeconds($acct.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
         catch { '' }
     } else { '' }
 
     $result.Results.Add([PSCustomObject]@{
-        AccountID   = $acct.id
-        AccountName = $acct.name
-        Address     = $acct.address
-        UserName    = $acct.userName
-        PlatformID  = $acct.platformId
-        SafeName    = $acct.safeName
-        SecretType  = $acct.secretType
-        AutoManaged = if ($acct.secretManagement) { $acct.secretManagement.automaticManagementEnabled } else { $false }
-        CPMStatus   = if ($acct.secretManagement) { $acct.secretManagement.status } else { '' }
+        AccountID   = if ($acct.PSObject.Properties['id'])         { $acct.id }         else { '' }
+        AccountName = if ($acct.PSObject.Properties['name'])       { $acct.name }       else { '' }
+        Address     = if ($acct.PSObject.Properties['address'])    { $acct.address }    else { '' }
+        UserName    = if ($acct.PSObject.Properties['userName'])   { $acct.userName }   else { '' }
+        PlatformID  = if ($acct.PSObject.Properties['platformId']) { $acct.platformId } else { '' }
+        SafeName    = if ($acct.PSObject.Properties['safeName'])   { $acct.safeName }   else { '' }
+        SecretType  = if ($acct.PSObject.Properties['secretType']) { $acct.secretType } else { '' }
+        AutoManaged = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
+                          $acct.secretManagement.PSObject.Properties['automaticManagementEnabled']) {
+                          $acct.secretManagement.automaticManagementEnabled
+                      } else { $false }
+        CPMStatus   = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
+                          $acct.secretManagement.PSObject.Properties['status']) {
+                          $acct.secretManagement.status
+                      } else { '' }
         Created     = $created
     })
     $result.Successes++
