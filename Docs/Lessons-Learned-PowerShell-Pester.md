@@ -1979,34 +1979,34 @@ not a client-side limitation.
 
 **Workaround — iterate by safe:**
 1. Fetch all safes via `GET /API/Safes`.
-2. For each safe, call `GET /API/Accounts?filter=safeName eq 'SafeName'`.
+2. For each safe, call `GET /API/Accounts?filter=safeName eq SafeName`.
 3. Each per-safe call is paginated normally by `Invoke-CyberArkAPI`; the 20K cap does not
    apply per-safe.
 4. Accumulate results across all safes.
 
 This pattern is implemented in `Invoke-AccountsList` as the "By Safe" retrieval mode.
 
-### 16.3 CyberArk OData filter values must NOT be single-quoted
+### 16.3 CyberArk OData filter values must NOT be quoted
 
 `Invoke-CyberArkAPI` passes filter strings through `New-CyberArkQuery`, which calls
-`[Uri]::EscapeDataString()` on every query parameter value. `EscapeDataString` encodes single
-quotes as `%27`. After URL decoding, the server receives the filter with literal quote characters
+`[Uri]::EscapeDataString()` on every query parameter value. `EscapeDataString` encodes double
+quotes as `%22`. After URL decoding, the server receives the filter with literal quote characters
 as part of the value string:
 
 ```
-# Filter built in code:        safeName eq 'My Safe'
-# After EscapeDataString:      safeName%20eq%20%27My%20Safe%27
-# Server receives (decoded):   safeName eq 'My Safe'   ← quotes are part of the name
+# Filter built in code:        safeName eq "My Safe"
+# After EscapeDataString:      safeName%20eq%20%22My%20Safe%22
+# Server receives (decoded):   safeName eq "My Safe"   ← quotes are part of the name
 # Result:                      no safe found → zero accounts returned
 ```
 
-The CyberArk Accounts API filter parser does **not** support OData-style single-quoted string
+The CyberArk Accounts API filter parser does **not** support OData-style quoted string
 literals. The value after `eq ` is taken literally; if the name does not include the quote
 characters, no match is found and the API returns an empty result with HTTP 200.
 
 **Wrong — quotes become part of the literal name lookup:**
 ```powershell
-$filter = "safeName eq '$($safeName -replace "'", "''")'"
+$filter = "safeName eq `"$safeName`""
 ```
 
 **Correct — no quotes; URL encoding of the whole filter value handles spaces:**
@@ -2018,7 +2018,7 @@ When `New-CyberArkQuery` encodes this, the server receives `safeName eq My Safe`
 decoding). The CyberArk filter parser treats everything after `eq ` as the value, so safe names
 with spaces are matched correctly without quoting.
 
-**Rule:** Do not add OData-style single quotes to CyberArk filter values when using
+**Rule:** Do not add OData-style quotes to CyberArk filter values when using
 `Invoke-CyberArkAPI`. The `EscapeDataString` call in `New-CyberArkQuery` handles all
 special characters at the HTTP transport layer.
 
