@@ -1871,8 +1871,8 @@ function Invoke-ActionModule {
     $displayLimit    = if ($script:ActiveProfile -and $script:ActiveProfile.PSObject.Properties['DisplayLimit']) {
         [int]$script:ActiveProfile.DisplayLimit
     } else { 20 }
-    # 0 = show all; otherwise truncate List operations and ExportEntitlements to $displayLimit rows
-    $truncateDisplay = ($displayLimit -gt 0) -and (($meta.Action -eq 'List') -or ($meta.Category -eq 'Custom' -and $meta.Action -eq 'ExportEntitlements'))
+    # 0 = show all; otherwise truncate List actions and all Custom export operations
+    $truncateDisplay = ($displayLimit -gt 0) -and (($meta.Action -eq 'List') -or ($meta.Category -eq 'Custom' -and $meta.ProducesOutput))
 
     Write-Host ''
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {

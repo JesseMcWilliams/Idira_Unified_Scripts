@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $true
     InputSchema      = @()
     Priority         = 30
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 # Maps one raw account API object onto the result list.
@@ -204,8 +204,7 @@ function Invoke-AccountsList {
 
             Write-Host "  [$safeIdx/$($allSafes.Count)] $safeName" -ForegroundColor White -NoNewline
 
-            # Single-quote the safe name in the filter to handle names with spaces
-            $safeFilter = "safeName eq '$($safeName -replace "'", "''")'"
+            $safeFilter = "safeName eq $safeName"
 
             $acctResp = Invoke-CyberArkAPI `
                 -Token       $Token `
