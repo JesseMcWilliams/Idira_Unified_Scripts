@@ -9,7 +9,7 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 - **Profile management** — Store multiple named environments (PVWA URL, auth method, output folder, SSL settings). Profiles are encrypted and stored locally per user. One profile can be marked as default.
 - **Multi-environment support** — ISPSS (Privilege Cloud) and Self-Hosted PVWA v12+.
 - **Authentication methods** — CyberArk, LDAP, RADIUS, SAML, OIDC, Shared, PKI, PKIPN (Self-Hosted); ClientCredentials, Interactive, SSO (ISPSS).
-- **Proactive token refresh** — Silently refreshes client-credentials tokens 10 minutes before expiry; prompts for re-auth on interactive session tokens.
+- **Proactive token refresh** — Silently refreshes client-credentials tokens 10 minutes before expiry; prompts for re-auth on interactive session tokens. At logon, a saved token that's still valid but more than 15 minutes old is refreshed before the session starts.
 - **Modular API actions** — Each operation is a standalone `.ps1` module loaded dynamically. The driver discovers and presents only the modules supported by the connected system type.
 - **CSV batch processing** — Every write operation (Add, Update, Delete) can process a CSV file row-by-row, or collect input interactively.
 - **CSV template generation** — Generate a header-only CSV template for any module's input schema.
@@ -92,8 +92,8 @@ IdiraUnifiedScripts/
   - CyberArkLogging.psm1        # Structured log writer
 - APIModules/
   - Accounts/                   # Add, Get, List, Update, Delete accounts
-  - Safes/                      # Add, Get, List, Update, Delete safes
-  - SafeMembers/                # Add, List, Update, Remove safe members
+  - Safes/                      # Add, Get, List, Update, Delete, AddFromTemplate safes
+  - SafeMembers/                # Add, List, Update, Remove, AddFromTemplateRole, UpdateFromTemplateRole safe members
   - Platforms/                  # Get, List platforms
   - Users/                      # Get, List users
   - Groups/                     # Add, Get, List, Update, Delete groups; Add/Remove members
@@ -152,8 +152,8 @@ Profiles are stored as encrypted XML files under `%APPDATA%\IdiraUnifiedScripts\
 | Limit | Maximum API results to fetch (0 = no limit) |
 | DisplayLimit | Maximum rows to display on screen (default 20, 0 = unlimited) |
 | IsDefault | Marks this profile as the default selection on startup |
-| Role_Template_Safe | Safe name used when exporting role-based entitlement templates |
-| Role_Group_Prefix | Prefix filter for role-based group exports |
+| Role_Template_Safe | Safe name used as a settings/membership template by Safes > Add Safe From Template |
+| Role_Group_Prefix | Name prefix identifying role groups to exclude when copying members in Add Safe From Template |
 | TenantPortal | Auto-computed ISPSS portal URL (`{sub}.cyberark.com`) |
 | TenantVault | Auto-computed ISPSS vault URL (`vault-{sub}.privilegecloud.cyberark.com`) |
 | TenantAuth | Auto-computed CyberArk Identity tenant URL (discovered on first login, cached) |

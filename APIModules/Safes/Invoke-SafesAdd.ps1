@@ -15,13 +15,12 @@ $ModuleMeta = @{
         @{ Column = 'Description';                Required = $false; Description = 'Safe description.' }
         @{ Column = 'Location';                   Required = $false; Description = 'Safe location path (default: \).' }
         @{ Column = 'ManagingCPM';               Required = $false; Description = 'CPM user managing this safe.' }
-        @{ Column = 'NumberOfVersionsRetention';  Required = $false; Description = 'Password versions to retain (default: 5).' }
-        @{ Column = 'NumberOfDaysRetention';      Required = $false; Description = 'Days to retain (0 = versions-based, default: 0).' }
+        @{ Column = 'NumberOfVersionsRetention';  Required = $false; Description = 'Password versions to retain (default: 5). Mutually exclusive with NumberOfDaysRetention - set that instead for days-based retention.' }
+        @{ Column = 'NumberOfDaysRetention';      Required = $false; Description = 'Days to retain (default: 0 = not used). Mutually exclusive with NumberOfVersionsRetention - when this is greater than 0, only this is sent and NumberOfVersionsRetention is ignored.' }
         @{ Column = 'AutoPurgeEnabled';           Required = $false; Description = 'Auto-purge enabled: true/false (default: false).' }
-        @{ Column = 'OLACEnabled';               Required = $false; Description = 'OLAC enabled: true/false (default: false).' }
     )
     Priority         = 12
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-SafesAddInput {
@@ -59,19 +58,15 @@ function Get-SafesAddInput {
 
     $numberOfVersionsRetention = Show-FieldPrompt -Label 'NumberOfVersionsRetention' `
         -Default $(if ($Defaults['NumberOfVersionsRetention']) { $Defaults['NumberOfVersionsRetention'] } else { '5' }) `
-        -Description 'Password versions to retain (default: 5).'
+        -Description 'Password versions to retain (default: 5). Mutually exclusive with NumberOfDaysRetention.'
 
     $numberOfDaysRetention = Show-FieldPrompt -Label 'NumberOfDaysRetention' `
         -Default $(if ($Defaults['NumberOfDaysRetention']) { $Defaults['NumberOfDaysRetention'] } else { '0' }) `
-        -Description 'Days to retain (0 = versions-based, default: 0).'
+        -Description 'Days to retain (default: 0 = not used). Set this instead of NumberOfVersionsRetention for days-based retention - only one is sent.'
 
     $autoPurgeEnabled = Show-FieldPrompt -Label 'AutoPurgeEnabled' `
         -Default $(if ($Defaults['AutoPurgeEnabled']) { $Defaults['AutoPurgeEnabled'] } else { 'false' }) `
         -Description 'Auto-purge enabled? (true/false)'
-
-    $olacEnabled = Show-FieldPrompt -Label 'OLACEnabled' `
-        -Default $(if ($Defaults['OLACEnabled']) { $Defaults['OLACEnabled'] } else { 'false' }) `
-        -Description 'OLAC enabled? (true/false)'
 
     return @{
         SafeName                  = $safeName
@@ -81,7 +76,6 @@ function Get-SafesAddInput {
         NumberOfVersionsRetention = $numberOfVersionsRetention
         NumberOfDaysRetention     = $numberOfDaysRetention
         AutoPurgeEnabled          = $autoPurgeEnabled
-        OLACEnabled              = $olacEnabled
     }
 }
 
@@ -127,16 +121,23 @@ function Invoke-SafesAdd {
         return $result
     }
 
-    # Build request body
+    # NumberOfVersionsRetention and NumberOfDaysRetention are mutually exclusive on this API -
+    # only one may be sent. Days wins when set to a value greater than 0; otherwise Versions is sent.
+    $numberOfVersionsRetention = if ($InputData.NumberOfVersionsRetention) { [int]$InputData.NumberOfVersionsRetention } else { 5 }
+    $numberOfDaysRetention     = if ($InputData.NumberOfDaysRetention)     { [int]$InputData.NumberOfDaysRetention }     else { 0 }
+
+    # Build request body. OLACEnabled is intentionally never sent - it is not a supported input for this module.
     $body = @{
-        SafeName                  = $safeName
-        Description               = if ($InputData.Description)               { $InputData.Description }               else { '' }
-        Location                  = if ($InputData.Location)                  { $InputData.Location }                  else { '\' }
-        ManagingCPM              = if ($InputData.ManagingCPM)              { $InputData.ManagingCPM }              else { '' }
-        NumberOfVersionsRetention = if ($InputData.NumberOfVersionsRetention) { [int]$InputData.NumberOfVersionsRetention } else { 5 }
-        NumberOfDaysRetention     = if ($InputData.NumberOfDaysRetention)     { [int]$InputData.NumberOfDaysRetention }     else { 0 }
-        AutoPurgeEnabled          = ($InputData.AutoPurgeEnabled -match '^true$')
-        OLACEnabled              = ($InputData.OLACEnabled -match '^true$')
+        SafeName         = $safeName
+        Description      = if ($InputData.Description) { $InputData.Description } else { '' }
+        Location         = if ($InputData.Location)     { $InputData.Location }     else { '\' }
+        ManagingCPM      = if ($InputData.ManagingCPM)   { $InputData.ManagingCPM }   else { '' }
+        AutoPurgeEnabled = ($InputData.AutoPurgeEnabled -match '^true$')
+    }
+    if ($numberOfDaysRetention -gt 0) {
+        $body['NumberOfDaysRetention'] = $numberOfDaysRetention
+    } else {
+        $body['NumberOfVersionsRetention'] = $numberOfVersionsRetention
     }
 
     Write-CyberArkLog -Level 'INFO'  -Message "Adding safe '$safeName'."
@@ -152,7 +153,6 @@ function Invoke-SafesAdd {
             VersionRetention = $body.NumberOfVersionsRetention
             DayRetention     = $body.NumberOfDaysRetention
             AutoPurge        = $body.AutoPurgeEnabled
-            OLACEnabled      = $body.OLACEnabled
             Creator          = ''
             Created          = ''
         })
@@ -199,7 +199,6 @@ function Invoke-SafesAdd {
         VersionRetention = if ($safe -and $safe.numberOfVersionsRetention)  { $safe.numberOfVersionsRetention }  else { $body.NumberOfVersionsRetention }
         DayRetention     = if ($safe -and $safe.numberOfDaysRetention)      { $safe.numberOfDaysRetention }      else { $body.NumberOfDaysRetention }
         AutoPurge        = if ($safe)                                        { $safe.autoPurgeEnabled }           else { $body.AutoPurgeEnabled }
-        OLACEnabled      = if ($safe)                                        { $safe.olacEnabled }                else { $body.OLACEnabled }
         Creator          = if ($safe -and $safe.creator)                    { $safe.creator.name }               else { '' }
         Created          = $creationDate
     })

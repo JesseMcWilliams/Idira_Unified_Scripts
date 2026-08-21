@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Add Safe Member'
@@ -13,7 +13,7 @@ $ModuleMeta = @{
     InputSchema      = @(
         @{ Column = 'SafeName';       Required = $true;  Description = 'Name of the safe.' }
         @{ Column = 'MemberName';     Required = $true;  Description = 'Username, group name, or role name to add.' }
-        @{ Column = 'SearchIn';       Required = $false; Description = 'Domain ID (UUID from GetDirectoryServices) or Vault for system component users. Leave blank to use the API default (Vault).' }
+        @{ Column = 'SearchIn';       Required = $false; Description = 'Domain ID (from GetDirectoryServices) or Vault for system component users. Leave blank to use the API default (Vault). CSV/bulk input only - interactive mode shows a picker with Vault plus directories from GetDirectoryServices.' }
         @{ Column = 'MemberType';     Required = $false; Description = 'User / Group / Role (default: User).' }
         @{ Column = 'PermissionRole'; Required = $false; Description = 'Role or Specified. Role values: ReadOnly / EndUser / PowerUser / SafeManager. Use Specified to set individual permissions.' }
         @{ Column = 'ExpirationDate'; Required = $false; Description = 'Membership expiration date (yyyy-MM-dd) or blank.' }
@@ -41,7 +41,7 @@ $ModuleMeta = @{
         @{ Column = 'RequestsAuthorizationLevel2';            Required = $false; Description = 'Dual-control: require 2 approvers (True/False). Mutually exclusive with RequestsAuthorizationLevel1.' }
     )
     Priority         = 21
-    Version          = '1.2.0'
+    Version          = '1.3.0'
 }
 
 function script:Get-PermissionSet {
@@ -170,6 +170,73 @@ function script:Test-HasSpecifiedColumns {
     return $false
 }
 
+function script:Get-SafeMembersSearchInOptions {
+    <#
+        Returns the SearchIn choice list for the interactive Add Safe Member prompt: Vault is
+        always first; additional entries come from GetDirectoryServices
+        (GET /API/Configuration/LDAP/Directories). NOTE: the exact response field names for
+        this endpoint have not been confirmed against a live CyberArk system as of this
+        writing - this probes several plausible property names for the ID and display name,
+        matching the defensive multi-candidate pattern already used elsewhere in this codebase
+        for CyberArk responses whose exact shape varies by PVWA/ISPSS version (see
+        Docs\Lessons-Learned-PowerShell-Pester.md). Falls back to Vault-only if the call fails,
+        errors, or returns nothing usable - it never blocks the Add Safe Member flow.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Token
+    )
+
+    $options = [System.Collections.Generic.List[PSCustomObject]]::new()
+    $options.Add([PSCustomObject]@{ DisplayName = 'Vault'; Value = 'Vault' })
+
+    try {
+        $response = Invoke-CyberArkAPI -Token $Token -Method 'GET' -Endpoint '/API/Configuration/LDAP/Directories'
+    } catch {
+        Write-CyberArkLog -Level 'WARN' -Message "GetDirectoryServices call threw an exception: $_"
+        return $options.ToArray()
+    }
+
+    if (-not $response.IsSuccess) {
+        Write-CyberArkLog -Level 'WARN' -Message "GetDirectoryServices failed (HTTP $($response.StatusCode)): $($response.ErrorMessage). SearchIn will offer Vault only."
+        return $options.ToArray()
+    }
+
+    if (-not $response.Data) { return $options.ToArray() }
+
+    # Response may be a bare JSON array or wrapped under a collection property.
+    [array]$directories = if ($response.Data -is [array]) {
+        $response.Data
+    } elseif ($response.Data.PSObject.Properties['value']) {
+        @($response.Data.value)
+    } else {
+        @($response.Data)
+    }
+
+    if ($directories.Count -gt 0) {
+        $sampleProps = ($directories[0].PSObject.Properties.Name) -join ', '
+        Write-CyberArkLog -Level 'DEBUG' -Message "GetDirectoryServices item properties: $sampleProps"
+    }
+
+    foreach ($dir in $directories) {
+        $value = $null
+        foreach ($prop in @('id', 'domainName', 'directoryName', 'name')) {
+            if ($dir.PSObject.Properties[$prop] -and $dir.$prop) { $value = "$($dir.$prop)"; break }
+        }
+        if (-not $value) { continue }
+
+        $displayName = $null
+        foreach ($prop in @('domainName', 'directoryName', 'name', 'id')) {
+            if ($dir.PSObject.Properties[$prop] -and $dir.$prop) { $displayName = "$($dir.$prop)"; break }
+        }
+        if (-not $displayName) { $displayName = $value }
+
+        $options.Add([PSCustomObject]@{ DisplayName = $displayName; Value = $value })
+    }
+
+    return $options.ToArray()
+}
+
 function Get-SafeMembersAddInput {
     <#
         Called by the driver when HasCustomInput = $true.
@@ -196,9 +263,31 @@ function Get-SafeMembersAddInput {
         -Required $true `
         -Description 'Username, group name, or role name to add.'
 
-    $searchIn = Show-FieldPrompt -Label 'SearchIn' `
-        -Default $(if ($Defaults['SearchIn']) { $Defaults['SearchIn'] } else { '' }) `
-        -Description 'Leave blank to use the API default (Vault). Enter Vault for system component users, or a domain ID (UUID from GetDirectoryServices) for directory members.'
+    # Wrap in @() - a single-item return (Vault-only fallback) would otherwise unwrap to a
+    # bare PSCustomObject on capture, which has no .Count under PS 5.1 strict mode.
+    [array]$searchInOptions = @(script:Get-SafeMembersSearchInOptions -Token $Token)
+
+    Write-Host '  SearchIn:' -ForegroundColor DarkGray
+    for ($i = 0; $i -lt $searchInOptions.Count; $i++) {
+        Write-Host "    $($i + 1) = $($searchInOptions[$i].DisplayName)"
+    }
+    Write-Host ''
+
+    $defaultSearchInIndex = 1
+    if ($Defaults['SearchIn']) {
+        for ($i = 0; $i -lt $searchInOptions.Count; $i++) {
+            if ($searchInOptions[$i].Value -eq $Defaults['SearchIn']) { $defaultSearchInIndex = $i + 1; break }
+        }
+    }
+
+    $searchInChoice = Read-Host "  Select SearchIn (1-$($searchInOptions.Count), default=$defaultSearchInIndex)"
+    $searchInIndex  = $defaultSearchInIndex
+    $parsedChoice   = 0
+    if ($searchInChoice -and [int]::TryParse($searchInChoice, [ref]$parsedChoice) -and $parsedChoice -ge 1 -and $parsedChoice -le $searchInOptions.Count) {
+        $searchInIndex = $parsedChoice
+    }
+    $searchIn = $searchInOptions[$searchInIndex - 1].Value
+    Write-Host ''
 
     $memberType = Show-FieldPrompt -Label 'MemberType' `
         -Default $(if ($Defaults['MemberType']) { $Defaults['MemberType'] } else { 'User' }) `

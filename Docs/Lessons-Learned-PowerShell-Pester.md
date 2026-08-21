@@ -429,6 +429,21 @@ $files = Get-ChildItem $dir -Filter '*.log' -File
 The `@()` wrapper forces PowerShell to treat the result as an array regardless of how many items
 `Get-ChildItem` returned (zero, one, or many).
 
+**Real-world instance (2026-08-20):** `Get-SafeMembersAddInput` in `Invoke-SafeMembersAdd.ps1`
+called `$searchInOptions = script:Get-SafeMembersSearchInOptions -Token $Token` without wrapping
+in `@()`. The helper always returns `$options.ToArray()`, but when it falls back to Vault-only
+(the directory lookup failed or returned nothing - a single-item array), the caller's assignment
+unwrapped it to a bare `PSCustomObject`, and `$searchInOptions.Count` on the next line threw
+exactly the `PropertyNotFoundException` this section describes - in production, under real
+Windows PowerShell 5.1. **It was not caught by unit tests**, because those tests call the helper
+directly under `pwsh` (PowerShell 7 via this session's tooling), which adds a synthetic `Count`
+property to scalar objects that PS 5.1 does not have - masking the exact bug this rule warns
+about. Fixed with `[array]$searchInOptions = @(script:Get-SafeMembersSearchInOptions -Token $Token)`
+at the call site. **Takeaway:** a passing unit test run under `pwsh` does not prove a function's
+return value is unwrap-safe under PS 5.1 - always wrap a function call whose result might be a
+single-item array in `@()` at the point of capture, per this section, regardless of what the
+tests show.
+
 ---
 
 ### 4.6 PS 5.1: empty `@()` in a script block outputs nothing — `[array]` alone does not prevent null
@@ -1635,6 +1650,25 @@ $gen = if ($platform.PSObject.Properties['general'] -and $platform.general) {
 `$response.Data.PSObject.Properties.Name` at DEBUG level. The log output from a live run reveals
 the actual field names present and enables targeted fixes without guessing. Apply the same dual-location
 fallback pattern to the corresponding List endpoint for consistency.
+
+### 12.2 GetDirectoryServices (`GET /API/Configuration/LDAP/Directories`) response shape is unverified
+
+**Status: needs live-system verification.** `Invoke-SafeMembersAdd.ps1`'s
+`Get-SafeMembersSearchInOptions` helper (added 2026-08-20, for the interactive SearchIn picker)
+calls this endpoint to list LDAP directories to offer alongside Vault. Neither the exact
+response envelope (bare JSON array vs. wrapped under a `value` property) nor the field names
+for a directory's ID and display name had been confirmed against a live CyberArk system at
+the time this was written.
+
+**Mitigation applied, following the pattern in 12.1:** the helper probes several plausible
+field names (`id`, `domainName`, `directoryName`, `name`) for both the ID and display name,
+logs the first item's actual property names at DEBUG (`GetDirectoryServices item properties: ...`),
+and falls back to Vault-only (never throws or blocks the Add Safe Member flow) if the call
+fails or nothing usable is returned.
+
+**Follow-up:** once run against a real tenant, check the DEBUG log line for the actual property
+names and simplify the probe list to match, or add the confirmed shape as a documented example
+in `Docs\Interfaces.md` (it is not documented there yet, precisely because it isn't confirmed).
 
 ---
 

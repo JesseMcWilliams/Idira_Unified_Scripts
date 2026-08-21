@@ -22,6 +22,11 @@ Set-StrictMode -Version Latest
 $script:MaxRateLimitRetries  = 5
 $script:RateLimitBaseDelaySec = 2
 
+# HTTP 504 Gateway Timeout retry - fixed delay (not exponential backoff like 429),
+# and the page size is reduced by 25% on each retry when pagination is in use.
+$script:MaxGatewayTimeoutRetries = 2
+$script:GatewayTimeoutDelaySec   = 5
+
 #endregion
 
 #region --- Internal Helpers ---
@@ -34,6 +39,7 @@ function script:Get-StatusMessage {
         404 = 'Not Found'; 405 = 'Method Not Allowed'; 408 = 'Request Timeout'
         409 = 'Conflict'; 429 = 'Too Many Requests'
         500 = 'Internal Server Error'; 502 = 'Bad Gateway'; 503 = 'Service Unavailable'
+        504 = 'Gateway Timeout'
     }
     if ($map.ContainsKey($Code)) { return $map[$Code] } else { return "HTTP $Code" }
 }
@@ -322,8 +328,9 @@ function Invoke-CyberArkAPI {
     $pageNum       = 1
     $progressShown = $false
 
-    # --- Rate limit state ---
-    $retryCount   = 0
+    # --- Rate limit / retry state ---
+    $retryCount             = 0
+    $gatewayTimeoutRetryCount = 0
 
     do {
         # Build query string for this page
@@ -358,6 +365,7 @@ function Invoke-CyberArkAPI {
 
             $response    = Invoke-WebRequest @iwrParams
             $retryCount  = 0   # reset on success
+            $gatewayTimeoutRetryCount = 0
             $statusCode  = [int]$response.StatusCode
             $rawBody     = $response.Content
 
@@ -396,7 +404,38 @@ function Invoke-CyberArkAPI {
                 continue
             }
 
-            # Non-429 HTTP error - fall through to response building below
+            # --- Gateway timeout retry ---
+            if ($statusCode -eq 504) {
+                $gatewayTimeoutRetryCount++
+                if ($gatewayTimeoutRetryCount -gt $script:MaxGatewayTimeoutRetries) {
+                    $msg = "Gateway timeout (504) persisted after $($script:MaxGatewayTimeoutRetries) retries. Giving up."
+                    if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
+                        Write-CyberArkLog -Message $msg -Level 'ERROR' -FunctionName 'Invoke-CyberArkAPI'
+                    }
+                    if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }
+                    return script:New-ApiResponse -IsSuccess $false -StatusCode 504 `
+                        -RawResponse $rawBody -ErrorMessage $msg
+                }
+
+                # If a page-size limit is in use for this call, reduce it by 25% before retrying -
+                # a smaller page is less likely to time out again. Same $offset is retried (this
+                # page never succeeded), so no items are skipped or duplicated.
+                if ($paginate -and $effectivePageSize -gt 1) {
+                    $reducedPageSize = [int][Math]::Floor($effectivePageSize * 0.75)
+                    if ($reducedPageSize -lt 1) { $reducedPageSize = 1 }
+                    $warnMsg = "HTTP 504 gateway timeout (attempt $gatewayTimeoutRetryCount/$($script:MaxGatewayTimeoutRetries)). Reducing page size $effectivePageSize -> $reducedPageSize and retrying in $($script:GatewayTimeoutDelaySec)s..."
+                    $effectivePageSize = $reducedPageSize
+                } else {
+                    $warnMsg = "HTTP 504 gateway timeout (attempt $gatewayTimeoutRetryCount/$($script:MaxGatewayTimeoutRetries)). Retrying in $($script:GatewayTimeoutDelaySec)s..."
+                }
+                if (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue) {
+                    Write-CyberArkLog -Message $warnMsg -Level 'WARN' -FunctionName 'Invoke-CyberArkAPI'
+                }
+                Start-Sleep -Seconds $script:GatewayTimeoutDelaySec
+                continue
+            }
+
+            # Non-429/504 HTTP error - fall through to response building below
             $errDetails = script:Parse-CyberArkError -Body $rawBody
             $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode $($webEx.Message)" }
             if ($statusCode -ge 400) { $errMsg = "$errMsg  [$Method $fullUri]" }
