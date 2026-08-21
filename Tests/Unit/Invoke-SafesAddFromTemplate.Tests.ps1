@@ -6,8 +6,8 @@
 
 .NOTES
     Get-SafesAddFromTemplateInput is NOT tested here because it depends on Show-FieldPrompt,
-    which is defined in Driver.ps1. That function is covered by manual integration
-    tests (Driver.ps1 - D-series in Testing-Plan.md).
+    which is defined in Manage-Privilege.ps1. That function is covered by manual integration
+    tests (Manage-Privilege.ps1 - D-series in Testing-Plan.md).
 #>
 
 BeforeAll {
@@ -143,7 +143,7 @@ BeforeAll {
             Role_Group_Prefix  = 'CyberArk_'
             IgnoreSSL          = $false
         }
-        # Driver.ps1 defines this as a script:-scoped constant, dot-sourced into every
+        # Manage-Privilege.ps1 defines this as a script:-scoped constant, dot-sourced into every
         # module's effective scope. Tests dot-source only the module file, so it must be
         # set explicitly here - same reason $script:ActiveProfile is faked above.
         $script:ExcludedTemplateMemberNames = @()

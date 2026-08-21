@@ -1,4 +1,4 @@
-# Add Safe From Template Design
+﻿# Add Safe From Template Design
 
 Tracks the design decisions and implementation plan for a new `Safes/AddFromTemplate`
 module that creates a safe by copying settings and non-role group members from an
@@ -22,7 +22,7 @@ by any module (confirmed by grep across `APIModules\`):
 
 | Field | Declared in | Current consumers |
 |---|---|---|
-| `Role_Template_Safe` | `Driver.ps1` (`New-BlankProfile`, profile normalization, `Show-ProfileDetail`, `Invoke-ProfileEditFlow`); documented in `Docs\Interfaces.md:399` | None |
+| `Role_Template_Safe` | `Manage-Privilege.ps1` (`New-BlankProfile`, profile normalization, `Show-ProfileDetail`, `Invoke-ProfileEditFlow`); documented in `Docs\Interfaces.md:399` | None |
 | `Role_Group_Prefix` | Same touchpoints; documented in `Docs\Interfaces.md:400` | None |
 
 `Docs\Interfaces.md` describes both fields as "Consumed by Add/Update Safe Member
@@ -48,9 +48,9 @@ APIModules\Safes\
 
 One new file, following the exact convention of the other four `Safes\*.ps1` modules
 (`$ModuleMeta` → `Get-SafesAddFromTemplateInput` → `Invoke-SafesAddFromTemplate`). Menu
-registration needs no Driver.ps1 changes — `Import-APIModules` already does that
+registration needs no Manage-Privilege.ps1 changes — `Import-APIModules` already does that
 automatically (dynamic dot-source + menu registration by `Category`, same as every other
-module). Driver.ps1 does gain one addition: a `$script:ExcludedTemplateMemberNames`
+module). Manage-Privilege.ps1 does gain one addition: a `$script:ExcludedTemplateMemberNames`
 constant (see Decision D7), the same way other driver-wide constants like
 `$script:PVWA_SESSION_EXPIRY_MIN` are declared and made visible to every dot-sourced
 module without an explicit import.
@@ -113,7 +113,7 @@ named in the profile's `Role_Template_Safe` field.
 4. Filter the member list: exclude any member — regardless of `memberType` (User, Group,
    or Role) — whose `memberName` starts with `Role_Group_Prefix` (case-insensitive) (D2),
    **and** exclude any member whose `memberName` exactly matches (case-insensitive) an
-   entry in the global `$script:ExcludedTemplateMemberNames` list defined in `Driver.ps1`
+   entry in the global `$script:ExcludedTemplateMemberNames` list defined in `Manage-Privilege.ps1`
    (D7). Every remaining member, of any type, is copied.
 5. `POST /API/Safes` to create the new safe, body built the same way as
    `Invoke-SafesAdd.ps1`, with `SafeName` and `Description` from input (empty string if not
@@ -145,7 +145,7 @@ calling `POST`, following the same synthetic-success pattern as `Invoke-SafesAdd
 ## 4. Profile Field Consumption
 
 No new profile fields are needed — `Role_Template_Safe` and `Role_Group_Prefix` already
-exist end-to-end in `Driver.ps1` (creation, normalization for older saved profiles, display,
+exist end-to-end in `Manage-Privilege.ps1` (creation, normalization for older saved profiles, display,
 and interactive edit) and are already documented in `Docs\Interfaces.md`. This feature is
 their first real consumer.
 
@@ -166,7 +166,7 @@ feature (see Section 7, step 9).
 | D4 | **Behavior when `Role_Template_Safe` or `Role_Group_Prefix` is blank on the active profile** | (a) Hard validation failure, module refuses to run — (b) Blank prefix falls back to "no groups excluded, copy everything" | **(a) for both fields** — `Role_Group_Prefix` is required, same as `Role_Template_Safe`. The module fails fast (non-fatal validation error) if either is blank, rather than silently copying role groups. |
 | D5 | **Should `OLACEnabled` ever be read from the template or sent on `POST /API/Safes`?** (raised after initial implementation) | (a) Keep copying it from the template, as originally implemented — (b) Drop it entirely: never read, never asked, never sent | **(b)** — per direct correction: OLACEnabled should never be passed, asked, or used. Removed from `$safeBody`, from both `Results` shapes (WhatIf and real), and from the equivalent code in `Invoke-SafesAdd.ps1` / `Invoke-SafesUpdate.ps1`, which had the same issue. |
 | D6 | **Should `NumberOfVersionsRetention` and `NumberOfDaysRetention` both be sent together?** (raised after initial implementation) | (a) Send both, as originally implemented — (b) Send only one; `NumberOfDaysRetention` wins when greater than 0, otherwise `NumberOfVersionsRetention` is sent | **(b)** — per direct correction: the two fields are mutually exclusive on this API. Applied the same rule to `Invoke-SafesAdd.ps1` and `Invoke-SafesUpdate.ps1` (post-merge value, in the Update case) for consistency across all three Safes write paths. |
-| D7 | **Global member-name exclusion list** — where should it live, how should names match, and what's the initial content? | Location: (a) `$script:`-scoped constant in the module file only — (b) shared `$script:` constant in `Driver.ps1`, visible to every dot-sourced module. Match: (a) exact, case-insensitive — (b) prefix, case-insensitive. Scope: (a) all `memberType`s — (b) `User` only. Seed content: (a) provided names — (b) empty | **Location (b)** — `$script:ExcludedTemplateMemberNames` in `Driver.ps1`, alongside other driver-wide constants (`$script:PVWA_SESSION_EXPIRY_MIN` etc.), so any future Safes/SafeMembers module can reuse it without plumbing. **Match (a)** — exact, case-insensitive; no partial/prefix matching. **Scope (a)** — applies across all `memberType`s, consistent with the `Role_Group_Prefix` filter. **Seed content (b)** — starts empty; names to be added directly in `Driver.ps1` as needed. |
+| D7 | **Global member-name exclusion list** — where should it live, how should names match, and what's the initial content? | Location: (a) `$script:`-scoped constant in the module file only — (b) shared `$script:` constant in `Manage-Privilege.ps1`, visible to every dot-sourced module. Match: (a) exact, case-insensitive — (b) prefix, case-insensitive. Scope: (a) all `memberType`s — (b) `User` only. Seed content: (a) provided names — (b) empty | **Location (b)** — `$script:ExcludedTemplateMemberNames` in `Manage-Privilege.ps1`, alongside other driver-wide constants (`$script:PVWA_SESSION_EXPIRY_MIN` etc.), so any future Safes/SafeMembers module can reuse it without plumbing. **Match (a)** — exact, case-insensitive; no partial/prefix matching. **Scope (a)** — applies across all `memberType`s, consistent with the `Role_Group_Prefix` filter. **Seed content (b)** — starts empty; names to be added directly in `Manage-Privilege.ps1` as needed. |
 
 ---
 
@@ -208,7 +208,7 @@ APIModules\Safes\
     cases to the other two modules' test files; corrected the T-prefix in `Testing-Plan.md`
     (previously mislabeled AFT01–AFT24).
 11. ~~Add the global exclusion list (D7).~~ Done (2026-08-20) — added
-    `$script:ExcludedTemplateMemberNames = @()` to `Driver.ps1`; filter step in
+    `$script:ExcludedTemplateMemberNames = @()` to `Manage-Privilege.ps1`; filter step in
     `Invoke-SafesAddFromTemplate.ps1` now excludes exact (case-insensitive) name matches
     across all `memberType`s in addition to the `Role_Group_Prefix` filter; added T09a–T09b;
     documented in `Interfaces.md` and `Architecture.md`.
@@ -223,4 +223,4 @@ APIModules\Safes\
 | 2026-08-20 | Decisions D1–D4 resolved; algorithm and `$ModuleMeta` updated accordingly |
 | 2026-08-20 | Implementation complete — module, unit tests, and all doc updates done |
 | 2026-08-20 | Decisions D5–D6 added and resolved: OLACEnabled removed entirely; NumberOfVersionsRetention/NumberOfDaysRetention made mutually exclusive. Same fix applied to Invoke-SafesAdd.ps1 and Invoke-SafesUpdate.ps1 |
-| 2026-08-20 | Decision D7 added and resolved: added $script:ExcludedTemplateMemberNames global exclusion list in Driver.ps1, consumed by Invoke-SafesAddFromTemplate.ps1's member filter |
+| 2026-08-20 | Decision D7 added and resolved: added $script:ExcludedTemplateMemberNames global exclusion list in Manage-Privilege.ps1, consumed by Invoke-SafesAddFromTemplate.ps1's member filter |

@@ -55,21 +55,21 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 3. **Run the driver** — no installation or import required. The driver dot-sources all modules on startup.
 
    ```powershell
-   powershell.exe -ExecutionPolicy Bypass -File .\Driver.ps1
+   powershell.exe -ExecutionPolicy Bypass -File .\Manage-Privilege.ps1
    ```
 
    Or open a PowerShell 5.1 console and run:
 
    ```powershell
    Set-ExecutionPolicy -Scope Process Bypass
-   .\Driver.ps1
+   .\Manage-Privilege.ps1
    ```
 
 ---
 
 ## Quick Start
 
-1. Launch `Driver.ps1`.
+1. Launch `Manage-Privilege.ps1`.
 2. At the **Profile Selection** screen, press **N** to create a new profile.
 3. Enter a profile name, your PVWA URL (Self-Hosted) or Privilege Cloud subdomain (ISPSS), and choose your authentication method.
 4. Authenticate when prompted. Your token is saved for future sessions.
@@ -81,7 +81,7 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 
 ```
 IdiraUnifiedScripts/
-- Driver.ps1                    # Main interactive driver
+- Manage-Privilege.ps1          # Main interactive driver
 - Auth/
   - CyberArk.Auth.Common.psm1   # Shared auth utilities: token object, WebView2, profile I/O
   - CyberArk.Auth.ISPSS.psm1    # Privilege Cloud / CyberArk Identity authentication

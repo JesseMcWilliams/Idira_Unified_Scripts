@@ -49,6 +49,19 @@ Describe 'Invoke-AccountsResumeAutoManagement' {
             $result.Successes   | Should -BeGreaterThan 0
             $result.Failures    | Should -Be 0
         }
+
+        It 'calls POST /API/Accounts/{id}/Resume (not ResumeAutoManagement) with no request body' {
+            $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            Mock Invoke-CyberArkAPI {
+                param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+                Set-Variable -Name capturedCall -Value $PSBoundParameters -Scope Script
+                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{} }
+            }
+            Invoke-AccountsResumeAutoManagement -Token $token -InputData @{ AccountID = 'acc123' }
+            $script:capturedCall.Method   | Should -Be 'POST'
+            $script:capturedCall.Endpoint | Should -Be '/API/Accounts/acc123/Resume'
+            $script:capturedCall.ContainsKey('Body') | Should -BeFalse
+        }
     }
 
     Context 'WhatIf mode' {

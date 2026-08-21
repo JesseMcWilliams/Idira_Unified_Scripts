@@ -14,7 +14,7 @@ item and return a standard result object.
 
 ```
 PowerShell/
-├── Driver.ps1
+├── Manage-Privilege.ps1
 ├── Modules/
 │   ├── CyberArkComms.psm1          # Shared communications module (loaded by driver at startup)
 │   └── CyberArkLogging.psm1        # Logging module (loaded by driver at startup)

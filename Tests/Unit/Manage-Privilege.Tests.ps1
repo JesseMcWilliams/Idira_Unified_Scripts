@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Unit tests for Driver.ps1 - profile management functions.
+    Unit tests for Manage-Privilege.ps1 - profile management functions.
 
 .DESCRIPTION
     Exercises the profile management loop as a user would: create a profile,
@@ -12,7 +12,7 @@
 
 BeforeAll {
     # ── Stubs for module functions that are imported at runtime ──────────────
-    # These must be declared BEFORE dot-sourcing Driver.ps1 so that
+    # These must be declared BEFORE dot-sourcing Manage-Privilege.ps1 so that
     # Assert-Prerequisites finds them (it only checks file paths, not these stubs).
     function global:Write-CyberArkLog {
         param([string]$Message, [string]$Level)
@@ -34,11 +34,11 @@ BeforeAll {
     function global:Save-AuthToken     { param($TokenObject, $ProfileName) }
 
     # ── Temp directory: replaces the real %APPDATA%\IdiraUnifiedScripts\Profiles folder ───────
-    $script:TempDir = Join-Path $env:TEMP "DriverTests_$(Get-Random)"
+    $script:TempDir = Join-Path $env:TEMP "ManagePrivilegeTests_$(Get-Random)"
     New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
 
-    # ── Dot-source Driver.ps1 (entry point is skipped via InvocationName guard)
-    $script:DriverPath = Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'Driver.ps1'
+    # ── Dot-source Manage-Privilege.ps1 (entry point is skipped via InvocationName guard)
+    $script:DriverPath = Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'Manage-Privilege.ps1'
     . $script:DriverPath
 
     # Redirect the profile directory to our temp location
@@ -53,7 +53,7 @@ AfterAll {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver - New-BlankProfile' {
+Describe 'Manage-Privilege - New-BlankProfile' {
 
     It 'DP01 - creates a profile with the supplied name' {
         $p = New-BlankProfile -Name 'Dev'
@@ -82,7 +82,7 @@ Describe 'Driver - New-BlankProfile' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver - Profile persistence (Save / Read / GetAll)' {
+Describe 'Manage-Privilege - Profile persistence (Save / Read / GetAll)' {
 
     BeforeEach {
         # Clear the temp directory before each test for isolation
@@ -141,7 +141,7 @@ Describe 'Driver - Profile persistence (Save / Read / GetAll)' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver - Invoke-ProfileManagementLoop (Q = quit immediately)' {
+Describe 'Manage-Privilege - Invoke-ProfileManagementLoop (Q = quit immediately)' {
 
     BeforeAll {
         Mock Write-Host  { }
@@ -163,7 +163,7 @@ Describe 'Driver - Invoke-ProfileManagementLoop (Q = quit immediately)' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver - Invoke-ProfileManagementLoop (create a profile then quit)' {
+Describe 'Manage-Privilege - Invoke-ProfileManagementLoop (create a profile then quit)' {
 
     BeforeAll {
         Mock Write-Host  { }
@@ -225,7 +225,7 @@ Describe 'Driver - Invoke-ProfileManagementLoop (create a profile then quit)' {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-Describe 'Driver - Invoke-ProfileManagementLoop (select profile then go back then quit)' {
+Describe 'Manage-Privilege - Invoke-ProfileManagementLoop (select profile then go back then quit)' {
 
     BeforeAll {
         Mock Write-Host  { }

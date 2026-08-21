@@ -193,7 +193,7 @@ function Invoke-SafesAddFromTemplate {
     # Step 3: exclude role groups - any member whose name starts with Role_Group_Prefix
     # (case-insensitive), regardless of memberType - and exclude any member whose name
     # exactly matches (case-insensitive) an entry in the global $script:ExcludedTemplateMemberNames
-    # list (defined in Driver.ps1; shared by any Safes/SafeMembers module that reuses it).
+    # list (defined in Manage-Privilege.ps1; shared by any Safes/SafeMembers module that reuses it).
     # Everything else is copied.
     [array]$excludedNames = if ($script:ExcludedTemplateMemberNames) { @($script:ExcludedTemplateMemberNames) } else { @() }
 

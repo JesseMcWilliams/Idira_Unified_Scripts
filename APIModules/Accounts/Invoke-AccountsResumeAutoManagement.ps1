@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Resume Auto Management'
@@ -13,10 +13,9 @@ $ModuleMeta = @{
     InputSchema      = @(
         @{ Column = 'AccountName'; Required = $true;  Description = 'Account name or username. Matched locally against name and userName fields within the specified Safe.' }
         @{ Column = 'Safe';        Required = $true;  Description = 'Safe containing the account.' }
-        @{ Column = 'Reason'; Required = $false; Description = 'Optional reason for resuming automatic management.' }
     )
     Priority         = 41
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function Get-AccountsResumeAutoManagementInput {
@@ -56,13 +55,8 @@ function Get-AccountsResumeAutoManagementInput {
         if (-not $accountID) { return $null }
     }
 
-    $reason = Show-FieldPrompt -Label 'Reason' `
-        -Default $(if ($Defaults['Reason']) { $Defaults['Reason'] } else { '' }) `
-        -Description 'Optional reason for resuming automatic management.'
-
     return @{
         AccountID = $accountID
-        Reason = $reason
     }
 }
 
@@ -173,27 +167,23 @@ function Invoke-AccountsResumeAutoManagement {
     }
 
     $encodedId = [Uri]::EscapeDataString($accountId)
-    $reason = if ($InputData['Reason']) { "$($InputData['Reason'])".Trim() } else { '' }
 
     Write-CyberArkLog -Level 'INFO'  -Message "Starting resume auto management for account ID: $accountId"
-    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Accounts/$accountId/ResumeAutoManagement"
+    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Accounts/$accountId/Resume"
 
     if ($WhatIf.IsPresent) {
-        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: POST /API/Accounts/$accountId/ResumeAutoManagement would be performed."
+        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: POST /API/Accounts/$accountId/Resume would be performed."
         $result.Successes++
         $result.ItemsProcessed++
         Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
-    $body = @{}
-    if ($reason) { $body['Reason'] = $reason }
-
+    # No request body - this endpoint does not accept or use one.
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'POST' `
-        -Endpoint "/API/Accounts/$encodedId/ResumeAutoManagement" `
-        -Body     $body `
+        -Endpoint "/API/Accounts/$encodedId/Resume" `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
