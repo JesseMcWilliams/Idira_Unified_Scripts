@@ -275,6 +275,13 @@ $url = Join-CyberArkUrl $Token.BaseURL '/API/Accounts' $accountId
 > backoff occurs. After `$script:MaxRateLimitRetries` consecutive 429 responses the function
 > returns a failure response — set `IsFatal = $true` if this is returned.
 
+> **Gateway timeouts (504):** Handled automatically with a fixed delay (`$script:GatewayTimeoutDelaySec`,
+> default 5s — not exponential like 429). Retried up to `$script:MaxGatewayTimeoutRetries` times
+> (default 2). If pagination is in use for the call, the page size is reduced by 25% before each
+> retry (a smaller page is less likely to time out again). After the retry limit is exhausted the
+> function returns a normal failure response with `StatusCode = 504` — treat it like any other
+> non-2xx response (per the `IsFatal` table above: not fatal, item-level failure).
+
 ---
 
 ## Using the Logging Module

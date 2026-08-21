@@ -43,7 +43,6 @@ BeforeAll {
         NumberOfVersionsRetention = '5'
         NumberOfDaysRetention     = '0'
         AutoPurgeEnabled          = 'false'
-        OLACEnabled              = 'false'
     }
 
     # Factory: build a mock API success response containing a single safe object
@@ -174,6 +173,27 @@ Describe 'Invoke-SafesAdd - success (201)' {
     It 'A11 - endpoint is /API/Safes' {
         Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/Safes' } -Times 1
+    }
+
+    It 'A11a - OLACEnabled is never included in the request body' {
+        Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter { -not $Body.ContainsKey('OLACEnabled') } -Times 1
+    }
+
+    It 'A11b - NumberOfDaysRetention=0: only NumberOfVersionsRetention is sent' {
+        Invoke-SafesAdd -Token $script:MockToken -InputData $script:ValidInput
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Body.NumberOfVersionsRetention -eq 5 -and (-not $Body.ContainsKey('NumberOfDaysRetention'))
+        } -Times 1
+    }
+
+    It 'A11c - NumberOfDaysRetention>0: only NumberOfDaysRetention is sent' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.NumberOfDaysRetention = '90'
+        Invoke-SafesAdd -Token $script:MockToken -InputData $testInput
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Body.NumberOfDaysRetention -eq 90 -and (-not $Body.ContainsKey('NumberOfVersionsRetention'))
+        } -Times 1
     }
 }
 

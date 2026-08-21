@@ -49,6 +49,9 @@ instructions if it is missing.
 | `Driver.ps1` — profile CRUD | Yes (filesystem) | No | `Unit\Driver.Profile.Tests.ps1` |
 | `Driver.ps1` — session loop | No (UI) | Yes (manual) | — |
 | `APIModules\Safes\Invoke-SafesList.ps1` | Yes | Yes | `Unit\Invoke-SafesList.Tests.ps1` |
+| `APIModules\Safes\Invoke-SafesAddFromTemplate.ps1` | Yes | Yes | `Unit\Invoke-SafesAddFromTemplate.Tests.ps1` |
+| `APIModules\SafeMembers\Invoke-SafeMembersAddFromTemplateRole.ps1` | Yes | Yes | `Unit\Invoke-SafeMembersAddFromTemplateRole.Tests.ps1` |
+| `APIModules\SafeMembers\Invoke-SafeMembersUpdateFromTemplateRole.ps1` | Yes | Yes | `Unit\Invoke-SafeMembersUpdateFromTemplateRole.Tests.ps1` |
 | _(future modules)_ | Yes | Yes | `Unit\Invoke-<Category><Action>.Tests.ps1` |
 
 ---
@@ -71,7 +74,13 @@ instructions if it is missing.
 `Invoke-CyberArkAPI` catches `[System.Net.WebException]` and reads
 `$exception.Response` as `[System.Net.HttpWebResponse]`. That class cannot be
 instantiated in pure PowerShell, so the HTTP error paths (401, 429, etc.) are
-tested via the API module layer by mocking `Invoke-CyberArkAPI` directly.
+tested via the API module layer by mocking `Invoke-CyberArkAPI` directly. This
+also applies to the 504 retry loop (fixed delay + page-size reduction) added in
+`Invoke-CyberArkAPI` — it is not covered by an automated unit test for the same
+reason the 429 retry loop isn't; verify it manually against a lab environment
+that can be made to return 504 (or by temporarily lowering
+`$script:MaxGatewayTimeoutRetries`/`$script:GatewayTimeoutDelaySec` and forcing
+a timeout).
 
 ---
 
@@ -239,6 +248,62 @@ tested via the API module layer by mocking `Invoke-CyberArkAPI` directly.
 
 ---
 
+## Invoke-SafesAddFromTemplate.ps1 — Test Cases
+
+Design reference: `Docs\Add-Safe-From-Template-Design.md`. Test file:
+`Unit\Invoke-SafesAddFromTemplate.Tests.ps1`.
+
+### Module Metadata
+| # | Test Case | Expected |
+|---|---|---|
+| T01 | `$ModuleMeta` is defined | Not null after dot-sourcing |
+| T02 | Category / Action | `Safes` / `AddFromTemplate` |
+| T03 | SupportsWhatIf | `$true` |
+| T04 | SupportedSystems | Contains `ISPSS` and `SelfHosted` |
+| T05 | InputSchema `SafeName` | `Required = $true` |
+| T06 | InputSchema `Description` | `Required = $false` |
+
+### Invoke-SafesAddFromTemplate — successful response (mocked Invoke-CyberArkAPI)
+| # | Test Case | Expected |
+|---|---|---|
+| T07 | Template safe + members read, safe created, members copied | `IsFatal=$false` |
+| T08 | Safe creation result row | One `Results` row with `ItemType='Safe'` |
+| T09 | Role-group exclusion | Member whose name starts with `Role_Group_Prefix` is not copied; other members are |
+| T09a | Global exclusion list | Member whose name is in `$script:ExcludedTemplateMemberNames` is not copied, regardless of `memberType`; other members are |
+| T09b | Global exclusion match rule | Match is exact and case-insensitive - a name that only partially matches (e.g. `AdminGroupExtra` vs. `AdminGroup`) is not excluded |
+| T10 | Success counts | `Successes` = 1 (safe) + copied member count; `Failures=0` |
+| T11 | Safe POST body | `Location`, `ManagingCPM`, `AutoPurgeEnabled` copied from the template safe's GET response |
+| T11a | OLACEnabled | Never included in the safe POST body — not read from the template, not asked, not sent |
+| T11b | Template `NumberOfDaysRetention=0` | Only `NumberOfVersionsRetention` is sent; `NumberOfDaysRetention` key absent from the body |
+| T11c | Template `NumberOfDaysRetention>0` | Only `NumberOfDaysRetention` is sent; `NumberOfVersionsRetention` key absent from the body |
+| T12 | Member POST body | `membershipExpirationDate` always `$null`, never copied from the template member |
+
+### Invoke-SafesAddFromTemplate — WhatIf
+| # | Test Case | Expected |
+|---|---|---|
+| T13 | WhatIf | No `POST` call is made |
+| T14 | WhatIf | Template safe and template member GET calls still happen (reads are not blocked) |
+| T15 | WhatIf | Synthetic `Results` contains one `Safe` row plus one row per member that would be copied |
+
+### Invoke-SafesAddFromTemplate — validation
+| # | Test Case | Expected |
+|---|---|---|
+| T16 | Empty `SafeName` | `Failures=1`, no API call |
+| T17 | `Role_Template_Safe` blank on active profile | `Failures=1`, `IsFatal=$false`, no API call |
+| T18 | `Role_Group_Prefix` blank on active profile | `Failures=1`, `IsFatal=$false`, no API call |
+
+### Invoke-SafesAddFromTemplate — errors
+| # | Test Case | Expected |
+|---|---|---|
+| T19 | Template safe GET returns 404 | Error added, `IsFatal=$false`, no safe created |
+| T20 | Template safe GET returns 401 | `IsFatal=$true` |
+| T21 | Template members GET fails (403) | Error added, `IsFatal=$false`, safe not created |
+| T22 | Safe creation POST fails (409) | Error added, `IsFatal=$false`, no member POSTs attempted |
+| T23 | One member POST fails (403) | Loop continues; other members still copied; `Failures` reflects the one failure |
+| T24 | A member POST returns 401 | `IsFatal=$true`; loop stops immediately |
+
+---
+
 ## Get-AuthToken.ps1 — Manual Integration Test Procedures
 
 Unit testing is not feasible for this script (browser auth flows, DPAPI, interactive prompts).
@@ -258,6 +323,7 @@ Run these procedures manually against a lab environment.
 | A10 | Get-AuthTokenProfiles | All saved profiles listed |
 | A11 | Remove-AuthTokenProfile | Both JSON and XML deleted |
 | A12 | IgnoreSSL — self-signed cert environment | No SSL error |
+| A13 | Import-AuthToken — Created field | Returned token's `Created` equals the `.cred` file's persisted `SavedAt`, not the load time; re-saving via `Save-AuthToken` after a refresh updates `SavedAt`/`Created` to the refresh time |
 
 ---
 
@@ -283,6 +349,10 @@ Run these procedures manually against a lab environment.
 | D16 | WhatIf mode | Menu shows `[WhatIf ON]`; write calls suppressed |
 | D17 | Module discovery | All `.ps1` files in `APIModules\` appear in menu |
 | D18 | SelfHosted-only module hidden for ISPSS | Module absent from ISPSS session menu |
+| D19 | Logon with a valid but old saved token (`Created` > 15 min ago) | "Saved token is N minute(s) old - refreshing..." shown; a fresh/refreshed token is used for the session, not the stale one |
+| D20 | Logon with a valid, recently-saved token (`Created` < 15 min ago) | No refresh message; token loaded directly, unchanged from today's behavior |
+| D21 | Any module call returns HTTP 401 with a message that does NOT contain the word "401" or "Unauthorized" | Session is still invalidated — re-auth prompt appears on the next action, same as a normally-worded 401 |
+| D22 | Any module call fails with a genuine network error (`StatusCode 0`) | Session is also invalidated (by design, since `IsFatal` covers both cases) — re-auth prompt appears; confirm this is the intended tradeoff, not a regression |
 
 ---
 
@@ -291,3 +361,9 @@ Run these procedures manually against a lab environment.
 | Date | Change |
 |---|---|
 | 2026-08-14 | Initial version |
+| 2026-08-20 | Added Invoke-SafesAddFromTemplate.ps1 to Component Test Matrix; added its Test Cases section (T01-T24) |
+| 2026-08-20 | Corrected test-case ID prefix from AFT to T (matching the actual test file); updated T11 and added T11a-T11c for the OLACEnabled removal / retention mutual-exclusivity fix |
+| 2026-08-20 | Added T09a-T09b for the new global $script:ExcludedTemplateMemberNames exclusion list |
+| 2026-08-20 | Noted that the new HTTP 504 retry loop in Invoke-CyberArkAPI (CyberArkComms.psm1) is not covered by an automated unit test, for the same reason the 429 retry loop isn't - recommend manual verification |
+| 2026-08-20 | Added Invoke-SafeMembersAddFromTemplateRole.ps1 and Invoke-SafeMembersUpdateFromTemplateRole.ps1 to Component Test Matrix (44 tests: ATR01-ATR23, UTR01-UTR21) |
+| 2026-08-20 | Added A13 (Import-AuthToken Created field) and D19-D22 (logon-phase age refresh, unconditional 401 invalidation including network-error side effect) manual test procedures |

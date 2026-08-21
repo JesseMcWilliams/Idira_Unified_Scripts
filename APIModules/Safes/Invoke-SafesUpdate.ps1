@@ -14,13 +14,12 @@ $ModuleMeta = @{
         @{ Column = 'SafeName';                   Required = $true;  Description = 'Name of the safe to update.' }
         @{ Column = 'Description';                Required = $false; Description = 'New description (leave blank to keep current).' }
         @{ Column = 'ManagingCPM';                Required = $false; Description = 'CPM user (leave blank to keep current).' }
-        @{ Column = 'NumberOfVersionsRetention';  Required = $false; Description = 'Versions to retain.' }
-        @{ Column = 'NumberOfDaysRetention';      Required = $false; Description = 'Days to retain.' }
+        @{ Column = 'NumberOfVersionsRetention';  Required = $false; Description = 'Versions to retain. Mutually exclusive with NumberOfDaysRetention - set that instead for days-based retention.' }
+        @{ Column = 'NumberOfDaysRetention';      Required = $false; Description = 'Days to retain. Mutually exclusive with NumberOfVersionsRetention - when this is greater than 0, only this is sent.' }
         @{ Column = 'AutoPurgeEnabled';           Required = $false; Description = 'Auto-purge: true/false.' }
-        @{ Column = 'OLACEnabled';                Required = $false; Description = 'OLAC: true/false.' }
     )
     Priority         = 13
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-SafesUpdateInput {
@@ -63,10 +62,6 @@ function Get-SafesUpdateInput {
         -Default $(if ($Defaults['AutoPurgeEnabled']) { $Defaults['AutoPurgeEnabled'] } else { '' }) `
         -Description 'Enable auto-purge of expired passwords: true/false. Leave blank to keep the current value.'
 
-    $olac = Show-FieldPrompt -Label 'OLACEnabled' `
-        -Default $(if ($Defaults['OLACEnabled']) { $Defaults['OLACEnabled'] } else { '' }) `
-        -Description 'Enable Object Level Access Control (OLAC): true/false. Leave blank to keep the current value.'
-
     return @{
         SafeName                  = $safeName
         Description               = $description
@@ -74,7 +69,6 @@ function Get-SafesUpdateInput {
         NumberOfVersionsRetention = $versionsRetention
         NumberOfDaysRetention     = $daysRetention
         AutoPurgeEnabled          = $autoPurge
-        OLACEnabled               = $olac
     }
 }
 
@@ -190,24 +184,23 @@ function Invoke-SafesUpdate {
         [bool]$currentSafe.autoPurgeEnabled
     }
 
-    $mergedOLAC = if ($InputData.ContainsKey('OLACEnabled') -and "$($InputData.OLACEnabled)".Trim() -ne '') {
-        "$($InputData.OLACEnabled)".Trim() -eq 'true'
-    } else {
-        [bool]$currentSafe.olacEnabled
-    }
-
     # Location is not updatable via PUT - keep current value as-is
     $currentLocation = if ($currentSafe.location) { $currentSafe.location } else { '' }
 
-    # Step 3: Build PUT body (SafeName is in the URL, not the body)
+    # Step 3: Build PUT body (SafeName is in the URL, not the body). OLACEnabled is intentionally
+    # never sent - it is not a supported input for this module. NumberOfVersionsRetention and
+    # NumberOfDaysRetention are mutually exclusive on this API - only one may be sent; Days wins
+    # when the merged value is greater than 0, otherwise Versions is sent.
     $body = @{
-        Description               = $mergedDescription
-        Location                  = $currentLocation
-        ManagingCPM               = $mergedManagingCPM
-        NumberOfVersionsRetention = $mergedVersionsRetention
-        NumberOfDaysRetention     = $mergedDaysRetention
-        AutoPurgeEnabled          = $mergedAutoPurge
-        OLACEnabled               = $mergedOLAC
+        Description      = $mergedDescription
+        Location         = $currentLocation
+        ManagingCPM      = $mergedManagingCPM
+        AutoPurgeEnabled = $mergedAutoPurge
+    }
+    if ($mergedDaysRetention -gt 0) {
+        $body['NumberOfDaysRetention'] = $mergedDaysRetention
+    } else {
+        $body['NumberOfVersionsRetention'] = $mergedVersionsRetention
     }
 
     Write-CyberArkLog -Level 'DEBUG' -Message "PUT /API/Safes/$encodedSafeName"
@@ -242,10 +235,9 @@ function Invoke-SafesUpdate {
             Description              = $mergedDescription
             Location                 = $currentLocation
             ManagingCPM              = $mergedManagingCPM
-            VersionRetention         = $mergedVersionsRetention
-            DayRetention             = $mergedDaysRetention
+            VersionRetention         = $body.NumberOfVersionsRetention
+            DayRetention             = $body.NumberOfDaysRetention
             AutoPurge                = $mergedAutoPurge
-            OLACEnabled              = $mergedOLAC
             Creator                  = ''
             Created                  = ''
         })
@@ -271,7 +263,6 @@ function Invoke-SafesUpdate {
         VersionRetention = $updatedSafe.numberOfVersionsRetention
         DayRetention     = $updatedSafe.numberOfDaysRetention
         AutoPurge        = $updatedSafe.autoPurgeEnabled
-        OLACEnabled      = $updatedSafe.olacEnabled
         Creator          = if ($updatedSafe.creator) { $updatedSafe.creator.name } else { '' }
         Created          = $creationDate
     })

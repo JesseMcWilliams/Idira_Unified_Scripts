@@ -50,12 +50,18 @@ $script:InactivityTimeoutMin      = 10
 $script:TokenExpiryWarnMin        = 5
 $script:ProactiveRefreshThresholdMin = 10
 $script:PVWA_SESSION_EXPIRY_MIN   = 20   # matches SelfHosted module constant
+$script:LogonTokenMaxAgeMin       = 15   # a still-valid saved token older than this is refreshed at logon
 $script:WhatIfMode                = $WhatIf.IsPresent
 $script:DefaultLogLevel           = $LogLevel
 $script:DefaultLogFolder          = if ($LogFolder) { $LogFolder } else { Join-Path $PSScriptRoot 'Logs' }
 $script:ScreenWidth               = 80
 $script:SessionToken              = $null   # Active token object - set after successful auth
 $script:ActiveProfile             = $null   # Active driver profile JSON object
+
+# Member names never copied by Safes/AddFromTemplate (or any future Safes/SafeMembers
+# module that reuses it), regardless of Role_Group_Prefix. Exact match, case-insensitive,
+# across all memberTypes. Empty by default - add names here as needed.
+$script:ExcludedTemplateMemberNames = @("PSMAppUsers")
 
 #endregion
 
@@ -1019,8 +1025,31 @@ function Invoke-ProfileManagementLoop {
                     if (Test-Path -LiteralPath $xmlPath) {
                         try {
                             if ($selected.TokenStatus -eq 'Valid') {
-                                # Token known-good - load directly, no refresh needed
+                                # Token known-good - load directly, no refresh needed...
                                 $token = Import-AuthToken -Path $xmlPath
+
+                                # ...unless it's old. A token can be well inside its expiry window
+                                # but still have sat unused for hours - refresh it now, at logon,
+                                # rather than starting the session on a stale token and waiting for
+                                # Invoke-ProactiveRefresh (which only fires near expiry, and only
+                                # for ClientCredentials).
+                                if ($token -and $token.PSObject.Properties['Created'] -and $token.Created) {
+                                    $ageMinutes = ([DateTime]::UtcNow - $token.Created).TotalMinutes
+                                    if ($ageMinutes -gt $script:LogonTokenMaxAgeMin) {
+                                        Write-Host "  Saved token is $([int]$ageMinutes) minute(s) old - refreshing..." -ForegroundColor DarkGray
+                                        try {
+                                            $refreshed = if ($token.SystemType -eq 'ISPSS') {
+                                                Update-ISPSSAuthToken -TokenObject $token
+                                            } else {
+                                                Update-SelfHostedAuthToken -TokenObject $token
+                                            }
+                                            if ($refreshed -and $refreshed.Token) { $token = $refreshed }
+                                        } catch {
+                                            Write-CyberArkLog -Message "Logon-phase age-based refresh failed: $_" -Level 'WARN'
+                                            # Keep using the existing, still-valid-but-old token rather than failing logon
+                                        }
+                                    }
+                                }
                             } elseif ($selected.TokenStatus -eq 'Expired') {
                                 # Load the token and attempt a refresh appropriate to its SystemType
                                 $expiredToken = Import-AuthToken -Path $xmlPath -IgnoreExpiry
@@ -1461,8 +1490,11 @@ function Invoke-TokenRefresh {
     # ISPSS: ClientCredentials refreshes silently; all other ISPSS methods prompt first
     if ($type -eq 'ISPSS') {
         if ($method -ne 'ClientCredentials') {
+            $ispssCtx  = if ($script:SessionToken.PSObject.Properties['_RefreshContext']) { $script:SessionToken._RefreshContext } else { $null }
+            $ispssUser = if ($ispssCtx -and $ispssCtx['Credential']) { $ispssCtx['Credential'].UserName } elseif ($script:ActiveProfile.Username) { $script:ActiveProfile.Username } else { '' }
             Write-Host ''
             Write-Host '  Your session token has expired. Re-authentication required.' -ForegroundColor Yellow
+            if ($ispssUser) { Write-Host "  Signing in as: $ispssUser" -ForegroundColor Cyan }
             Write-Host '  Press Enter to re-authenticate, or X to exit: ' -ForegroundColor White -NoNewline
             $r = (Read-Host).Trim()
             if ($r -match '^[Xx]$') { return $false }
@@ -1762,11 +1794,13 @@ function Invoke-CsvProcessing {
 
             if ($result.IsFatal) {
                 Write-CyberArkLog -Message "IsFatal returned by module - aborting CSV loop." -Level 'ERROR'
-                $errText = ($result.Errors | ForEach-Object { $_.ErrorMessage }) -join ' '
-                if ($errText -match '\b401\b' -or $errText -match 'Unauthorized') {
-                    Write-Host '  Session rejected by server (401 Unauthorized) - token invalidated.' -ForegroundColor Red
-                    Invoke-TokenInvalidate
-                }
+                # IsFatal is only ever set by a module for HTTP 401 or a network-level failure
+                # (StatusCode 0) - see the IsFatal table in API-Module-Development-Guide.md.
+                # Invalidate unconditionally rather than pattern-matching the error message text:
+                # a 401 whose message happens not to contain "401"/"Unauthorized" must still
+                # force re-authentication, not silently leave a rejected token in place.
+                Write-Host '  Fatal API error (401 Unauthorized or connectivity) - token invalidated.' -ForegroundColor Red
+                Invoke-TokenInvalidate
                 $fatal = $true
                 break
             }
@@ -1981,12 +2015,14 @@ function Invoke-ActionModule {
     }
 
     if ($result.IsFatal) {
-        $errText = ($result.Errors | ForEach-Object { $_.ErrorMessage }) -join ' '
-        if ($errText -match '\b401\b' -or $errText -match 'Unauthorized') {
-            Write-Host ''
-            Write-Host '  Session rejected by server (401 Unauthorized) - token invalidated.' -ForegroundColor Red
-            Invoke-TokenInvalidate
-        }
+        # IsFatal is only ever set by a module for HTTP 401 or a network-level failure
+        # (StatusCode 0) - see the IsFatal table in API-Module-Development-Guide.md.
+        # Invalidate unconditionally rather than pattern-matching the error message text:
+        # a 401 whose message happens not to contain "401"/"Unauthorized" must still
+        # force re-authentication, not silently leave a rejected token in place.
+        Write-Host ''
+        Write-Host '  Fatal API error (401 Unauthorized or connectivity) - token invalidated.' -ForegroundColor Red
+        Invoke-TokenInvalidate
         return
     }
 

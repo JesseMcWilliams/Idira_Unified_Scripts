@@ -24,6 +24,10 @@ Returned by `Get-ISPSSAuthToken` and `Get-SelfHostedAuthToken`; accepted by ever
     IdentityURL     = [string]              # ISPSS: Identity tenant URL. SelfHosted: $null
     TenantId        = [string]              # ISPSS: Identity tenant ID. SelfHosted: $null
     _RefreshContext = [hashtable]           # Internal — used by Update-ISPSSAuthToken / Update-SelfHostedAuthToken (see below)
+    Created         = [DateTime]            # UTC - when this token instance was established (fresh auth or refresh).
+                                            # Carried forward from the persisted SavedAt timestamp on Import-AuthToken,
+                                            # not reset to now on load. Used by Driver.ps1's logon-phase age check
+                                            # (a still-valid token older than $script:LogonTokenMaxAgeMin is refreshed).
 }
 ```
 
@@ -511,6 +515,10 @@ Defined in the driver or shared modules. Override before launching for non-defau
 | `$script:ProactiveRefreshThresholdMin` | `10` | Minutes remaining at which `Invoke-ProactiveRefresh` silently refreshes a ClientCredentials token |
 | `$script:MaxRateLimitRetries` | `5` | Max consecutive 429 responses before failing the call |
 | `$script:RateLimitBaseDelaySec` | `2` | Initial backoff delay in seconds (doubles each retry) |
+| `$script:MaxGatewayTimeoutRetries` | `2` | Max consecutive 504 responses before failing the call (defined in CyberArkComms.psm1) |
+| `$script:GatewayTimeoutDelaySec` | `5` | Fixed delay in seconds before each 504 retry (not exponential, unlike 429; defined in CyberArkComms.psm1) |
 | `$script:PVWA_SESSION_EXPIRY_MIN` | `20` | Expected Self-Hosted session lifetime in minutes (defined in both SelfHosted module and Driver) |
+| `$script:LogonTokenMaxAgeMin` | `15` | At logon, a saved token that is still valid (not expired) but older than this (based on `Token.Created`) is refreshed anyway before the session starts |
 | `$script:WEBVIEW2_TIMEOUT_SEC` | `300` | Max seconds to wait for browser-based auth completion (defined in CyberArk.Auth.Common.psm1) |
 | `$script:CLIENT_AUTH_OID` | `1.3.6.1.5.5.7.3.2` | OID for Client Authentication EKU (PKI cert filtering, defined in CyberArk.Auth.Common.psm1) |
+| `$script:ExcludedTemplateMemberNames` | `@()` | Member names never copied by Safes/AddFromTemplate (or any future Safes/SafeMembers module reusing it) - exact match, case-insensitive, across all memberTypes |

@@ -35,7 +35,13 @@ function New-AuthTokenObject {
         [string]$BaseURL,
         [string]$IdentityURL,
         [string]$TenantId,
-        [hashtable]$RefreshContext
+        [hashtable]$RefreshContext,
+
+        # UTC timestamp this token instance was established. Defaults to now, which is
+        # correct for every fresh-auth and refresh call site (none of them pass this
+        # explicitly) - Import-AuthToken is the only caller that passes an explicit value,
+        # carrying forward the original SavedAt timestamp instead of resetting it to now.
+        [DateTime]$Created = ([DateTime]::UtcNow)
     )
     [PSCustomObject]@{
         Token           = $Token
@@ -49,6 +55,7 @@ function New-AuthTokenObject {
         IdentityURL     = $IdentityURL
         TenantId        = $TenantId
         _RefreshContext = $RefreshContext
+        Created         = $Created
     }
 }
 
@@ -466,6 +473,12 @@ function Import-AuthToken {
         @{ Authorization = $token; 'Content-Type' = 'application/json' }
     }
 
+    # Carry the persisted SavedAt timestamp forward as Created, rather than defaulting to
+    # now - it represents how long this token instance has actually existed. Older .cred
+    # files saved before this field existed fall back to now (treated as "age unknown",
+    # not "just created") so they don't get force-refreshed on their next load for no reason.
+    $created = if ($saved.PSObject.Properties['SavedAt'] -and $saved.SavedAt) { $saved.SavedAt } else { [DateTime]::UtcNow }
+
     $tokenObject = New-AuthTokenObject `
         -Token          $token `
         -TokenType      $saved.TokenType `
@@ -477,7 +490,8 @@ function Import-AuthToken {
         -BaseURL        $saved.BaseURL `
         -IdentityURL    $saved.IdentityURL `
         -TenantId       $saved.TenantId `
-        -RefreshContext $refreshContext
+        -RefreshContext $refreshContext `
+        -Created        $created
 
     $isExpired = $tokenObject.Expiry -lt [DateTime]::UtcNow
 

@@ -43,7 +43,6 @@ BeforeAll {
         NumberOfVersionsRetention = '7'
         NumberOfDaysRetention     = '0'
         AutoPurgeEnabled          = 'false'
-        OLACEnabled               = 'false'
     }
 
     # Current safe state returned by the GET call
@@ -159,6 +158,29 @@ Describe 'Invoke-SafesUpdate - success' {
     It 'U05 - two API calls made total (GET then PUT)' {
         Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -Times 2 -Exactly
+    }
+
+    It 'U05a - OLACEnabled is never included in the PUT body' {
+        Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'PUT' -and (-not $Body.ContainsKey('OLACEnabled'))
+        } -Times 1
+    }
+
+    It 'U05b - merged NumberOfDaysRetention=0: only NumberOfVersionsRetention is sent' {
+        Invoke-SafesUpdate -Token $script:MockToken -InputData $script:ValidInput
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'PUT' -and $Body.NumberOfVersionsRetention -eq 7 -and (-not $Body.ContainsKey('NumberOfDaysRetention'))
+        } -Times 1
+    }
+
+    It 'U05c - merged NumberOfDaysRetention>0: only NumberOfDaysRetention is sent' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.NumberOfDaysRetention = '90'
+        Invoke-SafesUpdate -Token $script:MockToken -InputData $testInput
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'PUT' -and $Body.NumberOfDaysRetention -eq 90 -and (-not $Body.ContainsKey('NumberOfVersionsRetention'))
+        } -Times 1
     }
 
     It 'U06 - second API call uses PUT method' {

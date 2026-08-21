@@ -329,3 +329,75 @@ Describe 'Invoke-SafeMembersAdd - API errors' {
         $script:capturedEndpoint | Should -Match 'Test%20Safe'
     }
 }
+
+# ─────────────────────────────────────────────────────────────────
+Describe 'Get-SafeMembersSearchInOptions' {
+
+    BeforeEach {
+        Mock Write-CyberArkLog { }
+    }
+
+    It 'MA23 - Vault is always the first option' {
+        Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 404 -ErrorMessage 'Not Found' }
+        $opts = script:Get-SafeMembersSearchInOptions -Token $script:MockToken
+        $opts[0].DisplayName | Should -Be 'Vault'
+        $opts[0].Value       | Should -Be 'Vault'
+    }
+
+    It 'MA24 - GetDirectoryServices call failure: falls back to Vault-only, no exception' {
+        Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 403 -ErrorMessage 'Forbidden' }
+        $opts = script:Get-SafeMembersSearchInOptions -Token $script:MockToken
+        $opts.Count | Should -Be 1
+    }
+
+    It 'MA25 - GetDirectoryServices returns a bare array: directories appended after Vault' {
+        Mock Invoke-CyberArkAPI {
+            [PSCustomObject]@{
+                IsSuccess = $true; StatusCode = 200; ErrorMessage = $null; ErrorDetails = $null
+                DataType = 'JSON'; RawResponse = ''
+                Data = @(
+                    [PSCustomObject]@{ id = 'guid-1'; domainName = 'example.com' },
+                    [PSCustomObject]@{ id = 'guid-2'; domainName = 'other.local' }
+                )
+            }
+        }
+        $opts = script:Get-SafeMembersSearchInOptions -Token $script:MockToken
+        $opts.Count            | Should -Be 3
+        $opts[1].DisplayName   | Should -Be 'example.com'
+        $opts[1].Value         | Should -Be 'guid-1'
+        $opts[2].DisplayName   | Should -Be 'other.local'
+        $opts[2].Value         | Should -Be 'guid-2'
+    }
+
+    It 'MA26 - GetDirectoryServices returns items wrapped under a value property' {
+        Mock Invoke-CyberArkAPI {
+            [PSCustomObject]@{
+                IsSuccess = $true; StatusCode = 200; ErrorMessage = $null; ErrorDetails = $null
+                DataType = 'JSON'; RawResponse = ''
+                Data = [PSCustomObject]@{ value = @([PSCustomObject]@{ id = 'guid-1'; domainName = 'example.com' }) }
+            }
+        }
+        $opts = script:Get-SafeMembersSearchInOptions -Token $script:MockToken
+        $opts.Count | Should -Be 2
+        $opts[1].Value | Should -Be 'guid-1'
+    }
+
+    It 'MA27 - directory item missing all probed ID fields is skipped, not thrown' {
+        Mock Invoke-CyberArkAPI {
+            [PSCustomObject]@{
+                IsSuccess = $true; StatusCode = 200; ErrorMessage = $null; ErrorDetails = $null
+                DataType = 'JSON'; RawResponse = ''
+                Data = @([PSCustomObject]@{ unrelatedField = 'x' })
+            }
+        }
+        $opts = script:Get-SafeMembersSearchInOptions -Token $script:MockToken
+        $opts.Count | Should -Be 1
+    }
+
+    It 'MA28 - Invoke-CyberArkAPI throwing an exception: falls back to Vault-only' {
+        Mock Invoke-CyberArkAPI { throw 'network failure' }
+        $opts = script:Get-SafeMembersSearchInOptions -Token $script:MockToken
+        $opts.Count | Should -Be 1
+        $opts[0].DisplayName | Should -Be 'Vault'
+    }
+}
