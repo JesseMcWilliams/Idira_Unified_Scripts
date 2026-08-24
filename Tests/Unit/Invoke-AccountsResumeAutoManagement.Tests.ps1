@@ -50,7 +50,7 @@ Describe 'Invoke-AccountsResumeAutoManagement' {
             $result.Failures    | Should -Be 0
         }
 
-        It 'calls POST /API/Accounts/{id}/Resume (not ResumeAutoManagement) with no request body' {
+        It 'calls PATCH /API/Accounts/{id}/ with a JSON Patch body re-enabling automatic management' {
             $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
             Mock Invoke-CyberArkAPI {
                 param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -58,9 +58,17 @@ Describe 'Invoke-AccountsResumeAutoManagement' {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{} }
             }
             Invoke-AccountsResumeAutoManagement -Token $token -InputData @{ AccountID = 'acc123' }
-            $script:capturedCall.Method   | Should -Be 'POST'
-            $script:capturedCall.Endpoint | Should -Be '/API/Accounts/acc123/Resume'
-            $script:capturedCall.ContainsKey('Body') | Should -BeFalse
+            $script:capturedCall.Method   | Should -Be 'PATCH'
+            $script:capturedCall.Endpoint | Should -Be '/API/Accounts/acc123/'
+
+            [array]$body = $script:capturedCall.Body
+            $body.Count | Should -Be 2
+            $body[0].op    | Should -Be 'replace'
+            $body[0].path  | Should -Be '/secretManagement/automaticManagementEnabled'
+            $body[0].value | Should -Be 'true'
+            $body[1].op    | Should -Be 'replace'
+            $body[1].path  | Should -Be '/secretManagement/manualManagementReason'
+            $body[1].value | Should -Be ''
         }
     }
 
