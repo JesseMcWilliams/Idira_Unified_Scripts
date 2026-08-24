@@ -664,7 +664,7 @@ that script into the **current scope** — which, when called from inside a func
 function's **local scope**. When the function returns, its local scope is destroyed, taking all
 dot-sourced definitions with it. Any other function that runs later cannot see them.
 
-In `Driver.ps1`, `Import-APIModules` dot-sources every module file to read its `$ModuleMeta`.
+In `Manage-Privilege.ps1`, `Import-APIModules` dot-sources every module file to read its `$ModuleMeta`.
 This creates both `$ModuleMeta` and the module functions (`Invoke-SafeMembersList`,
 `Get-SafeMembersListInput`, etc.) in `Import-APIModules`'s local scope. When
 `Import-APIModules` returns to `Invoke-SessionLoop`, those function definitions vanish.
@@ -1128,7 +1128,7 @@ entries between test files.
 
 ### 9.3 Driver-scope helper functions must be stubbed before Mocking
 
-**Root cause:** Functions defined in `Driver.ps1` (e.g. `Get-CsvSavePath`) are not imported by
+**Root cause:** Functions defined in `Manage-Privilege.ps1` (e.g. `Get-CsvSavePath`) are not imported by
 the unit test file. In Pester v6, you **cannot** call `Mock SomeFunction` if `SomeFunction` does
 not already exist in the session — Pester will throw `CommandNotFoundException` before the test
 even runs.
@@ -1140,7 +1140,7 @@ even runs.
 ```powershell
 BeforeAll {
     ...
-    # Stub for Driver helper — not available outside Driver.ps1
+    # Stub for Driver helper — not available outside Manage-Privilege.ps1
     function global:Get-CsvSavePath {
         param([string]$DefaultFolder, [string]$ModuleName)
         return $null
@@ -2101,7 +2101,7 @@ script scope). These functions are callable with the `script:` prefix from withi
 module and from the driver scope, but are not visible to other modules or child scopes:
 
 ```powershell
-# In Invoke-AccountsList.ps1 (dot-sourced into Driver.ps1)
+# In Invoke-AccountsList.ps1 (dot-sourced into Manage-Privilege.ps1)
 function script:Add-AccountToResult {
     param([PSCustomObject]$Result, [object]$Account, [hashtable]$ErrorInputData)
     # ... shared mapping logic ...

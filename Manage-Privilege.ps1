@@ -87,7 +87,7 @@ function Assert-Prerequisites {
     if ($missing) {
         Write-Host "`nPrerequisite check failed:" -ForegroundColor Red
         $missing | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
-        Write-Host "`nEnsure all modules are present alongside Driver.ps1." -ForegroundColor Red
+        Write-Host "`nEnsure all modules are present alongside Manage-Privilege.ps1." -ForegroundColor Red
         exit 1
     }
 
@@ -2322,7 +2322,7 @@ while ($true) {
 }
 
 } catch {
-    Write-Host "`n[FATAL] Unhandled error at Driver.ps1:$($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
+    Write-Host "`n[FATAL] Unhandled error at Manage-Privilege.ps1:$($_.InvocationInfo.ScriptLineNumber)" -ForegroundColor Red
     Write-Host "  $($_.Exception.GetType().Name): $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "  Stack trace:" -ForegroundColor DarkGray
     $_.ScriptStackTrace -split "`n" | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }

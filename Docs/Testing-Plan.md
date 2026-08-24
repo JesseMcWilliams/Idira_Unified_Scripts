@@ -46,8 +46,8 @@ instructions if it is missing.
 | `CyberArkLogging.psm1` | Yes | No | `Unit\CyberArkLogging.Tests.ps1` |
 | `CyberArkComms.psm1` | Partial (helpers + success path) | Yes | `Unit\CyberArkComms.Tests.ps1` |
 | `Get-AuthToken.ps1` | No (UI / auth flows) | Yes (manual) | — |
-| `Driver.ps1` — profile CRUD | Yes (filesystem) | No | `Unit\Driver.Profile.Tests.ps1` |
-| `Driver.ps1` — session loop | No (UI) | Yes (manual) | — |
+| `Manage-Privilege.ps1` — profile CRUD | Yes (filesystem) | No | `Unit\Manage-Privilege.Tests.ps1` |
+| `Manage-Privilege.ps1` — session loop | No (UI) | Yes (manual) | — |
 | `APIModules\Safes\Invoke-SafesList.ps1` | Yes | Yes | `Unit\Invoke-SafesList.Tests.ps1` |
 | `APIModules\Safes\Invoke-SafesAddFromTemplate.ps1` | Yes | Yes | `Unit\Invoke-SafesAddFromTemplate.Tests.ps1` |
 | `APIModules\SafeMembers\Invoke-SafeMembersAddFromTemplateRole.ps1` | Yes | Yes | `Unit\Invoke-SafeMembersAddFromTemplateRole.Tests.ps1` |
@@ -327,7 +327,7 @@ Run these procedures manually against a lab environment.
 
 ---
 
-## Driver.ps1 — Manual Integration Test Procedures
+## Manage-Privilege.ps1 — Manual Integration Test Procedures
 
 | # | Test Case | Pass Criteria |
 |---|---|---|

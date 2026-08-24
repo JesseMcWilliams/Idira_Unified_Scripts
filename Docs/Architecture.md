@@ -19,7 +19,7 @@ the driver.
 | `Auth\CyberArk.Auth.SelfHosted.psm1` | Complete |
 | `Modules\CyberArkLogging.psm1` | Complete |
 | `Modules\CyberArkComms.psm1` | Complete |
-| `Driver.ps1` | Complete |
+| `Manage-Privilege.ps1` | Complete |
 | API Modules (40+ modules across 9 categories) | Complete |
 
 ---
@@ -28,7 +28,7 @@ the driver.
 
 ```
   ┌──────────────────────────────────────────────────────────────────┐
-  │                          Driver.ps1                               │
+  │                       Manage-Privilege.ps1                        │
   │                                                                   │
   │  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐  │
   │  │    Profile      │  │    Session       │  │  Module Loader  │  │
@@ -65,7 +65,7 @@ the driver.
 
 ```
 PowerShell\
-├── Driver.ps1                          # Interactive driver script
+├── Manage-Privilege.ps1                # Interactive driver script
 ├── Auth\
 │   ├── CyberArk.Auth.Common.psm1       # Shared auth utilities: token object, WebView2, profile persistence
 │   ├── CyberArk.Auth.ISPSS.psm1        # Privilege Cloud / CyberArk Identity authentication
@@ -161,7 +161,7 @@ PowerShell\
 ### 1. Startup
 
 ```
-Driver.ps1 launched
+Manage-Privilege.ps1 launched
   └─ Check prerequisites (PS version, WebView2 if needed)
   └─ Import CyberArkLogging.psm1
   └─ Import CyberArkComms.psm1
@@ -240,7 +240,7 @@ User selects Exit or Restart
 
 ## Component Descriptions
 
-### Driver.ps1
+### Manage-Privilege.ps1
 
 The top-level interactive script. Owns:
 - Profile management (create, edit, copy, delete, use, detail view, test connection)
@@ -339,7 +339,7 @@ result object. See [API-Module-Development-Guide.md](API-Module-Development-Guid
 | Add Safe From Template — settings vs. identity fields | `SafeName` and `Description` are always fresh input; `Location`, `ManagingCPM`, and `AutoPurgeEnabled` are copied from the template safe; member `membershipExpirationDate` is never copied | Description and expiration are contextual to the specific safe/membership being created, not properties of the "shape" a template is meant to standardize. |
 | Safe retention fields are mutually exclusive | `NumberOfVersionsRetention` and `NumberOfDaysRetention` are never both sent on `POST`/`PUT /API/Safes` — `NumberOfDaysRetention` is sent only when greater than 0, otherwise `NumberOfVersionsRetention` is sent | The API treats these as a single choice of retention mode, not two independent settings. Applies to `Invoke-SafesAdd.ps1`, `Invoke-SafesUpdate.ps1`, and `Invoke-SafesAddFromTemplate.ps1`. |
 | `OLACEnabled` is not a supported field | Never read, prompted for, or sent by any Safes write module | Confirmed not a valid input for this API; removed from `Invoke-SafesAdd.ps1`, `Invoke-SafesUpdate.ps1`, and `Invoke-SafesAddFromTemplate.ps1` after initial implementations mistakenly included it. |
-| Add Safe From Template — global member exclusion list | `$script:ExcludedTemplateMemberNames` defined once in `Driver.ps1` (dot-sourced into every module's scope, same mechanism as `$script:ActiveProfile`), not a profile field | This is an environment-wide policy ("never copy these specific members from any template safe"), not a per-tenant setting like `Role_Group_Prefix` — a single hardcoded list, editable directly in `Driver.ps1`, is simpler than adding a new profile field and keeps the door open for other Safes/SafeMembers modules to reuse the same constant. |
+| Add Safe From Template — global member exclusion list | `$script:ExcludedTemplateMemberNames` defined once in `Manage-Privilege.ps1` (dot-sourced into every module's scope, same mechanism as `$script:ActiveProfile`), not a profile field | This is an environment-wide policy ("never copy these specific members from any template safe"), not a per-tenant setting like `Role_Group_Prefix` — a single hardcoded list, editable directly in `Manage-Privilege.ps1`, is simpler than adding a new profile field and keeps the door open for other Safes/SafeMembers modules to reuse the same constant. |
 | Request body and error logging | POST/PUT/PATCH bodies and HTTP 4xx/5xx response bodies logged at DEBUG level with `-FileOnly` | Large structured content would flood the terminal at DEBUG. Writing to the log file only preserves the diagnostic data for post-session review without cluttering the console. Sensitive fields are masked by `Mask-SensitiveData` before the entry is written. |
 | HTTP 504 retry (`Invoke-CyberArkAPI`) | Fixed 5-second delay (`$script:GatewayTimeoutDelaySec`), up to `$script:MaxGatewayTimeoutRetries` (default 2) retries; if pagination is in use, the page size is reduced by 25% before each retry | A 504 usually means the request itself was too expensive for the server to finish within its own timeout window (unlike 429, which is unrelated to request size) — a fixed delay (not exponential backoff) plus a smaller page size directly addresses the likely cause rather than just waiting longer. Same `$offset` is retried, so no items are skipped or duplicated. |
 | Add Safe Member — interactive SearchIn picker | Numbered menu (Vault always first, plus directories from `GET /API/Configuration/LDAP/Directories`) replaces free-text entry, interactive mode only; CSV/bulk input via `InputSchema` is unchanged | Free-text UUID entry was error-prone; a picker removes the need to already know the directory ID. Falls back to Vault-only (never blocks the flow) if the directory lookup fails — the exact response field names for that endpoint are unconfirmed against a live system as of this writing (see `Docs\Lessons-Learned-PowerShell-Pester.md` Section 12.2), so the mapping defensively probes several plausible field names rather than assuming one. |

@@ -26,7 +26,7 @@ Returned by `Get-ISPSSAuthToken` and `Get-SelfHostedAuthToken`; accepted by ever
     _RefreshContext = [hashtable]           # Internal — used by Update-ISPSSAuthToken / Update-SelfHostedAuthToken (see below)
     Created         = [DateTime]            # UTC - when this token instance was established (fresh auth or refresh).
                                             # Carried forward from the persisted SavedAt timestamp on Import-AuthToken,
-                                            # not reset to now on load. Used by Driver.ps1's logon-phase age check
+                                            # not reset to now on load. Used by Manage-Privilege.ps1's logon-phase age check
                                             # (a still-valid token older than $script:LogonTokenMaxAgeMin is refreshed).
 }
 ```
@@ -517,7 +517,7 @@ Defined in the driver or shared modules. Override before launching for non-defau
 | `$script:RateLimitBaseDelaySec` | `2` | Initial backoff delay in seconds (doubles each retry) |
 | `$script:MaxGatewayTimeoutRetries` | `2` | Max consecutive 504 responses before failing the call (defined in CyberArkComms.psm1) |
 | `$script:GatewayTimeoutDelaySec` | `5` | Fixed delay in seconds before each 504 retry (not exponential, unlike 429; defined in CyberArkComms.psm1) |
-| `$script:PVWA_SESSION_EXPIRY_MIN` | `20` | Expected Self-Hosted session lifetime in minutes (defined in both SelfHosted module and Driver) |
+| `$script:PVWA_SESSION_EXPIRY_MIN` | `20` | Expected Self-Hosted session lifetime in minutes (defined in both SelfHosted module and Manage-Privilege.ps1) |
 | `$script:LogonTokenMaxAgeMin` | `15` | At logon, a saved token that is still valid (not expired) but older than this (based on `Token.Created`) is refreshed anyway before the session starts |
 | `$script:WEBVIEW2_TIMEOUT_SEC` | `300` | Max seconds to wait for browser-based auth completion (defined in CyberArk.Auth.Common.psm1) |
 | `$script:CLIENT_AUTH_OID` | `1.3.6.1.5.5.7.3.2` | OID for Client Authentication EKU (PKI cert filtering, defined in CyberArk.Auth.Common.psm1) |
