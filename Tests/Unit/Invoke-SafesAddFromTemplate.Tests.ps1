@@ -491,6 +491,101 @@ Describe 'Invoke-SafesAddFromTemplate - array-collapse regression (strict mode)'
 }
 
 # ─────────────────────────────────────────────────────────────────
+Describe 'script:Get-TemplateRoleOptions - role descriptions' {
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        script:Reset-MockActiveProfile
+        Mock Write-CyberArkLog { }
+    }
+
+    It 'T36 - a role matched to a group with a description gets it populated' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ memberName = 'CyberArk_Admins'; memberType = 'Group'; permissions = [PSCustomObject]@{ manageSafe = $true } }
+                ) })
+            }
+            if ($Endpoint -eq '/API/UserGroups') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ groupName = 'CyberArk_Admins'; description = 'Full administrative access to the safe' }
+                ) })
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions.Count | Should -Be 1
+        $roleOptions[0].Description | Should -Be 'Full administrative access to the safe'
+    }
+
+    It 'T37 - a role matched to a group with no description stays blank' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ memberName = 'CyberArk_Viewers'; memberType = 'Group'; permissions = [PSCustomObject]@{ listAccounts = $true } }
+                ) })
+            }
+            if ($Endpoint -eq '/API/UserGroups') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ groupName = 'CyberArk_Viewers'; description = '' }
+                ) })
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions[0].Description | Should -Be ''
+    }
+
+    It 'T38 - no matching group found: role still returned, Description blank' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ memberName = 'CyberArk_Orphan'; memberType = 'Group'; permissions = [PSCustomObject]@{} }
+                ) })
+            }
+            if ($Endpoint -eq '/API/UserGroups') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @() })
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions.Count           | Should -Be 1
+        $roleOptions[0].Name         | Should -Be 'CyberArk_Orphan'
+        $roleOptions[0].Description  | Should -Be ''
+    }
+
+    It 'T39 - GET /API/UserGroups fails: roles still returned with blank descriptions, no throw' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ memberName = 'CyberArk_Admins'; memberType = 'Group'; permissions = [PSCustomObject]@{ manageSafe = $true } }
+                ) })
+            }
+            if ($Endpoint -eq '/API/UserGroups') {
+                return script:New-ErrResponse -StatusCode 403 -ErrorMessage 'Forbidden'
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions.Count           | Should -Be 1
+        $roleOptions[0].Permissions.manageSafe | Should -BeTrue
+        $roleOptions[0].Description  | Should -Be ''
+    }
+
+    It 'T40 - zero roles found: GET /API/UserGroups is never called' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @() })
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions.Count | Should -Be 0
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/UserGroups' } -Times 0
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-SafesAddFromTemplate - WhatIf' {
 
     BeforeEach {

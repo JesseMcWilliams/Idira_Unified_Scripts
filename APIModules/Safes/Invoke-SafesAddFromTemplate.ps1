@@ -17,7 +17,7 @@ $ModuleMeta = @{
         @{ Column = 'ExtraMembers'; Required = $false; Description = 'Additional members beyond those copied from the template, as Type:Name:RoleName triples separated by semicolons, e.g. "User:jdoe:Role_Viewer;Group:AdminsGroup:Role_Admin". Type is User or Group. RoleName must exactly match a role-prefixed member (Role_Group_Prefix) on the template safe (Role_Template_Safe) - its permissions are copied verbatim, same as SafeMembers/AddFromTemplateRole. Interactive mode collects these one at a time via prompts instead.'; Example = 'User:jdoe:Role_Viewer;Group:AdminsGroup:Role_Admin' }
     )
     Priority         = 15
-    Version          = '1.3.2'
+    Version          = '1.4.0'
 }
 
 function script:Get-ProfileCPMOptions {
@@ -54,11 +54,17 @@ function script:Get-TemplateRoleOptions {
         Returns the list of template "roles" to choose from: members of the profile's
         Role_Template_Safe whose memberName starts with Role_Group_Prefix (case-insensitive).
         Each entry carries the role's raw permissions object (verbatim, camelCase, matching the
-        API's own body/response shape) for use once selected.
+        API's own body/response shape) for use once selected, plus a Description pulled from
+        GET /API/UserGroups - the same endpoint and response shape (a 'value' array of objects
+        with groupName/description) already used by Invoke-GroupsList.ps1. A role is just a
+        CyberArk group by naming convention, so its description lives on the group object, not
+        on the safe-membership record the rest of this function reads.
 
         Returns an empty array - never throws, never blocks the flow - if Role_Template_Safe /
         Role_Group_Prefix are not configured on the active profile, or if the template safe's
-        members cannot be read.
+        members cannot be read. The description lookup is best-effort on top of that: if it
+        fails, or a role's group can't be matched, Description stays '' and the flow is
+        otherwise unaffected - the role is still fully usable by name.
 
         Duplicated from Invoke-SafeMembersAddFromTemplateRole.ps1 rather than shared, consistent
         with how script:Get-SafeMembersSearchInOptions is already duplicated between SafeMembers
@@ -106,7 +112,30 @@ function script:Get-TemplateRoleOptions {
         if (-not $name) { continue }
         if (-not $name.StartsWith($rolePrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
         $perms = if ($m.PSObject.Properties['permissions'] -and $m.permissions) { $m.permissions } else { @{} }
-        $options.Add([PSCustomObject]@{ Name = $name; Permissions = $perms })
+        $options.Add([PSCustomObject]@{ Name = $name; Permissions = $perms; Description = '' })
+    }
+
+    if ($options.Count -eq 0) { return $options.ToArray() }
+
+    # Best-effort description lookup. 'search' narrows the payload server-side (a hint only,
+    # since this codebase never trusts server-side search alone for exact matching - see e.g.
+    # SafeMembers/AddFromTemplateRole's role resolution) - matching a role to its group is
+    # always done client-side by exact groupName, case-insensitive.
+    try {
+        $groupsResponse = Invoke-CyberArkAPI -Token $Token -Method 'GET' -Endpoint '/API/UserGroups' -QueryParams @{ search = $rolePrefix }
+        if ($groupsResponse.IsSuccess -and $groupsResponse.Data -and $groupsResponse.Data.PSObject.Properties['value']) {
+            [array]$groups = @($groupsResponse.Data.value)
+            foreach ($option in $options) {
+                $matchedGroup = $groups | Where-Object {
+                    $_.PSObject.Properties['groupName'] -and "$($_.groupName)".Equals($option.Name, [StringComparison]::OrdinalIgnoreCase)
+                } | Select-Object -First 1
+                if ($matchedGroup -and $matchedGroup.PSObject.Properties['description'] -and $matchedGroup.description) {
+                    $option.Description = "$($matchedGroup.description)"
+                }
+            }
+        }
+    } catch {
+        Write-CyberArkLog -Level 'WARN' -Message "Role description lookup (GET /API/UserGroups) failed: $_"
     }
 
     return $options.ToArray()
@@ -181,28 +210,32 @@ function Get-SafesAddFromTemplateInput {
 
     # --- Additional members: Type (User/Group) + Name + a role picked from the template
     # safe's role-prefixed members, same permission-resolution mechanism as
-    # SafeMembers/AddFromTemplateRole. Looped until the user declines "add another".
+    # SafeMembers/AddFromTemplateRole. A single recurring prompt per member, defaulting to
+    # blank: leaving it blank is both "no (more) members to add" and the loop's exit condition
+    # - there is no separate "add another? Y/N" gate, since re-prompting for the next name IS
+    # that question.
     Write-Host ''
     [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $Token)
     $extraMemberEntries = [System.Collections.Generic.List[string]]::new()
 
-    $addMore = Read-Host '  Add additional members to this safe? [y/N]'
-    while ($addMore -match '^[Yy]') {
-        Write-Host ''
+    while ($true) {
+        $memberName = Show-FieldPrompt -Label 'Additional Member' -Default '' `
+            -Description 'Username or group name to add as an additional safe member. Leave blank when done adding members.'
+        if (-not $memberName) { break }
+
         Write-Host '  Member Type:' -ForegroundColor DarkGray
         Write-Host '    1 = User'
         Write-Host '    2 = Group'
         $typeChoice = Read-Host '  Select type (1-2, default=1)'
         $memberType = if ($typeChoice -eq '2') { 'Group' } else { 'User' }
 
-        $memberName = Show-FieldPrompt -Label 'MemberName' -Required $true `
-            -Description 'Username or group name to add.'
-
         $roleName = ''
         if ($roleOptions.Count -gt 0) {
             Write-Host '  Template Role:' -ForegroundColor DarkGray
             for ($i = 0; $i -lt $roleOptions.Count; $i++) {
-                Write-Host "    $($i + 1) = $($roleOptions[$i].Name)"
+                $roleLine = "    $($i + 1) = $($roleOptions[$i].Name)"
+                if ($roleOptions[$i].Description) { $roleLine += " - $($roleOptions[$i].Description)" }
+                Write-Host $roleLine
             }
             $roleChoice = Read-Host "  Select role (1-$($roleOptions.Count), default=1)"
             $roleIndex  = 1
@@ -217,12 +250,11 @@ function Get-SafesAddFromTemplateInput {
                 -Description 'Exact name of the template role member to base permissions on.'
         }
 
-        if ($memberName -and $roleName) {
+        if ($roleName) {
             $extraMemberEntries.Add("${memberType}:${memberName}:${roleName}")
         }
 
         Write-Host ''
-        $addMore = Read-Host '  Add another member? [y/N]'
     }
 
     return @{
