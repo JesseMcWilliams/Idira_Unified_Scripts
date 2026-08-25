@@ -586,6 +586,48 @@ Describe 'script:Get-TemplateRoleOptions - role descriptions' {
 }
 
 # ─────────────────────────────────────────────────────────────────
+Describe 'script:Get-DescriptionDisplayLines' {
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+    }
+
+    It 'T41 - splits CRLF, LF, and mixed line breaks into separate trimmed lines' {
+        $desc = "Full admin access`r`nto the safe.`n  Grants manage.`r`nSecond line."
+        [array]$lines = @(script:Get-DescriptionDisplayLines -Description $desc)
+        $lines.Count | Should -Be 4
+        $lines[0]    | Should -Be 'Full admin access'
+        $lines[1]    | Should -Be 'to the safe.'
+        $lines[2]    | Should -Be 'Grants manage.'
+        $lines[3]    | Should -Be 'Second line.'
+    }
+
+    It 'T42 - blank lines (including whitespace-only) are dropped, not returned as gaps' {
+        $desc = "First line.`r`n`r`n   `nSecond line."
+        [array]$lines = @(script:Get-DescriptionDisplayLines -Description $desc)
+        $lines.Count | Should -Be 2
+        $lines[0]    | Should -Be 'First line.'
+        $lines[1]    | Should -Be 'Second line.'
+    }
+
+    It 'T43 - blank, whitespace-only, or null Description returns an empty array, not $null' {
+        Set-StrictMode -Version Latest
+        [array]$blank      = @(script:Get-DescriptionDisplayLines -Description '')
+        [array]$whitespace = @(script:Get-DescriptionDisplayLines -Description "   `r`n  ")
+        [array]$nullDesc   = @(script:Get-DescriptionDisplayLines -Description $null)
+        $blank.Count      | Should -Be 0
+        $whitespace.Count | Should -Be 0
+        $nullDesc.Count   | Should -Be 0
+    }
+
+    It 'T44 - a single-line description with no line breaks returns one trimmed line' {
+        [array]$lines = @(script:Get-DescriptionDisplayLines -Description '  Single line description  ')
+        $lines.Count | Should -Be 1
+        $lines[0]    | Should -Be 'Single line description'
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-SafesAddFromTemplate - WhatIf' {
 
     BeforeEach {

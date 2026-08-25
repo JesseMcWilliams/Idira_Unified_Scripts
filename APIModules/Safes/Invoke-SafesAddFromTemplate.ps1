@@ -17,7 +17,7 @@ $ModuleMeta = @{
         @{ Column = 'ExtraMembers'; Required = $false; Description = 'Additional members beyond those copied from the template, as Type:Name:RoleName triples separated by semicolons, e.g. "User:jdoe:Role_Viewer;Group:AdminsGroup:Role_Admin". Type is User or Group. RoleName must exactly match a role-prefixed member (Role_Group_Prefix) on the template safe (Role_Template_Safe) - its permissions are copied verbatim, same as SafeMembers/AddFromTemplateRole. Interactive mode collects these one at a time via prompts instead.'; Example = 'User:jdoe:Role_Viewer;Group:AdminsGroup:Role_Admin' }
     )
     Priority         = 15
-    Version          = '1.4.0'
+    Version          = '1.4.1'
 }
 
 function script:Get-ProfileCPMOptions {
@@ -141,6 +141,26 @@ function script:Get-TemplateRoleOptions {
     return $options.ToArray()
 }
 
+function script:Get-DescriptionDisplayLines {
+    <#
+        Splits a free-text description (e.g. a role/group description from GET /API/UserGroups)
+        into trimmed, non-empty lines for display, one Write-Host call per line so each one can
+        be indented consistently under whatever it's describing. Group descriptions are free
+        text and can contain embedded CR/LF - printing a raw multi-line string would only indent
+        its first line, with the rest landing back at the console's left margin. Blank lines
+        (including ones that are only whitespace) are dropped rather than printed as gaps.
+
+        Returns an empty array - never throws - for a blank, whitespace-only, or missing
+        Description.
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Description
+    )
+    if (-not $Description) { return @() }
+    return @($Description -split '\r\n|\r|\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
 function Get-SafesAddFromTemplateInput {
     <#
         Called by the driver when HasCustomInput = $true.
@@ -233,9 +253,10 @@ function Get-SafesAddFromTemplateInput {
         if ($roleOptions.Count -gt 0) {
             Write-Host '  Template Role:' -ForegroundColor DarkGray
             for ($i = 0; $i -lt $roleOptions.Count; $i++) {
-                $roleLine = "    $($i + 1) = $($roleOptions[$i].Name)"
-                if ($roleOptions[$i].Description) { $roleLine += " - $($roleOptions[$i].Description)" }
-                Write-Host $roleLine
+                Write-Host "    $($i + 1) = $($roleOptions[$i].Name)"
+                foreach ($descLine in (script:Get-DescriptionDisplayLines -Description $roleOptions[$i].Description)) {
+                    Write-Host "      $descLine" -ForegroundColor DarkGray
+                }
             }
             $roleChoice = Read-Host "  Select role (1-$($roleOptions.Count), default=1)"
             $roleIndex  = 1
