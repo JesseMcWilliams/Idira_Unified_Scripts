@@ -1976,8 +1976,26 @@ function Invoke-ActionModule {
                         -ModuleName "$($meta.Name) Template"
                     if ($csvPath) {
                         $header = ($cols | ForEach-Object { "`"$_`"" }) -join ','
+                        $lines  = [System.Collections.Generic.List[string]]::new()
+                        $lines.Add($header)
+
+                        # If any InputSchema column defines an Example value, add one example
+                        # row beneath the header - blank for any column that doesn't have one -
+                        # so the CSV format is obvious at a glance (e.g. the Type:Name:RoleName;...
+                        # syntax for a delimited-list column like ExtraMembers). Bracket/ContainsKey
+                        # access, not dot notation - InputSchema entries are hashtables, and most
+                        # modules' entries don't define Example at all.
+                        $hasExample = @($meta.InputSchema | Where-Object { $_.ContainsKey('Example') -and $_['Example'] }).Count -gt 0
+                        if ($hasExample) {
+                            $exampleRow = ($meta.InputSchema | ForEach-Object {
+                                $ex = if ($_.ContainsKey('Example') -and $_['Example']) { "$($_['Example'])" } else { '' }
+                                "`"$ex`""
+                            }) -join ','
+                            $lines.Add($exampleRow)
+                        }
+
                         try {
-                            [System.IO.File]::WriteAllLines($csvPath, [string[]]@($header), [System.Text.Encoding]::UTF8)
+                            [System.IO.File]::WriteAllLines($csvPath, [string[]]$lines, [System.Text.Encoding]::UTF8)
                             Write-Host "  Template saved: $csvPath" -ForegroundColor Green
                         } catch {
                             Write-Host "  Failed to write template: $_" -ForegroundColor Red

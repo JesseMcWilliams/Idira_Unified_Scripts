@@ -86,9 +86,10 @@ $ModuleMeta = @{
         @{ Column = 'ExtraMembers'; Required = $false; Description = 'Type:Name:RoleName triples, semicolon-separated (D9).' }
     )
     Priority         = 15   # after Add(12)/Get(11)/Update(13)/Delete(14) in the existing Safes priority sequence
-    Version          = '1.3.0'   # 1.1.0 dropped OLACEnabled and made retention fields mutually exclusive (D5/D6)
+    Version          = '1.3.1'   # 1.1.0 dropped OLACEnabled and made retention fields mutually exclusive (D5/D6)
                               # 1.2.0 added the $script:ExcludedTemplateMemberNames filter (D7)
                               # 1.3.0 added the CPM prompt (D8) and additional-members feature (D9/D10)
+                              # 1.3.1 added Example values to InputSchema, used by the CSV template generator
 }
 ```
 
@@ -252,3 +253,4 @@ APIModules\Safes\
 | 2026-08-20 | Decisions D5–D6 added and resolved: OLACEnabled removed entirely; NumberOfVersionsRetention/NumberOfDaysRetention made mutually exclusive. Same fix applied to Invoke-SafesAdd.ps1 and Invoke-SafesUpdate.ps1 |
 | 2026-08-20 | Decision D7 added and resolved: added $script:ExcludedTemplateMemberNames global exclusion list in Manage-Privilege.ps1, consumed by Invoke-SafesAddFromTemplate.ps1's member filter |
 | 2026-08-25 | Decisions D8-D10 added and resolved: ManagingCPM is no longer copied from the template - a new profile field CPM_List drives an interactive picker (default none), with a plain ManagingCPM CSV column for bulk mode; added an "additional members" feature (Type/Name/Role, role permissions resolved the same way as SafeMembers/AddFromTemplateRole) via an interactive add-another loop or a semicolon-delimited ExtraMembers CSV column. Version bumped to 1.3.0 |
+| 2026-08-25 | Added `Example` values to all 4 `InputSchema` columns (1.3.1); `Manage-Privilege.ps1`'s "Generate Template" menu option now writes them as a second CSV row beneath the header, so the `ExtraMembers` `Type:Name:RoleName;...` syntax is shown by example, not just described in prose |

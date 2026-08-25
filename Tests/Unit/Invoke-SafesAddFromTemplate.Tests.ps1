@@ -211,6 +211,11 @@ Describe 'ModuleMeta' {
         $field          | Should -Not -BeNullOrEmpty
         $field.Required | Should -BeFalse
     }
+
+    It 'T06c - ExtraMembers Example demonstrates the Type:Name:RoleName;... CSV syntax' {
+        $field = $ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'ExtraMembers' }
+        $field.Example | Should -Match '^(User|Group):[^:;]+:[^:;]+(;(User|Group):[^:;]+:[^:;]+)*$'
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────
