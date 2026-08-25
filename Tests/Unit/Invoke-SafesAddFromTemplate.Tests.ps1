@@ -222,6 +222,7 @@ Describe 'ModuleMeta' {
 Describe 'Invoke-SafesAddFromTemplate - success' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Invoke-CyberArkAPI { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint -Body $Body }
         Mock Write-CyberArkLog { }
@@ -339,6 +340,7 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
 Describe 'Invoke-SafesAddFromTemplate - ExtraMembers' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Invoke-CyberArkAPI { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint -Body $Body }
         Mock Write-CyberArkLog { }
@@ -407,9 +409,97 @@ Describe 'Invoke-SafesAddFromTemplate - ExtraMembers' {
 }
 
 # ─────────────────────────────────────────────────────────────────
+# Regression coverage for a real production crash: [array]$x = if (cond) {@(...)} else {@()}
+# collapses to $null (not an empty array) when the else branch fires, because PowerShell
+# unrolls a script block's output and an empty @() emits zero objects. $null.Count then throws
+# PropertyNotFoundException under Set-StrictMode - which every real invocation runs under (via
+# Manage-Privilege.ps1), but this test file does NOT, since it dot-sources only the module file.
+# Every test below sets Set-StrictMode -Version Latest itself (scoped to its own It block, not
+# leaked to siblings - confirmed by T29 above and the ExtraMembers tests still passing) so it
+# actually catches a regression instead of silently passing regardless, the way T09a/T09b
+# already did for the $excludedNames instance of this same bug before it was fixed. See
+# Docs\Lessons-Learned-PowerShell-Pester.md, "Unit tests do not run under Set-StrictMode".
+Describe 'Invoke-SafesAddFromTemplate - array-collapse regression (strict mode)' {
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        script:Reset-MockActiveProfile
+        Mock Invoke-CyberArkAPI { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint -Body $Body }
+        Mock Write-CyberArkLog { }
+        Mock Add-CyberArkLogSummaryEntry { }
+    }
+
+    It 'T30 - empty $script:ExcludedTemplateMemberNames does not throw under strict mode' {
+        # No explicit try/catch or "Should -Not -Throw" needed: Pester already fails an It block
+        # on any uncaught exception, and wrapping the call in a scriptblock for
+        # "Should -Not -Throw" would run it in a child scope, so a result variable assigned
+        # inside would not actually propagate back out for the assertions below.
+        Set-StrictMode -Version Latest
+        $script:ExcludedTemplateMemberNames = @()
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
+        $r.IsFatal | Should -BeFalse
+    }
+
+    It 'T31 - template safe with zero members does not throw under strict mode' {
+        Set-StrictMode -Version Latest
+        Mock Invoke-CyberArkAPI {
+            if ($Method -eq 'GET' -and $Endpoint -eq '/API/Safes/TemplateSafe') {
+                return script:New-OkResponse -Data $script:TemplateSafeResponse
+            }
+            if ($Method -eq 'GET' -and $Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @() })
+            }
+            if ($Method -eq 'POST' -and $Endpoint -eq '/API/Safes') {
+                return script:New-OkResponse -Data $script:CreatedSafeResponse -StatusCode 201
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
+        # @(...) wrap required here too: zero matches from Where-Object collapses to $null on
+        # capture (same bug this whole Describe is about), and .Count on that throws.
+        @($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 0
+    }
+
+    It 'T32 - script:Get-ProfileCPMOptions: profile has no CPM_List property at all - does not throw under strict mode' {
+        Set-StrictMode -Version Latest
+        $testProfile = [PSCustomObject]@{ Role_Template_Safe = 'TemplateSafe' }
+        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
+        $result.Count | Should -Be 0
+    }
+
+    It 'T33 - script:Get-ProfileCPMOptions: null profile - does not throw under strict mode' {
+        Set-StrictMode -Version Latest
+        [array]$result = @(script:Get-ProfileCPMOptions -Profile $null)
+        $result.Count | Should -Be 0
+    }
+
+    It 'T34 - script:Get-ProfileCPMOptions: blank CPM_List - does not throw under strict mode' {
+        Set-StrictMode -Version Latest
+        $testProfile = [PSCustomObject]@{ CPM_List = '   ' }
+        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
+        $result.Count | Should -Be 0
+    }
+
+    It 'T35 - script:Get-ProfileCPMOptions: splits, trims, and filters CPM_List correctly' {
+        Set-StrictMode -Version Latest
+        $testProfile = [PSCustomObject]@{ CPM_List = ' PM1 , PM2 ,, ' }
+        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
+        $result.Count | Should -Be 2
+        $result[0]    | Should -Be 'PM1'
+        $result[1]    | Should -Be 'PM2'
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-SafesAddFromTemplate - WhatIf' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
+        # Strict mode: this is the block that hid a real production crash (unconditional dot
+        # notation on $safeBody.NumberOfVersionsRetention/NumberOfDaysRetention, which are
+        # mutually exclusive - see the "array-collapse regression" Describe above for the full
+        # explanation of why this test file needs to opt into strict mode explicitly).
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Invoke-CyberArkAPI {
             if ($Method -eq 'GET') { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint }
@@ -450,6 +540,7 @@ Describe 'Invoke-SafesAddFromTemplate - WhatIf' {
 Describe 'Invoke-SafesAddFromTemplate - validation' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Invoke-CyberArkAPI { }
         Mock Write-CyberArkLog { }
@@ -485,6 +576,7 @@ Describe 'Invoke-SafesAddFromTemplate - validation' {
 Describe 'Invoke-SafesAddFromTemplate - errors' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }

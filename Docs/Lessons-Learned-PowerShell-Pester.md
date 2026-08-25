@@ -1297,6 +1297,109 @@ this specific Pester/file interaction.
 
 ---
 
+### 9.8 `[array]$x = if (cond) {@(...)} else {@()}` collapses to `$null`, not an empty array
+
+**Root cause:** PowerShell auto-unrolls a script block's output onto the pipeline. An empty
+`@()` emitted as a branch's last statement produces *zero* output objects - not "one empty
+array object." When that's captured by an assignment, even one with an `[array]` type
+constraint on the left-hand side, the result is `$null`, because the constraint applies to
+what was actually emitted (nothing), not to what the literal looked like in the source. Later
+code calling `.Count`, `.Length`, or indexing that variable throws `PropertyNotFoundException`
+under `Set-StrictMode` - which every real invocation runs under, since `Manage-Privilege.ps1`
+sets it and every API module is dot-sourced into that same scope.
+
+**This caused a real production crash**, reported directly by the user: `Get-
+SafesAddFromTemplateInput` (`Invoke-SafesAddFromTemplate.ps1`) built its CPM picker list with
+`[array]$cpmList = if (cond) { @(...) } else { @() }`; any profile without `CPM_List` set took
+the `else` branch, `$cpmList` became `$null`, and `$cpmList.Count` crashed the whole session
+loop. The same file had two more instances of the identical pattern (`$templateMembers`,
+`$excludedNames`) that hadn't crashed yet only because nobody had hit the right condition -
+`$script:ExcludedTemplateMemberNames` ships non-empty by default, and a template safe with
+zero members is uncommon but entirely valid.
+
+**Wrong:**
+```powershell
+[array]$x = if ($cond) { @($thingWithContent) } else { @() }
+```
+
+**Correct - wrap the WHOLE if/else, not just a branch:**
+```powershell
+[array]$x = @(if ($cond) { $thingWithContent })
+```
+Dropping the `else` entirely is fine and clearer: if `$cond` is false, the `if` block itself
+emits nothing, and the outer `@(...)` turns "nothing" into a real empty array either way. This
+matches the pattern already used correctly elsewhere in this codebase for API-response
+wrapping, e.g. `[array]$searchInOptions = @(script:Get-SafeMembersSearchInOptions -Token
+$Token)` (`Invoke-SafeMembersAdd.ps1`) - the key is that the `@()` wraps the *entire*
+expression that might emit zero, one, or many objects, not just whichever branch happens to
+have visible content in the source.
+
+**The same bug can hide in an inline pipeline result**, not just an `if/else`:
+```powershell
+# Wrong - if Where-Object matches zero items, (...).Count throws:
+($list | Where-Object { $_.Foo -eq $bar }).Count
+
+# Correct:
+@($list | Where-Object { $_.Foo -eq $bar }).Count
+```
+This exact form caused a false failure in this codebase's own regression test for the bug
+above (`Tests\Unit\Invoke-SafesAddFromTemplate.Tests.ps1`, T31) - the fix for the production
+bug was correct, but the *test asserting the fix* used the same unguarded pipeline pattern
+and threw the identical exception when the expected match count was zero, which then had to
+be debugged as if it were a second production bug before the real cause (the test's own
+assertion line) was found.
+
+**Rule:** Whenever assigning to an `[array]`-typed variable from an `if/else`, a pipeline, or
+a function call, wrap the *entire* right-hand expression in `@(...)` - never just the branch
+that happens to have content, and never assume a bare `@()` literal is safe just because it
+looks like an array.
+
+---
+
+### 9.9 Unit tests for individual API modules do not run under `Set-StrictMode` - and that hid the bug above
+
+**Root cause:** `Set-StrictMode -Version Latest` is set once, at the top of
+`Manage-Privilege.ps1`. Every API module is dot-sourced *into that same scope* at runtime, so
+in real usage strict mode is always active. But each module's own `*.Tests.ps1` file dot-
+sources only the module file itself (plus `CyberArkLogging.psm1`/`CyberArkComms.psm1`) -
+never `Manage-Privilege.ps1` - so strict mode is **not** active when a module's tests run in
+isolation. `Manage-Privilege.Tests.ps1` is the one exception, since it dot-sources the driver
+directly.
+
+**This is exactly why the bug in 9.8 shipped and passed every test.** The existing tests
+`T09a`/`T09b` in `Invoke-SafesAddFromTemplate.Tests.ps1` already set
+`$script:ExcludedTemplateMemberNames = @()` - the precise condition that collapses
+`$excludedNames` to `$null` - and passed cleanly, because `.Count` on `$null` doesn't throw
+without strict mode; it just doesn't crash. The bug was invisible to the test suite by
+construction, not by bad luck.
+
+**Complication found while fixing this:** running the *entire* suite via `Tests\Run-Tests.ps1`
+(all files in one `Invoke-Pester` process) showed a different, larger set of failures than
+running `Invoke-SafesAddFromTemplate.Tests.ps1` in isolation - because `Set-StrictMode`, once
+set by `Manage-Privilege.Tests.ps1` dot-sourcing the driver, is not perfectly contained to that
+file's own Pester container and can affect later-run containers in the same process. Earlier
+sessions working on this codebase (see prior Documentation-Tracker.md entries referencing "N
+pre-existing unrelated failures, confirmed via `git stash`") treated the full-suite-only
+failures in `Invoke-SafesAdd.ps1`, `Invoke-SafesUpdate.ps1`, `Invoke-AccountsList.ps1`, and
+others as unrelated cross-file pollution, on the reasoning that they predated the change being
+made and reproduced identically before and after via `git stash`. That reasoning correctly
+identified them as *pre-existing*, but likely mischaracterized *why*: fixing the two other
+instances of the 9.8 bug in `Invoke-SafesAddFromTemplate.ps1` (`$templateMembers`,
+`$excludedNames`) made every one of that file's full-suite failures disappear - strongly
+suggesting the same bug class, not incidental pollution, is the actual cause in at least some
+of the still-failing files. **This has not been verified file-by-file; it's a hypothesis
+raised by one confirmed instance, not a proven diagnosis for the others.**
+
+**Rule:** Don't treat "fails only in the full suite, passes in isolation, and failed before my
+change too" as proof a failure is unrelated noise safe to ignore. It rules out *your specific
+change* as the cause, but it does not rule out a real bug that strict mode (leaked or direct)
+is the only thing currently exposing. When touching a file with this signature, consider
+explicitly adding `Set-StrictMode -Version Latest` to the relevant test(s) (scoped to the
+`It`/`BeforeEach`, not the file's `BeforeAll` where it can trigger the 9.1/9.7 hang risk) to
+find out which.
+
+---
+
 ## 10. File Encoding: UTF-8 with BOM is Required for PowerShell 5.1
 
 ### 10.1 Em-dash and other multi-byte Unicode characters silently corrupt double-quoted strings

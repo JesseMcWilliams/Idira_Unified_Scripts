@@ -17,7 +17,36 @@ $ModuleMeta = @{
         @{ Column = 'ExtraMembers'; Required = $false; Description = 'Additional members beyond those copied from the template, as Type:Name:RoleName triples separated by semicolons, e.g. "User:jdoe:Role_Viewer;Group:AdminsGroup:Role_Admin". Type is User or Group. RoleName must exactly match a role-prefixed member (Role_Group_Prefix) on the template safe (Role_Template_Safe) - its permissions are copied verbatim, same as SafeMembers/AddFromTemplateRole. Interactive mode collects these one at a time via prompts instead.'; Example = 'User:jdoe:Role_Viewer;Group:AdminsGroup:Role_Admin' }
     )
     Priority         = 15
-    Version          = '1.3.1'
+    Version          = '1.3.2'
+}
+
+function script:Get-ProfileCPMOptions {
+    <#
+        Returns the profile's CPM_List (comma-separated) as a trimmed, non-empty string array,
+        for the interactive Managing CPM picker. Returns an empty array - never throws - if the
+        profile is null, CPM_List is unset/blank, or every entry is blank after trimming.
+
+        The whole pipeline is wrapped in an OUTER @(...), not just the branch that has content:
+        `[array]$x = if (cond) { @(...) } else { @() }` looks safe but is not - PowerShell
+        auto-unrolls a script block's output, so an empty @() emitted from the else branch
+        collapses to zero output objects, which $x then captures as $null despite the [array]
+        type constraint. $null.Count throws under Set-StrictMode (always active once this file
+        is dot-sourced into Manage-Privilege.ps1's scope, which every real invocation goes
+        through) even though every unit test for this file passes regardless, because the test
+        file dot-sources only this module - not Manage-Privilege.ps1 - so strict mode is never
+        actually active during `Invoke-Pester` here. See
+        Docs\Lessons-Learned-PowerShell-Pester.md, "Unit tests do not run under Set-StrictMode".
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [PSCustomObject]$Profile
+    )
+
+    if (-not $Profile -or -not $Profile.PSObject.Properties['CPM_List'] -or -not $Profile.CPM_List) {
+        return @()
+    }
+
+    return @(("$($Profile.CPM_List)" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 }
 
 function script:Get-TemplateRoleOptions {
@@ -67,7 +96,10 @@ function script:Get-TemplateRoleOptions {
 
     if (-not $response.Data) { return $options.ToArray() }
 
-    [array]$members = if ($response.Data.PSObject.Properties['value']) { @($response.Data.value) } else { @($response.Data) }
+    # Outer @(...) around the whole if/else, not just its branches - see the comment on
+    # script:Get-ProfileCPMOptions above for why. Only iterated via foreach below, so this
+    # cannot crash today even when unfixed, but kept consistent to prevent a future regression.
+    [array]$members = @(if ($response.Data.PSObject.Properties['value']) { $response.Data.value } else { $response.Data })
 
     foreach ($m in $members) {
         $name = if ($m.PSObject.Properties['memberName']) { "$($m.memberName)" } else { '' }
@@ -115,9 +147,7 @@ function Get-SafesAddFromTemplateInput {
     # for CPM users (Invoke-SafesAssignCPM.ps1's Assign CPM page uses a live query instead;
     # kept separate per explicit decision, not a shared mechanism).
     Write-Host ''
-    [array]$cpmList = if ($script:ActiveProfile -and $script:ActiveProfile.PSObject.Properties['CPM_List'] -and $script:ActiveProfile.CPM_List) {
-        @(("$($script:ActiveProfile.CPM_List)" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    } else { @() }
+    [array]$cpmList = @(script:Get-ProfileCPMOptions -Profile $script:ActiveProfile)
 
     $managingCPM = ''
     if ($cpmList.Count -gt 0) {
@@ -335,16 +365,25 @@ function Invoke-SafesAddFromTemplate {
         return $result
     }
 
-    [array]$templateMembers = if ($templateMembersResponse.Data -and $templateMembersResponse.Data.PSObject.Properties['value']) {
-        @($templateMembersResponse.Data.value)
-    } else { @() }
+    # Outer @(...) around the whole if/else, not just the branch with content - an empty @()
+    # emitted from the else branch would otherwise collapse to $null on capture (PowerShell
+    # unrolls a script block's output; zero-length output becomes $null even with [array]
+    # typing on the LHS), and $templateMembers.Count below would throw under Set-StrictMode.
+    # See script:Get-ProfileCPMOptions's comment above for the full explanation - this is the
+    # same bug class that crashed in production for the CPM list, found here by the same audit.
+    [array]$templateMembers = @(if ($templateMembersResponse.Data -and $templateMembersResponse.Data.PSObject.Properties['value']) {
+        $templateMembersResponse.Data.value
+    })
 
     # Step 3: exclude role groups - any member whose name starts with Role_Group_Prefix
     # (case-insensitive), regardless of memberType - and exclude any member whose name
     # exactly matches (case-insensitive) an entry in the global $script:ExcludedTemplateMemberNames
     # list (defined in Manage-Privilege.ps1; shared by any Safes/SafeMembers module that reuses it).
     # Everything else is copied.
-    [array]$excludedNames = if ($script:ExcludedTemplateMemberNames) { @($script:ExcludedTemplateMemberNames) } else { @() }
+    # Same outer-@() fix as $templateMembers above - $script:ExcludedTemplateMemberNames = @()
+    # (an admin clearing the list, or the default before it's ever seeded) would otherwise
+    # collapse to $null and crash on $excludedNames.Count below.
+    [array]$excludedNames = @(if ($script:ExcludedTemplateMemberNames) { $script:ExcludedTemplateMemberNames })
 
     [array]$membersToCopy = @($templateMembers | Where-Object {
         $memberName = if ($_.PSObject.Properties['memberName']) { "$($_.memberName)" } else { '' }
@@ -423,8 +462,16 @@ function Invoke-SafesAddFromTemplate {
             Description      = $safeBody.Description
             Location         = $safeBody.Location
             ManagingCPM      = $safeBody.ManagingCPM
-            VersionRetention = $safeBody.NumberOfVersionsRetention
-            DayRetention     = $safeBody.NumberOfDaysRetention
+            # Bracket notation, not dot notation: NumberOfVersionsRetention and
+            # NumberOfDaysRetention are mutually exclusive in $safeBody (only one is ever set,
+            # per the retention rule above) - dot-accessing the absent one throws under
+            # Set-StrictMode. This crashed WhatIf mode unconditionally, every time, in real
+            # usage - masked by every unit test here, since this test file doesn't dot-source
+            # Manage-Privilege.ps1 and so never runs under strict mode itself. See
+            # Docs\Lessons-Learned-PowerShell-Pester.md, "Unit tests do not run under
+            # Set-StrictMode".
+            VersionRetention = if ($safeBody.ContainsKey('NumberOfVersionsRetention')) { $safeBody['NumberOfVersionsRetention'] } else { $null }
+            DayRetention     = if ($safeBody.ContainsKey('NumberOfDaysRetention'))     { $safeBody['NumberOfDaysRetention'] }     else { $null }
             AutoPurge        = $safeBody.AutoPurgeEnabled
             MemberName       = ''
             MemberType       = ''
@@ -508,9 +555,11 @@ function Invoke-SafesAddFromTemplate {
         Description      = if ($createdSafe -and $createdSafe.PSObject.Properties['description'])               { $createdSafe.description }               else { $safeBody.Description }
         Location         = if ($createdSafe -and $createdSafe.PSObject.Properties['location'])                  { $createdSafe.location }                  else { $safeBody.Location }
         ManagingCPM      = if ($createdSafe -and $createdSafe.PSObject.Properties['managingCPM'])              { $createdSafe.managingCPM }              else { $safeBody.ManagingCPM }
-        VersionRetention = if ($createdSafe -and $createdSafe.PSObject.Properties['numberOfVersionsRetention']) { $createdSafe.numberOfVersionsRetention } else { $safeBody.NumberOfVersionsRetention }
-        DayRetention     = if ($createdSafe -and $createdSafe.PSObject.Properties['numberOfDaysRetention'])     { $createdSafe.numberOfDaysRetention }     else { $safeBody.NumberOfDaysRetention }
-        AutoPurge        = if ($createdSafe)                                                                    { $createdSafe.autoPurgeEnabled }          else { $safeBody.AutoPurgeEnabled }
+        # Bracket notation on $safeBody in the fallback branches - see the comment in the
+        # WhatIf block above for why dot notation on these two specifically throws.
+        VersionRetention = if ($createdSafe -and $createdSafe.PSObject.Properties['numberOfVersionsRetention']) { $createdSafe.numberOfVersionsRetention } elseif ($safeBody.ContainsKey('NumberOfVersionsRetention')) { $safeBody['NumberOfVersionsRetention'] } else { $null }
+        DayRetention     = if ($createdSafe -and $createdSafe.PSObject.Properties['numberOfDaysRetention'])     { $createdSafe.numberOfDaysRetention }     elseif ($safeBody.ContainsKey('NumberOfDaysRetention'))     { $safeBody['NumberOfDaysRetention'] }     else { $null }
+        AutoPurge        = if ($createdSafe -and $createdSafe.PSObject.Properties['autoPurgeEnabled'])          { $createdSafe.autoPurgeEnabled }          else { $safeBody.AutoPurgeEnabled }
         MemberName       = ''
         MemberType       = ''
         RoleName         = ''
