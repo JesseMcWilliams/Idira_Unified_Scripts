@@ -1250,6 +1250,53 @@ reads the Pester result object after calling `Invoke-Pester -Configuration`.
 
 ---
 
+### 9.7 A new `Describe` appended to `Manage-Privilege.Tests.ps1` can hang instead of failing fast
+
+**Root cause:** Unknown precisely, but reliably reproduced. Adding `Invoke-FileWriteWithRetry`
+(a `Manage-Privilege.ps1` helper shaped `while ($true) { try { & $Action; return $true } catch
+{ ...; if (-not (Confirm-Action ...)) { return $false } } }`) to `Manage-Privilege.ps1`, then
+appending a new `Describe` block to `Manage-Privilege.Tests.ps1` that calls it — even in the
+simplest, non-throwing, no-retry-needed case — caused the whole Pester run to hang indefinitely
+right after printing the new `Describe`'s header, before any `It` result printed. This is a
+variant of the same family as 9.1 (Pester issue #2669: `break`/`continue` label confusion from
+user code interacting with Pester's own control flow), but manifests as a silent hang rather
+than 9.1's fast `InvalidOperationException` — much harder to diagnose, since `-Output Detailed`
+gives no indication where execution stopped.
+
+**How this was actually diagnosed (worth repeating, since several dead ends looked promising
+first):**
+1. Copying `Manage-Privilege.Tests.ps1`'s content into a scratch-directory file to attempt a
+   faster, isolated repro is **invalid** — the file computes its dot-source target as
+   `Split-Path (Split-Path $PSScriptRoot)` (two levels up from its own location) to find
+   `Manage-Privilege.ps1`. Moved to any other directory, that resolves to the wrong path, dot-
+   sourcing silently no-ops or fails, and the resulting `CommandNotFoundException`-flavored
+   breakage looks confusingly similar to the real bug (same `break`/`continue` exception text,
+   different actual cause). Every finding produced this way was a false lead.
+2. `[Console]::Error.WriteLine('MARK-N')` breadcrumbs placed directly inside the real `It` block
+   (bypassing `Write-Host`, which may be mocked, and stdout buffering) pinpointed the hang to
+   inside the call to `Invoke-FileWriteWithRetry` itself — after entering the `It`, after both
+   `Mock` calls, but before the function returned.
+3. Calling the *exact same function*, dot-sourced from the *exact same file*, from a plain
+   `pwsh` session with **no Pester involved** (via `Start-Job` + `Wait-Job -Timeout`, so a real
+   hang doesn't block the diagnosis) returned correctly in well under a second, every time. This
+   is the decisive test: it proves the function itself is correct and the bug is specific to
+   Pester's test-execution machinery interacting with this file, not a real defect.
+
+**Fix attempted and found NOT sufficient:** Moving the offending `BeforeAll { Mock Write-Host
+{} }` out of the `Describe` block (the 9.1 fix) did not resolve this — the hang persisted with
+`Mock Write-Host` inlined into each `It` instead. This is not the same trigger as 9.1's.
+
+**Rule:** Don't unit-test a new `while`-loop-shaped driver helper by appending a `Describe` to
+`Manage-Privilege.Tests.ps1`, even if it looks like every existing pattern in that file. If a
+new test for such a helper hangs, verify the helper directly with `Start-Job`/`Wait-Job
+-Timeout` outside Pester before assuming the helper is broken — if it returns correctly there,
+the helper is fine and the safest fix is to leave it untested with a comment explaining why
+(consistent with the project's existing testing boundary that `Read-Host`-driven interactive
+helpers aren't unit tested — see `Testing-Plan.md`), rather than spending further time chasing
+this specific Pester/file interaction.
+
+---
+
 ## 10. File Encoding: UTF-8 with BOM is Required for PowerShell 5.1
 
 ### 10.1 Em-dash and other multi-byte Unicode characters silently corrupt double-quoted strings

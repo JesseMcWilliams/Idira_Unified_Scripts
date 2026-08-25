@@ -207,6 +207,34 @@ function Get-CsvSavePath {
     }
 }
 
+function Invoke-FileWriteWithRetry {
+    <#
+        Runs $Action (a scriptblock that performs a single file write - Export-Csv,
+        [System.IO.File]::WriteAllText, Set-Content, etc.) and, if it throws, prompts the user
+        to retry instead of letting the error silently discard already-fetched report data. The
+        most common cause is the target file being open and locked in another program (Excel, a
+        text editor) - something the user can fix in a few seconds by closing it, without having
+        to re-run whatever produced the data in the first place.
+
+        Returns $true if $Action eventually completed without throwing, $false if the user
+        declined to retry.
+    #>
+    param(
+        [Parameter(Mandatory = $true)] [scriptblock]$Action,
+        [Parameter(Mandatory = $true)] [string]$Path
+    )
+    while ($true) {
+        try {
+            & $Action
+            return $true
+        } catch {
+            Write-Host "  Failed to write '$Path': $_" -ForegroundColor Red
+            Write-Host '  The file may be open in another program (e.g. Excel).' -ForegroundColor Yellow
+            if (-not (Confirm-Action 'Retry the write?')) { return $false }
+        }
+    }
+}
+
 function Invoke-EntitySearch {
     # Searches a list endpoint and lets the user pick from numbered results.
     # Returns the selected entity ID string, or $null if cancelled or nothing found.
@@ -1807,12 +1835,13 @@ function Invoke-CsvProcessing {
         }
 
         if ($outputRows.Count -gt 0) {
-            try {
+            $saved = Invoke-FileWriteWithRetry -Path $outputPath -Action {
                 $outputRows | Export-Csv -LiteralPath $outputPath -NoTypeInformation -Encoding UTF8
+            }
+            if ($saved) {
                 Write-Host "  Output: $outputPath" -ForegroundColor Green
-            } catch {
-                Write-Host "  Failed to write output file: $_" -ForegroundColor Red
-                Write-CyberArkLog -Level 'ERROR' -Message "Failed to write output CSV '$outputPath': $_"
+            } else {
+                Write-CyberArkLog -Level 'ERROR' -Message "Failed to write output CSV '$outputPath' (user declined to retry)."
             }
         }
 
@@ -2031,13 +2060,14 @@ function Invoke-ActionModule {
         if ($saveCsv -match '^[Yy]') {
             $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name
             if ($csvPath) {
-                try {
+                $saved = Invoke-FileWriteWithRetry -Path $csvPath -Action {
                     $result.Results | Export-Csv -Path $csvPath -NoTypeInformation -Force
+                }
+                if ($saved) {
                     Write-Host "  Saved: $csvPath" -ForegroundColor Green
                     Write-CyberArkLog -Message "Results saved to CSV: $csvPath" -Level 'INFO'
-                } catch {
-                    Write-Host "  Failed to save CSV: $_" -ForegroundColor Red
-                    Write-CyberArkLog -Message "Failed to save CSV to '$csvPath': $_" -Level 'ERROR'
+                } else {
+                    Write-CyberArkLog -Message "Failed to save CSV to '$csvPath' (user declined to retry)." -Level 'ERROR'
                 }
             }
         }

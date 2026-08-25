@@ -101,8 +101,14 @@ function Invoke-CustomExportAll {
             if ($recordCount -gt 0) {
                 Write-Host " - $recordCount record$(if ($recordCount -ne 1) { 's' })" -ForegroundColor Green
 
-                try {
+                # Invoke-FileWriteWithRetry (defined in Manage-Privilege.ps1) is available because
+                # this module is dot-sourced into the driver scope. If the file is open/locked
+                # (e.g. in Excel), it prompts to retry rather than discarding the records this
+                # module already fetched from the API.
+                $saved = Invoke-FileWriteWithRetry -Path $csvPath -Action {
                     $moduleResult.Results | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Force
+                }
+                if ($saved) {
                     Write-Host "    Saved: $csvPath" -ForegroundColor DarkGreen
                     Write-CyberArkLog -Level 'INFO' -Message "Export All: saved '$safeModName' ($recordCount records) to '$csvPath'."
                     $result.Results.Add([PSCustomObject]@{
@@ -111,9 +117,9 @@ function Invoke-CustomExportAll {
                         Status    = 'Saved'
                         SavedPath = $csvPath
                     })
-                } catch {
-                    Write-Host "    Failed to save: $_" -ForegroundColor Red
-                    Write-CyberArkLog -Level 'ERROR' -Message "Export All: failed to write '$csvPath': $_"
+                } else {
+                    Write-Host '    Failed to save (user declined to retry).' -ForegroundColor Red
+                    Write-CyberArkLog -Level 'ERROR' -Message "Export All: failed to write '$csvPath' (user declined to retry)."
                     $result.Results.Add([PSCustomObject]@{
                         Module    = $modName
                         Records   = $recordCount
