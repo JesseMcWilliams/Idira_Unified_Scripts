@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $false
     InputSchema      = @()
     Priority         = 80
-    Version          = '1.0.0'
+    Version          = '1.0.1'
 }
 
 function Invoke-CustomExportAll {
@@ -65,7 +65,14 @@ function Invoke-CustomExportAll {
         $script:ActiveProfile.OutputFolder
     } else { (Get-Location).Path }
     if (-not [System.IO.Path]::IsPathRooted($outputFolder)) {
-        $outputFolder = Join-Path $PSScriptRoot $outputFolder
+        # $PSScriptRoot here is this file's own directory (APIModules\Custom), NOT the project
+        # root - PowerShell binds it to where a function is lexically defined, not to the scope
+        # that dot-sources it, even though Manage-Privilege.ps1 dot-sources this file into its
+        # own scope. Resolve relative to the project root instead, via $script:APIModulesPath
+        # (set by Manage-Privilege.ps1 before any module runs) so a relative profile
+        # OutputFolder lands next to Manage-Privilege.ps1, matching every other save-to-CSV path.
+        $projectRoot  = if ($script:APIModulesPath) { Split-Path -Path $script:APIModulesPath -Parent } else { (Get-Location).Path }
+        $outputFolder = Join-Path $projectRoot $outputFolder
     }
     if (-not (Test-Path -LiteralPath $outputFolder)) {
         try { New-Item -ItemType Directory -Path $outputFolder -Force | Out-Null } catch {}
