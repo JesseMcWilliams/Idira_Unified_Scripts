@@ -373,6 +373,7 @@ Non-sensitive settings only. Human-readable without decryption.
     "DisplayLimit":       20,
     "Role_Template_Safe": "",
     "Role_Group_Prefix":  "",
+    "CPM_List":           "",
     "LastUsed":           "2026-01-15T14:32:01Z",
     "Created":            "2026-01-01T09:00:00Z",
     "Modified":           "2026-01-15T14:32:01Z"
@@ -402,6 +403,7 @@ Non-sensitive settings only. Human-readable without decryption.
 | `DisplayLimit` | int | Maximum rows shown in the interactive table for List and ExportEntitlements results. `0` = show all. Default: `20`. The full result set is always available for CSV export regardless of this setting. |
 | `Role_Template_Safe` | string | Safe name used as a permission template when assigning roles. Consumed by Add/Update Safe Member role-assignment operations. Empty string if not used. |
 | `Role_Group_Prefix` | string | Prefix for CyberArk role-based groups (e.g. `CyberArk_`). Consumed by Add/Update Safe Member role-assignment operations. Empty string if not used. |
+| `CPM_List` | string | Comma-separated list of CPM usernames (e.g. `PasswordManager,PasswordManager2`), maintained manually via Profile Settings. Shown as a numbered picker (with a "(none)" default) on pages that ask for a CPM to assign - currently `Safes/AddFromTemplate`. Not used by `Safes/AssignCPM`, which queries the API live instead (`GET /API/Users?userType=CPM&componentUser=true`) - a deliberate choice, not a shared mechanism. Empty string if not configured. |
 | `LastUsed` | ISO 8601 UTC | Updated each time the profile is selected. |
 | `Created` | ISO 8601 UTC | Set once at profile creation. |
 | `Modified` | ISO 8601 UTC | Updated whenever any profile field changes. |

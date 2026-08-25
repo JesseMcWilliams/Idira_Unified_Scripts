@@ -352,7 +352,7 @@ function Get-AllDriverProfiles {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
             # Normalize: add any fields introduced after this profile was saved
-            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder', 'TenantPortal', 'TenantVault', 'TenantAuth', 'Role_Template_Safe', 'Role_Group_Prefix')) {
+            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder', 'TenantPortal', 'TenantVault', 'TenantAuth', 'Role_Template_Safe', 'Role_Group_Prefix', 'CPM_List')) {
                 $defaultVal = if ($field -eq 'AppName') { 'PasswordVault' } else { '' }
                 if (-not $p.PSObject.Properties[$field]) {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $defaultVal -Force
@@ -456,6 +456,7 @@ function New-BlankProfile {
         TenantAuth         = ''
         Role_Template_Safe = ''
         Role_Group_Prefix  = ''
+        CPM_List           = ''
         DisplayLimit       = 20
         LastUsed           = $null
         Created          = (Get-Date).ToUniversalTime().ToString('o')
@@ -565,6 +566,7 @@ function Show-ProfileDetail {
     Field 'Display Limit'   $(if ($dpLimit -eq 0) { 'Show all' } else { "$dpLimit rows" })
     if ($p.PSObject.Properties['Role_Template_Safe'] -and $p.Role_Template_Safe) { Field 'Role Template Safe' $p.Role_Template_Safe }
     if ($p.PSObject.Properties['Role_Group_Prefix']  -and $p.Role_Group_Prefix)  { Field 'Role Group Prefix'  $p.Role_Group_Prefix  }
+    if ($p.PSObject.Properties['CPM_List'] -and $p.CPM_List) { Field 'CPM List' $p.CPM_List }
     $created  = try { ([datetime]$p.Created).ToLocalTime().ToString('yyyy-MM-dd HH:mm') }  catch { $p.Created }
     $modified = try { ([datetime]$p.Modified).ToLocalTime().ToString('yyyy-MM-dd HH:mm') } catch { $p.Modified }
     Field 'Created'         $created
@@ -772,6 +774,10 @@ function Invoke-ProfileEditFlow {
     $currentProfile.Role_Group_Prefix = Show-FieldPrompt -Label 'Role Group Prefix' `
         -Default $(if ($currentProfile.PSObject.Properties['Role_Group_Prefix']) { $currentProfile.Role_Group_Prefix } else { '' }) `
         -Description 'Prefix for CyberArk role groups (e.g. "CyberArk_"). Used by Add/Update Safe Member role operations.'
+
+    $currentProfile.CPM_List = Show-FieldPrompt -Label 'CPM List' `
+        -Default $(if ($currentProfile.PSObject.Properties['CPM_List']) { $currentProfile.CPM_List } else { '' }) `
+        -Description 'Comma-separated list of CPM usernames (e.g. "PasswordManager,PasswordManager2"). Shown as a picker on pages that ask for a CPM, so you do not have to remember or type the names.'
 
     Write-Host ''
     Save-DriverProfile -currentProfile $currentProfile

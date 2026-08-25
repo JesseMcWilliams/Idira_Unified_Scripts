@@ -79,6 +79,11 @@ Describe 'Manage-Privilege - New-BlankProfile' {
         $p.Created  | Should -Not -BeNullOrEmpty
         $p.Modified | Should -Not -BeNullOrEmpty
     }
+
+    It 'DP04a - CPM_List defaults to an empty string' {
+        $p = New-BlankProfile -Name 'X'
+        $p.CPM_List | Should -Be ''
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -137,6 +142,20 @@ Describe 'Manage-Privilege - Profile persistence (Save / Read / GetAll)' {
         Remove-DriverProfile -Name 'ToDelete'
         $jsonPath = Join-Path $script:TempDir 'ToDelete.json'
         Test-Path -LiteralPath $jsonPath | Should -Be $false
+    }
+
+    It 'DP11a - Get-AllDriverProfiles backfills CPM_List on an older profile saved without it' {
+        # Simulates a profile saved before CPM_List existed: every other field a real saved
+        # profile would have, just missing this one property.
+        $oldProfile = New-BlankProfile -Name 'OldProfile'
+        $oldProfile.PSObject.Properties.Remove('CPM_List')
+        Save-DriverProfile -currentProfile $oldProfile
+
+        $loaded = Read-DriverProfile -Name 'OldProfile'
+        $loaded.PSObject.Properties['CPM_List'] | Should -BeNullOrEmpty
+
+        $list = @(Get-AllDriverProfiles)
+        $list.Count | Should -Be 1
     }
 }
 

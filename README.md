@@ -154,6 +154,7 @@ Profiles are stored as encrypted XML files under `%APPDATA%\IdiraUnifiedScripts\
 | IsDefault | Marks this profile as the default selection on startup |
 | Role_Template_Safe | Safe name used as a settings/membership template by Safes > Add Safe From Template |
 | Role_Group_Prefix | Name prefix identifying role groups to exclude when copying members in Add Safe From Template |
+| CPM_List | Comma-separated CPM usernames; shown as a picker (default: none) on pages that ask for a CPM, currently Safes > Add Safe From Template |
 | TenantPortal | Auto-computed ISPSS portal URL (`{sub}.cyberark.com`) |
 | TenantVault | Auto-computed ISPSS vault URL (`vault-{sub}.privilegecloud.cyberark.com`) |
 | TenantAuth | Auto-computed CyberArk Identity tenant URL (discovered on first login, cached) |

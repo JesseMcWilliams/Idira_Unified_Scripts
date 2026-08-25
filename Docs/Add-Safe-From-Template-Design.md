@@ -80,18 +80,22 @@ $ModuleMeta = @{
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'SafeName';    Required = $true;  Description = 'Unique name for the new safe (max 28 chars).' }
-        @{ Column = 'Description'; Required = $false; Description = 'Description for the new safe. Never copied from the template — leave blank for no description.' }
+        @{ Column = 'SafeName';     Required = $true;  Description = 'Unique name for the new safe (max 28 chars).' }
+        @{ Column = 'Description';  Required = $false; Description = 'Description for the new safe. Never copied from the template — leave blank for no description.' }
+        @{ Column = 'ManagingCPM';  Required = $false; Description = 'CPM username to assign. Blank = none (default). No longer copied from the template (D8).' }
+        @{ Column = 'ExtraMembers'; Required = $false; Description = 'Type:Name:RoleName triples, semicolon-separated (D9).' }
     )
     Priority         = 15   # after Add(12)/Get(11)/Update(13)/Delete(14) in the existing Safes priority sequence
-    Version          = '1.2.0'   # 1.1.0 dropped OLACEnabled and made retention fields mutually exclusive (D5/D6)
+    Version          = '1.3.0'   # 1.1.0 dropped OLACEnabled and made retention fields mutually exclusive (D5/D6)
                               # 1.2.0 added the $script:ExcludedTemplateMemberNames filter (D7)
+                              # 1.3.0 added the CPM prompt (D8) and additional-members feature (D9/D10)
 }
 ```
 
-Only `SafeName` and `Description` are collected from the caller — `Description` is always
-fresh (per D1 below), and every other safe property comes from reading the template safe
-named in the profile's `Role_Template_Safe` field.
+`SafeName`, `Description`, `ManagingCPM`, and `ExtraMembers` are collected from the caller —
+`Description` is always fresh (per D1 below); `ManagingCPM` and `ExtraMembers` are new as of
+D8/D9 and are *not* copied or derived from the template. Every other safe property still
+comes from reading the template safe named in the profile's `Role_Template_Safe` field.
 
 ### Algorithm
 
@@ -115,14 +119,19 @@ named in the profile's `Role_Template_Safe` field.
    **and** exclude any member whose `memberName` exactly matches (case-insensitive) an
    entry in the global `$script:ExcludedTemplateMemberNames` list defined in `Manage-Privilege.ps1`
    (D7). Every remaining member, of any type, is copied.
+4a. Parse `InputData.ExtraMembers` ("Type:Name:RoleName;Type:Name:RoleName...") into
+   validated specs. `Type` must be `User` or `Group`; malformed entries (wrong shape,
+   invalid `Type`, empty `Name`/`RoleName`) are recorded as individual non-fatal errors
+   and skipped — they never block safe creation or the other entries (D9).
 5. `POST /API/Safes` to create the new safe, body built the same way as
    `Invoke-SafesAdd.ps1`, with `SafeName` and `Description` from input (empty string if not
-   supplied — `Description` is never taken from the template), and `Location`,
-   `ManagingCPM`, `AutoPurgeEnabled` copied from the template safe read in step 2. (D1)
-   `NumberOfVersionsRetention` and `NumberOfDaysRetention` are mutually exclusive on this
-   API — only one is ever included in the body: the template's `NumberOfDaysRetention` is
-   sent when it is greater than 0, otherwise the template's `NumberOfVersionsRetention` is
-   sent. `OLACEnabled` is never included (D5).
+   supplied — `Description` is never taken from the template), `Location` and
+   `AutoPurgeEnabled` copied from the template safe read in step 2, and `ManagingCPM` taken
+   from `InputData.ManagingCPM` — blank (no CPM) if not supplied, **never** copied from the
+   template (D1, amended by D8). `NumberOfVersionsRetention` and `NumberOfDaysRetention` are
+   mutually exclusive on this API — only one is ever included in the body: the template's
+   `NumberOfDaysRetention` is sent when it is greater than 0, otherwise the template's
+   `NumberOfVersionsRetention` is sent. `OLACEnabled` is never included (D5).
    - If this fails, stop — do not attempt any member copy. Report as one failed item, same
      `IsFatal` rule as `Invoke-SafesAdd.ps1` (`StatusCode -in @(401, 0)`).
 6. For each retained member from step 4, `POST /API/Safes/{urlencoded new SafeName}/Members`
@@ -133,8 +142,18 @@ named in the profile's `Role_Template_Safe` field.
    failure on one member does not stop the loop (consistent with how every other
    multi-item module in this codebase accumulates `Successes`/`Failures` per item and only
    sets `IsFatal` on 401/0).
-7. Result: `ItemsProcessed` = 1 (safe creation) + N (members attempted); `Results` contains
-   one row for the created safe and one row per copied member, mirroring the shape
+6a. For each spec from step 4a, resolve its `RoleName` against `$templateMembers` (already
+   fetched in step 3 - no second API call) filtered to members whose name starts with
+   `Role_Group_Prefix`, exact case-insensitive match on the full name (same resolution as
+   `SafeMembers/AddFromTemplateRole`). If no match, record a non-fatal error and skip that
+   member. Otherwise `POST /API/Safes/{urlencoded new SafeName}/Members` with `memberName`/
+   `memberType` from the spec, `permissions` copied verbatim from the resolved role member,
+   and `membershipExpirationDate = $null` (D10). Same continue-on-error/fatal-on-401
+   semantics as step 6.
+7. Result: `ItemsProcessed` = 1 (safe creation) + N (template members attempted) + M (extra
+   members attempted); `Results` contains one row for the created safe and one row per
+   member (template-copied or extra - indistinguishable by `ItemType`, but extra members
+   carry their `RoleName` in a column that's blank for everything else), mirroring the shape
    `Invoke-SafesAdd`/`Invoke-SafeMembersAdd` already use for their own `Results` rows.
 
 `WhatIf` mode reports what would be created (the safe, and the filtered member list) without
@@ -144,10 +163,15 @@ calling `POST`, following the same synthetic-success pattern as `Invoke-SafesAdd
 
 ## 4. Profile Field Consumption
 
-No new profile fields are needed — `Role_Template_Safe` and `Role_Group_Prefix` already
-exist end-to-end in `Manage-Privilege.ps1` (creation, normalization for older saved profiles, display,
-and interactive edit) and are already documented in `Docs\Interfaces.md`. This feature is
+`Role_Template_Safe` and `Role_Group_Prefix` already existed end-to-end in
+`Manage-Privilege.ps1` (creation, normalization for older saved profiles, display, and
+interactive edit) and were already documented in `Docs\Interfaces.md`. This feature was
 their first real consumer.
+
+As of D8, a new profile field `CPM_List` (comma-separated CPM usernames) was added with the
+same four touchpoints (`New-BlankProfile`, the `Get-AllDriverProfiles` normalization array,
+`Show-ProfileDetail`, `Invoke-ProfileEditFlow`) and documented in `Docs\Interfaces.md`. This
+feature is its first consumer.
 
 Follow-up doc correction once implemented: `README.md`'s Configuration table currently
 describes these two fields in terms of a "Custom export" / "role-based entitlement" use case
@@ -167,6 +191,9 @@ feature (see Section 7, step 9).
 | D5 | **Should `OLACEnabled` ever be read from the template or sent on `POST /API/Safes`?** (raised after initial implementation) | (a) Keep copying it from the template, as originally implemented — (b) Drop it entirely: never read, never asked, never sent | **(b)** — per direct correction: OLACEnabled should never be passed, asked, or used. Removed from `$safeBody`, from both `Results` shapes (WhatIf and real), and from the equivalent code in `Invoke-SafesAdd.ps1` / `Invoke-SafesUpdate.ps1`, which had the same issue. |
 | D6 | **Should `NumberOfVersionsRetention` and `NumberOfDaysRetention` both be sent together?** (raised after initial implementation) | (a) Send both, as originally implemented — (b) Send only one; `NumberOfDaysRetention` wins when greater than 0, otherwise `NumberOfVersionsRetention` is sent | **(b)** — per direct correction: the two fields are mutually exclusive on this API. Applied the same rule to `Invoke-SafesAdd.ps1` and `Invoke-SafesUpdate.ps1` (post-merge value, in the Update case) for consistency across all three Safes write paths. |
 | D7 | **Global member-name exclusion list** — where should it live, how should names match, and what's the initial content? | Location: (a) `$script:`-scoped constant in the module file only — (b) shared `$script:` constant in `Manage-Privilege.ps1`, visible to every dot-sourced module. Match: (a) exact, case-insensitive — (b) prefix, case-insensitive. Scope: (a) all `memberType`s — (b) `User` only. Seed content: (a) provided names — (b) empty | **Location (b)** — `$script:ExcludedTemplateMemberNames` in `Manage-Privilege.ps1`, alongside other driver-wide constants (`$script:PVWA_SESSION_EXPIRY_MIN` etc.), so any future Safes/SafeMembers module can reuse it without plumbing. **Match (a)** — exact, case-insensitive; no partial/prefix matching. **Scope (a)** — applies across all `memberType`s, consistent with the `Role_Group_Prefix` filter. **Seed content (b)** — starts empty; names to be added directly in `Manage-Privilege.ps1` as needed. |
+| D8 | **Where should the CPM to assign come from, now that it's a prompt instead of an auto-copy?** | (a) Keep copying the template's `managingCPM` as before — (b) Prompt with a picker sourced from a new profile field (`CPM_List`, comma-separated), defaulting to none — (c) Prompt with a picker sourced from a live `GET /API/Users?userType=CPM` query, same as `Safes/AssignCPM` | **(b)**, per explicit direction. `CPM_List` is a new profile field (see Section 4), picked via a numbered menu with "(none)" as entry 1 and the default. Falls back to free-text entry if the list is empty. Explicitly *not* wired to `Safes/AssignCPM`'s live-query mechanism — the two pages intentionally use different CPM sources; confirmed directly rather than assumed. CSV/bulk mode gets a plain `ManagingCPM` column (blank = none, no picker). |
+| D9 | **How should "additional members" be specified, given InputSchema is a flat CSV row but the list of extra members is variable-length?** | (a) Interactive-only, no CSV/bulk equivalent — (b) One CSV row per extra member, matched to the safe by SafeName (breaks the "one row = one new safe" semantics; the safe would already exist by the second row) — (c) A single delimited-list column on the same row, `Type:Name:RoleName` triples separated by semicolons | **(c)**, per explicit direction ("full CSV support for both"). Chosen over (b) because CyberArk's `POST /API/Safes` would 409 on a second row targeting an already-created safe — this module's row-to-safe mapping is 1:1. The semicolon-list format mirrors the existing convention for list-valued CSV fields elsewhere in this codebase (e.g. `RemoteMachines` on the Accounts API, semicolon-separated). Interactive mode builds this same string internally (via a Y/N "add another member?" loop) so `Invoke-SafesAddFromTemplate` has one parsing path regardless of input source. |
+| D10 | **Should adding an extra member offer a SearchIn (Vault/LDAP directory) picker, like `Add Safe Member` / `SafeMembers/AddFromTemplateRole`?** | (a) Yes, for consistency — (b) No, keep it simple: Type (User/Group) + Name + Role only, `searchIn` omitted (API default: Vault) | **(b)**, per explicit direction ("keep it simple"). `membershipExpirationDate` is also always `$null` for extra members, matching this module's existing template-copy convention (D3) rather than `AddFromTemplateRole`'s user-suppliable expiration - these are two different modules with different contracts, and this one's existing convention takes precedence for consistency within itself. |
 
 ---
 
@@ -224,3 +251,4 @@ APIModules\Safes\
 | 2026-08-20 | Implementation complete — module, unit tests, and all doc updates done |
 | 2026-08-20 | Decisions D5–D6 added and resolved: OLACEnabled removed entirely; NumberOfVersionsRetention/NumberOfDaysRetention made mutually exclusive. Same fix applied to Invoke-SafesAdd.ps1 and Invoke-SafesUpdate.ps1 |
 | 2026-08-20 | Decision D7 added and resolved: added $script:ExcludedTemplateMemberNames global exclusion list in Manage-Privilege.ps1, consumed by Invoke-SafesAddFromTemplate.ps1's member filter |
+| 2026-08-25 | Decisions D8-D10 added and resolved: ManagingCPM is no longer copied from the template - a new profile field CPM_List drives an interactive picker (default none), with a plain ManagingCPM CSV column for bulk mode; added an "additional members" feature (Type/Name/Role, role permissions resolved the same way as SafeMembers/AddFromTemplateRole) via an interactive add-another loop or a semicolon-delimited ExtraMembers CSV column. Version bumped to 1.3.0 |

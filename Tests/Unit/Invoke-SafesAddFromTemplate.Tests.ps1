@@ -129,7 +129,19 @@ BeforeAll {
             return script:New-OkResponse -Data $script:TemplateMembersResponse
         }
         if ($Method -eq 'POST' -and $Endpoint -eq '/API/Safes') {
-            return script:New-OkResponse -Data $script:CreatedSafeResponse -StatusCode 201
+            # Echo back ManagingCPM from the submitted body, like the real API does - the rest
+            # of the fixture stays fixed since no other field is InputData-driven.
+            $echoedCPM = if ($Body -and $Body.ContainsKey('ManagingCPM')) { $Body.ManagingCPM } else { $script:CreatedSafeResponse.managingCPM }
+            return script:New-OkResponse -Data ([PSCustomObject]@{
+                safeName                  = $script:CreatedSafeResponse.safeName
+                description               = $script:CreatedSafeResponse.description
+                location                  = $script:CreatedSafeResponse.location
+                managingCPM               = $echoedCPM
+                numberOfVersionsRetention = $script:CreatedSafeResponse.numberOfVersionsRetention
+                numberOfDaysRetention     = $script:CreatedSafeResponse.numberOfDaysRetention
+                autoPurgeEnabled          = $script:CreatedSafeResponse.autoPurgeEnabled
+                olacEnabled               = $script:CreatedSafeResponse.olacEnabled
+            }) -StatusCode 201
         }
         if ($Method -eq 'POST' -and $Endpoint -like '/API/Safes/NewSafe/Members') {
             return script:New-OkResponse -Data ([PSCustomObject]@{ safeName = 'NewSafe'; memberName = $Body.memberName; memberType = $Body.memberType }) -StatusCode 201
@@ -187,6 +199,18 @@ Describe 'ModuleMeta' {
         $descField          | Should -Not -BeNullOrEmpty
         $descField.Required | Should -BeFalse
     }
+
+    It 'T06a - InputSchema contains ManagingCPM with Required=$false' {
+        $field = $ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'ManagingCPM' }
+        $field          | Should -Not -BeNullOrEmpty
+        $field.Required | Should -BeFalse
+    }
+
+    It 'T06b - InputSchema contains ExtraMembers with Required=$false' {
+        $field = $ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'ExtraMembers' }
+        $field          | Should -Not -BeNullOrEmpty
+        $field.Required | Should -BeFalse
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -240,16 +264,33 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
         $r.Failures  | Should -Be 0
     }
 
-    It 'T11 - safe creation POST body copies template settings' {
+    It 'T11 - safe creation POST body copies Location/AutoPurgeEnabled from the template; ManagingCPM defaults to blank (not copied)' {
         Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
             $Method -eq 'POST' -and $Endpoint -eq '/API/Safes' -and
             $Body.SafeName -eq 'NewSafe' -and
             $Body.Description -eq 'Stamped from template' -and
             $Body.Location -eq '\Templates' -and
-            $Body.ManagingCPM -eq 'PasswordManager' -and
+            $Body.ManagingCPM -eq '' -and
             $Body.AutoPurgeEnabled -eq $true
         } -Times 1
+    }
+
+    It 'T11d - ManagingCPM in InputData is sent as-is, still not copied from the template' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ManagingCPM = 'ChosenCPM'
+        Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'POST' -and $Endpoint -eq '/API/Safes' -and
+            $Body.ManagingCPM -eq 'ChosenCPM'
+        } -Times 1
+    }
+
+    It 'T11e - result Safe row reflects the chosen ManagingCPM' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ManagingCPM = 'ChosenCPM'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).ManagingCPM | Should -Be 'ChosenCPM'
     }
 
     It 'T11a - OLACEnabled is never included in the safe creation body' {
@@ -290,6 +331,77 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
 }
 
 # ─────────────────────────────────────────────────────────────────
+Describe 'Invoke-SafesAddFromTemplate - ExtraMembers' {
+
+    BeforeEach {
+        script:Reset-MockActiveProfile
+        Mock Invoke-CyberArkAPI { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint -Body $Body }
+        Mock Write-CyberArkLog { }
+        Mock Add-CyberArkLogSummaryEntry { }
+    }
+
+    It 'T25 - one valid ExtraMembers entry: added with the resolved role permissions and memberType' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'User:newuser:CyberArk_TemplateSafe_Admins'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+
+        $extraRow = $r.Results | Where-Object { $_.ItemType -eq 'Member' -and $_.MemberName -eq 'newuser' }
+        $extraRow                | Should -Not -BeNullOrEmpty
+        $extraRow.MemberType     | Should -Be 'User'
+        $extraRow.RoleName       | Should -Be 'CyberArk_TemplateSafe_Admins'
+
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'POST' -and $Endpoint -eq '/API/Safes/NewSafe/Members' -and
+            $Body.memberName -eq 'newuser' -and
+            $Body.memberType -eq 'User' -and
+            $null -eq $Body.membershipExpirationDate -and
+            $Body.permissions.manageSafe -eq $true -and
+            $Body.permissions.manageSafeMembers -eq $true
+        } -Times 1
+    }
+
+    It 'T26 - two ExtraMembers entries (semicolon-separated): both added' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'User:newuser:CyberArk_TemplateSafe_Admins;Group:newgroup:CyberArk_TemplateSafe_Admins'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+
+        $extraRows = $r.Results | Where-Object { $_.ItemType -eq 'Member' -and $_.MemberName -in @('newuser', 'newgroup') }
+        $extraRows.Count | Should -Be 2
+        ($extraRows | Where-Object { $_.MemberName -eq 'newgroup' }).MemberType | Should -Be 'Group'
+    }
+
+    It 'T27 - malformed ExtraMembers entry: recorded as an error, safe still created, other entries unaffected' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'NotAType:baduser:CyberArk_TemplateSafe_Admins;User:gooduser:CyberArk_TemplateSafe_Admins'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+
+        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        ($r.Results | Where-Object { $_.MemberName -eq 'gooduser' }).Count | Should -Be 1
+        $r.Errors.Count | Should -Be 1
+        $r.IsFatal       | Should -BeFalse
+    }
+
+    It 'T28 - RoleName not found among template role members: error recorded, safe and other members unaffected' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'User:newuser:CyberArk_NoSuchRole'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+
+        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        $r.Errors.Count | Should -Be 1
+        $r.IsFatal       | Should -BeFalse
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'POST' -and $Endpoint -eq '/API/Safes/NewSafe/Members' -and $Body.memberName -eq 'newuser'
+        } -Times 0
+    }
+
+    It 'T29 - blank ExtraMembers: no extra members added, no error' {
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
+        $r.Errors.Count | Should -Be 0
+        ($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 2   # only the two template-copied members
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-SafesAddFromTemplate - WhatIf' {
 
     BeforeEach {
@@ -316,6 +428,16 @@ Describe 'Invoke-SafesAddFromTemplate - WhatIf' {
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput -WhatIf
         $r.Results.Count | Should -Be 3
         $r.IsFatal        | Should -BeFalse
+    }
+
+    It 'T15a - WhatIf: ExtraMembers entries appear as additional synthetic Member rows, no POST' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'User:newuser:CyberArk_TemplateSafe_Admins'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput -WhatIf
+        $r.Results.Count | Should -Be 4
+        $extraRow = $r.Results | Where-Object { $_.MemberName -eq 'newuser' }
+        $extraRow.RoleName | Should -Be 'CyberArk_TemplateSafe_Admins'
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Method -eq 'POST' } -Times 0
     }
 }
 
