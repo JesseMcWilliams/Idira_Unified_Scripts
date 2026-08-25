@@ -65,23 +65,36 @@ BeforeAll {
         }
     }
 
-    # A sample account object matching the CyberArk API shape (single object, not wrapped in value array)
+    # A sample account object matching the CyberArk API shape (single object, not wrapped in value
+    # array), including the nested objects and dynamic platform properties confirmed against
+    # Swagger\CyberArk_PasswordVault_Swagger_14.6.v1.json's AccountModel/AutomaticSecretManagement/
+    # RemoteMachinesAccess definitions.
     $script:SampleAccount = [PSCustomObject]@{
-        id                = '123_456'
-        name              = 'svc-account@domain.com'
-        address           = 'domain.com'
-        userName          = 'svc-account'
-        platformId        = 'WinDomain'
-        safeName          = 'TestSafe'
-        secretType        = 'password'
-        createdTime       = 1700000000   # 2023-11-14 (UTC)
-        secretManagement  = [PSCustomObject]@{
+        id                        = '123_456'
+        name                      = 'svc-account@domain.com'
+        address                   = 'domain.com'
+        userName                  = 'svc-account'
+        platformId                = 'WinDomain'
+        safeName                  = 'TestSafe'
+        secretType                = 'password'
+        createdTime               = 1700000000   # 2023-11-14 (UTC)
+        categoryModificationTime  = 1700000000
+        deletionTime              = 1700000000
+        secretManagement          = [PSCustomObject]@{
             automaticManagementEnabled = $true
             manualManagementReason     = ''
             lastModifiedTime           = 1700000000
             lastReconciledTime         = 1700000000
             lastVerifiedTime           = 1700000000
             status                     = 'success'
+        }
+        remoteMachinesAccess      = [PSCustomObject]@{
+            remoteMachines                    = 'host1.domain.com;host2.domain.com'
+            accessRestrictedToRemoteMachines  = $true
+        }
+        platformAccountProperties = [PSCustomObject]@{
+            LogonDomain = 'DOMAIN'
+            Port        = '3389'
         }
     }
 }
@@ -188,6 +201,63 @@ Describe 'Invoke-AccountsGet - success' {
     It 'AG15 - createdTime epoch is converted to a yyyy-MM-dd string' {
         $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
         $r.Results[0].Created | Should -Match '^\d{4}-\d{2}-\d{2}$'
+    }
+
+    It 'AG15a - categoryModificationTime and deletionTime epochs are converted to yyyy-MM-dd strings' {
+        $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
+        $r.Results[0].CategoryModified | Should -Match '^\d{4}-\d{2}-\d{2}$'
+        $r.Results[0].Deleted           | Should -Match '^\d{4}-\d{2}-\d{2}$'
+    }
+
+    It 'AG15b - secretManagement lastModified/lastReconciled/lastVerified epochs are flattened and converted' {
+        $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
+        $r.Results[0].LastCPMModified | Should -Match '^\d{4}-\d{2}-\d{2}$'
+        $r.Results[0].LastReconciled  | Should -Match '^\d{4}-\d{2}-\d{2}$'
+        $r.Results[0].LastVerified    | Should -Match '^\d{4}-\d{2}-\d{2}$'
+    }
+
+    It 'AG15c - remoteMachinesAccess is flattened to RemoteMachines and RemoteAccessRestricted' {
+        $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
+        $r.Results[0].RemoteMachines         | Should -Be 'host1.domain.com;host2.domain.com'
+        $r.Results[0].RemoteAccessRestricted | Should -BeTrue
+    }
+
+    It 'AG15d - platformAccountProperties keys are flattened onto Platform_-prefixed columns' {
+        $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '123_456' }
+        $r.Results[0].Platform_LogonDomain | Should -Be 'DOMAIN'
+        $r.Results[0].Platform_Port        | Should -Be '3389'
+    }
+
+    It 'AG15e - secret is never surfaced in the result, even if present on the response' {
+        $acctWithSecret = [PSCustomObject]@{
+            id         = '555'
+            name       = 'has-secret@domain.com'
+            userName   = 'has-secret'
+            platformId = 'WinDomain'
+            safeName   = 'TestSafe'
+            secretType = 'password'
+            secret     = 'SuperSecretPassword123!'
+        }
+        Mock Invoke-CyberArkAPI { script:New-AccountApiResponse -Account $acctWithSecret }
+        $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '555' }
+        $r.Results[0].PSObject.Properties.Name | Should -Not -Contain 'Secret'
+        $r.Results[0].PSObject.Properties.Name | Should -Not -Contain 'secret'
+    }
+
+    It 'AG15f - missing remoteMachinesAccess and platformAccountProperties do not throw and use safe defaults' {
+        $acctMinimal = [PSCustomObject]@{
+            id         = '444'
+            name       = 'minimal@domain.com'
+            userName   = 'minimal'
+            platformId = 'WinDomain'
+            safeName   = 'TestSafe'
+            secretType = 'password'
+        }
+        Mock Invoke-CyberArkAPI { script:New-AccountApiResponse -Account $acctMinimal }
+        $r = Invoke-AccountsGet -Token $script:MockToken -InputData @{ AccountID = '444' }
+        $r.Results[0].RemoteMachines         | Should -Be ''
+        $r.Results[0].RemoteAccessRestricted | Should -BeFalse
+        $r.Results[0].PSObject.Properties.Name | Should -Not -Contain 'Platform_LogonDomain'
     }
 
     It 'AG16 - missing createdTime does not throw and returns empty string' {

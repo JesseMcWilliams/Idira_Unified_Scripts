@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'List Accounts'
@@ -12,11 +12,15 @@ $ModuleMeta = @{
     HasCustomInput   = $true
     InputSchema      = @()
     Priority         = 30
-    Version          = '1.2.0'
+    Version          = '1.3.0'
 }
 
-# Maps one raw account API object onto the result list.
-# Returns the number of accounts added (1 on success, 0 on error).
+# Maps one raw account API object onto the result list. Flattens the nested AccountModel
+# objects (secretManagement, remoteMachinesAccess, platformAccountProperties) the same way as
+# Invoke-AccountsGet.ps1 - confirmed against the bundled Swagger spec's AccountModel/
+# AutomaticSecretManagement/RemoteMachinesAccess definitions. secret is deliberately never
+# surfaced: the live API doesn't return it from this endpoint anyway, and writing credentials
+# into a plaintext CSV export by default would be a security hazard regardless.
 function script:Add-AccountToResult {
     param(
         [Parameter(Mandatory = $true)] [PSCustomObject]$Result,
@@ -24,32 +28,74 @@ function script:Add-AccountToResult {
         [Parameter(Mandatory = $false)][hashtable]$ErrorInputData
     )
     try {
+        $secretMgmt   = if ($Account.PSObject.Properties['secretManagement'])     { $Account.secretManagement }     else { $null }
+        $remoteAccess = if ($Account.PSObject.Properties['remoteMachinesAccess']) { $Account.remoteMachinesAccess } else { $null }
+
         $createdDate = if ($Account.PSObject.Properties['createdTime'] -and $Account.createdTime) {
             try { [DateTimeOffset]::FromUnixTimeSeconds($Account.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
             catch { '' }
         } else { '' }
 
-        $autoManaged = if ($Account.PSObject.Properties['secretManagement'] -and $Account.secretManagement) {
-            $Account.secretManagement.automaticManagementEnabled
-        } else { $false }
-
-        $cpmStatus = if ($Account.PSObject.Properties['secretManagement'] -and $Account.secretManagement -and
-                        $Account.secretManagement.PSObject.Properties['status']) {
-            $Account.secretManagement.status
+        $categoryModifiedDate = if ($Account.PSObject.Properties['categoryModificationTime'] -and $Account.categoryModificationTime) {
+            try { [DateTimeOffset]::FromUnixTimeSeconds($Account.categoryModificationTime).LocalDateTime.ToString('yyyy-MM-dd') }
+            catch { '' }
         } else { '' }
 
-        $Result.Results.Add([PSCustomObject]@{
-            AccountID   = if ($Account.PSObject.Properties['id'])         { $Account.id }         else { '' }
-            AccountName = if ($Account.PSObject.Properties['name'])       { $Account.name }       else { '' }
-            Address     = if ($Account.PSObject.Properties['address'])    { $Account.address }    else { '' }
-            UserName    = if ($Account.PSObject.Properties['userName'])   { $Account.userName }   else { '' }
-            PlatformID  = if ($Account.PSObject.Properties['platformId']) { $Account.platformId } else { '' }
-            SafeName    = if ($Account.PSObject.Properties['safeName'])   { $Account.safeName }   else { '' }
-            SecretType  = if ($Account.PSObject.Properties['secretType']) { $Account.secretType } else { '' }
-            AutoManaged = $autoManaged
-            CPMStatus   = $cpmStatus
-            Created     = $createdDate
-        })
+        $deletedDate = if ($Account.PSObject.Properties['deletionTime'] -and $Account.deletionTime) {
+            try { [DateTimeOffset]::FromUnixTimeSeconds($Account.deletionTime).LocalDateTime.ToString('yyyy-MM-dd') }
+            catch { '' }
+        } else { '' }
+
+        $lastCPMModifiedDate = if ($secretMgmt -and $secretMgmt.PSObject.Properties['lastModifiedTime'] -and $secretMgmt.lastModifiedTime) {
+            try { [DateTimeOffset]::FromUnixTimeSeconds($secretMgmt.lastModifiedTime).LocalDateTime.ToString('yyyy-MM-dd') }
+            catch { '' }
+        } else { '' }
+
+        $lastReconciledDate = if ($secretMgmt -and $secretMgmt.PSObject.Properties['lastReconciledTime'] -and $secretMgmt.lastReconciledTime) {
+            try { [DateTimeOffset]::FromUnixTimeSeconds($secretMgmt.lastReconciledTime).LocalDateTime.ToString('yyyy-MM-dd') }
+            catch { '' }
+        } else { '' }
+
+        $lastVerifiedDate = if ($secretMgmt -and $secretMgmt.PSObject.Properties['lastVerifiedTime'] -and $secretMgmt.lastVerifiedTime) {
+            try { [DateTimeOffset]::FromUnixTimeSeconds($secretMgmt.lastVerifiedTime).LocalDateTime.ToString('yyyy-MM-dd') }
+            catch { '' }
+        } else { '' }
+
+        $outRow = [ordered]@{
+            AccountID              = if ($Account.PSObject.Properties['id'])         { $Account.id }         else { '' }
+            AccountName            = if ($Account.PSObject.Properties['name'])       { $Account.name }       else { '' }
+            Address                = if ($Account.PSObject.Properties['address'])    { $Account.address }    else { '' }
+            UserName               = if ($Account.PSObject.Properties['userName'])   { $Account.userName }   else { '' }
+            PlatformID             = if ($Account.PSObject.Properties['platformId']) { $Account.platformId } else { '' }
+            SafeName               = if ($Account.PSObject.Properties['safeName'])   { $Account.safeName }   else { '' }
+            SecretType             = if ($Account.PSObject.Properties['secretType']) { $Account.secretType } else { '' }
+            AutoManaged            = if ($secretMgmt -and $secretMgmt.PSObject.Properties['automaticManagementEnabled']) { $secretMgmt.automaticManagementEnabled } else { $false }
+            CPMStatus              = if ($secretMgmt -and $secretMgmt.PSObject.Properties['status']) { $secretMgmt.status } else { '' }
+            ManualReason           = if ($secretMgmt -and $secretMgmt.PSObject.Properties['manualManagementReason']) { $secretMgmt.manualManagementReason } else { '' }
+            LastCPMModified        = $lastCPMModifiedDate
+            LastReconciled         = $lastReconciledDate
+            LastVerified           = $lastVerifiedDate
+            RemoteMachines         = if ($remoteAccess -and $remoteAccess.PSObject.Properties['remoteMachines']) { $remoteAccess.remoteMachines } else { '' }
+            RemoteAccessRestricted = if ($remoteAccess -and $remoteAccess.PSObject.Properties['accessRestrictedToRemoteMachines']) { $remoteAccess.accessRestrictedToRemoteMachines } else { $false }
+            CategoryModified       = $categoryModifiedDate
+            Deleted                = $deletedDate
+            Created                = $createdDate
+        }
+
+        # platformAccountProperties is a free-form object whose keys vary per platform (e.g.
+        # LogonDomain, Port) - not a fixed schema. Flatten every key onto its own column,
+        # prefixed "Platform_" so it can never collide with a fixed column name above. Which keys
+        # exist varies per account, so Add-PlatformColumnParity backfills every row to the same
+        # full column set once all accounts are collected - Export-Csv (PS 5.1) only reads
+        # headers from the first row, so any column missing there would silently vanish from the
+        # output for every row, not just the ones lacking it.
+        if ($Account.PSObject.Properties['platformAccountProperties'] -and $Account.platformAccountProperties) {
+            foreach ($prop in $Account.platformAccountProperties.PSObject.Properties) {
+                $outRow["Platform_$($prop.Name)"] = $prop.Value
+            }
+        }
+
+        $Result.Results.Add([PSCustomObject]$outRow)
         $Result.Successes++
         $Result.ItemsProcessed++
     } catch {
@@ -63,6 +109,36 @@ function script:Add-AccountToResult {
         })
         $Result.Failures++
         $Result.ItemsProcessed++
+    }
+}
+
+# Backfills every row in $Result.Results with an empty-string value for any "Platform_*" column
+# present on at least one other row but missing from it, so every row ends up with the same
+# full column set (see the comment in Add-AccountToResult for why this matters for CSV export).
+function script:Add-PlatformColumnParity {
+    param(
+        [Parameter(Mandatory = $true)] [PSCustomObject]$Result
+    )
+
+    if ($Result.Results.Count -eq 0) { return }
+
+    $allPlatformKeys = [System.Collections.Generic.List[string]]::new()
+    $seen = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($row in $Result.Results) {
+        foreach ($prop in $row.PSObject.Properties) {
+            if ($prop.Name.StartsWith('Platform_') -and $seen.Add($prop.Name)) {
+                $allPlatformKeys.Add($prop.Name)
+            }
+        }
+    }
+    if ($allPlatformKeys.Count -eq 0) { return }
+
+    foreach ($row in $Result.Results) {
+        foreach ($key in $allPlatformKeys) {
+            if (-not $row.PSObject.Properties[$key]) {
+                Add-Member -InputObject $row -MemberType NoteProperty -Name $key -Value ''
+            }
+        }
     }
 }
 
@@ -244,6 +320,8 @@ function Invoke-AccountsList {
             $result.ItemsProcessed++
         }
 
+        script:Add-PlatformColumnParity -Result $result
+
         Write-Host ''
         Write-CyberArkLog -Level 'INFO' -Message "Account list by safe complete. Safes: $safeIdx, Accounts: $($result.Successes)."
         Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
@@ -302,6 +380,8 @@ function Invoke-AccountsList {
     foreach ($acct in $accounts) {
         script:Add-AccountToResult -Result $result -Account $acct -ErrorInputData $InputData
     }
+
+    script:Add-PlatformColumnParity -Result $result
 
     Write-CyberArkLog -Level 'INFO' -Message "Account list complete. Accounts retrieved: $($result.Successes)."
     return $result

@@ -92,7 +92,7 @@ IdiraUnifiedScripts/
   - CyberArkLogging.psm1        # Structured log writer
 - APIModules/
   - Accounts/                   # Add, Get, List, Update, Delete accounts
-  - Safes/                      # Add, Get, List, Update, Delete, AddFromTemplate safes
+  - Safes/                      # Add, Get, List, Update, Delete, AddFromTemplate, AssignCPM, UnassignCPM safes
   - SafeMembers/                # Add, List, Update, Remove, AddFromTemplateRole, UpdateFromTemplateRole safe members
   - Platforms/                  # Get, List platforms
   - Users/                      # Get, List users

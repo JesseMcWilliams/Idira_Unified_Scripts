@@ -68,16 +68,19 @@ BeforeAll {
         }
     }
 
-    # A sample account object matching the CyberArk v14 API shape
+    # A sample account object matching the CyberArk v14 API shape, including the nested objects
+    # and dynamic platform properties confirmed against
+    # Swagger\CyberArk_PasswordVault_Swagger_14.6.v1.json's AccountModel/
+    # AutomaticSecretManagement/RemoteMachinesAccess definitions.
     $script:SampleAccount = [PSCustomObject]@{
-        id               = '12345'
-        name             = 'LocalAdmin'
-        address          = 'server01.domain.com'
-        userName         = 'localadmin'
-        platformId       = 'WinServerLocal'
-        safeName         = 'TestSafe'
-        secretType       = 'password'
-        secretManagement = [PSCustomObject]@{
+        id                        = '12345'
+        name                      = 'LocalAdmin'
+        address                   = 'server01.domain.com'
+        userName                  = 'localadmin'
+        platformId                = 'WinServerLocal'
+        safeName                  = 'TestSafe'
+        secretType                = 'password'
+        secretManagement          = [PSCustomObject]@{
             automaticManagementEnabled = $true
             manualManagementReason     = ''
             status                     = 'success'
@@ -85,7 +88,17 @@ BeforeAll {
             lastReconciledTime         = 0
             lastVerifiedTime           = 1700000000
         }
-        createdTime      = 1700000000   # 2023-11-14 (UTC)
+        remoteMachinesAccess      = [PSCustomObject]@{
+            remoteMachines                    = 'host1.domain.com;host2.domain.com'
+            accessRestrictedToRemoteMachines  = $true
+        }
+        platformAccountProperties = [PSCustomObject]@{
+            LogonDomain = 'DOMAIN'
+            Port        = '3389'
+        }
+        categoryModificationTime  = 1700000000
+        deletionTime              = 0
+        createdTime               = 1700000000   # 2023-11-14 (UTC)
     }
 }
 
@@ -183,6 +196,71 @@ Describe 'Invoke-AccountsList - successful response' {
     It 'AL14 - createdTime epoch is converted to a yyyy-MM-dd string' {
         $r = Invoke-AccountsList -Token $script:MockToken
         $r.Results[0].Created | Should -Match '^\d{4}-\d{2}-\d{2}$'
+    }
+
+    It 'AL14a - manualManagementReason and the lastModified/lastReconciled/lastVerified epochs are flattened' {
+        $r = Invoke-AccountsList -Token $script:MockToken
+        $r.Results[0].ManualReason    | Should -Be ''
+        $r.Results[0].LastCPMModified | Should -Match '^\d{4}-\d{2}-\d{2}$'
+        $r.Results[0].LastReconciled  | Should -Be ''
+        $r.Results[0].LastVerified    | Should -Match '^\d{4}-\d{2}-\d{2}$'
+    }
+
+    It 'AL14b - remoteMachinesAccess is flattened to RemoteMachines and RemoteAccessRestricted' {
+        $r = Invoke-AccountsList -Token $script:MockToken
+        $r.Results[0].RemoteMachines         | Should -Be 'host1.domain.com;host2.domain.com'
+        $r.Results[0].RemoteAccessRestricted | Should -BeTrue
+    }
+
+    It 'AL14c - categoryModificationTime is flattened to CategoryModified' {
+        $r = Invoke-AccountsList -Token $script:MockToken
+        $r.Results[0].CategoryModified | Should -Match '^\d{4}-\d{2}-\d{2}$'
+    }
+
+    It 'AL14d - platformAccountProperties keys are flattened onto Platform_-prefixed columns' {
+        $r = Invoke-AccountsList -Token $script:MockToken
+        $r.Results[0].Platform_LogonDomain | Should -Be 'DOMAIN'
+        $r.Results[0].Platform_Port        | Should -Be '3389'
+    }
+
+    It 'AL14e - secret is never surfaced in the result, even if present on the response' {
+        $acctWithSecret = [PSCustomObject]@{
+            id     = '999'
+            name   = 'has-secret'
+            secret = 'SuperSecretPassword123!'
+        }
+        Mock Invoke-CyberArkAPI { script:New-AccountsApiResponse -Accounts @($acctWithSecret) }
+        $r = Invoke-AccountsList -Token $script:MockToken
+        $r.Results[0].PSObject.Properties.Name | Should -Not -Contain 'Secret'
+        $r.Results[0].PSObject.Properties.Name | Should -Not -Contain 'secret'
+    }
+
+    It 'AL14f - accounts with different platform properties are backfilled to the same full column set' {
+        $acctA = [PSCustomObject]@{
+            id                        = 'A'
+            name                      = 'account-a'
+            platformAccountProperties = [PSCustomObject]@{ LogonDomain = 'DOMAIN' }
+        }
+        $acctB = [PSCustomObject]@{
+            id                        = 'B'
+            name                      = 'account-b'
+            platformAccountProperties = [PSCustomObject]@{ Port = '22' }
+        }
+        Mock Invoke-CyberArkAPI { script:New-AccountsApiResponse -Accounts @($acctA, $acctB) }
+        $r = Invoke-AccountsList -Token $script:MockToken
+
+        # Both rows must carry both columns (union of the two accounts' platform keys) so
+        # Export-Csv - which only reads headers from the first row in PS 5.1 - doesn't silently
+        # drop a column that only the second account happened to have.
+        $r.Results[0].PSObject.Properties.Name | Should -Contain 'Platform_LogonDomain'
+        $r.Results[0].PSObject.Properties.Name | Should -Contain 'Platform_Port'
+        $r.Results[1].PSObject.Properties.Name | Should -Contain 'Platform_LogonDomain'
+        $r.Results[1].PSObject.Properties.Name | Should -Contain 'Platform_Port'
+
+        $r.Results[0].Platform_LogonDomain | Should -Be 'DOMAIN'
+        $r.Results[0].Platform_Port        | Should -Be ''
+        $r.Results[1].Platform_LogonDomain | Should -Be ''
+        $r.Results[1].Platform_Port        | Should -Be '22'
     }
 
     It 'AL15 - IsFatal is $false on success' {

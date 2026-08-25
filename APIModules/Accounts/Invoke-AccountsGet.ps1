@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Get Account'
@@ -15,7 +15,7 @@ $ModuleMeta = @{
         @{ Column = 'Safe';        Required = $true;  Description = 'Safe containing the account.' }
     )
     Priority         = 31
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function Get-AccountsGetInput {
@@ -190,30 +190,83 @@ function Invoke-AccountsGet {
 
     $acct = $response.Data
 
+    # secretManagement (AutomaticSecretManagement) and remoteMachinesAccess (RemoteMachinesAccess)
+    # are nested objects on the AccountModel response - confirmed against the bundled
+    # Swagger\CyberArk_PasswordVault_Swagger_14.6.v1.json. Flattened into top-level Results
+    # columns below so nothing is lost when this gets exported to CSV.
+    $secretMgmt   = if ($acct.PSObject.Properties['secretManagement'])   { $acct.secretManagement }   else { $null }
+    $remoteAccess = if ($acct.PSObject.Properties['remoteMachinesAccess']) { $acct.remoteMachinesAccess } else { $null }
+
     $createdDate = if ($acct.PSObject.Properties['createdTime'] -and $acct.createdTime) {
         try { [DateTimeOffset]::FromUnixTimeSeconds($acct.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
         catch { '' }
     } else { '' }
 
-    $result.Results.Add([PSCustomObject]@{
-        AccountID   = $acct.id
-        AccountName = $acct.name
-        Address     = $acct.address
-        UserName    = $acct.userName
-        PlatformID  = $acct.platformId
-        SafeName    = $acct.safeName
-        SecretType  = $acct.secretType
-        AutoManaged  = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
-                          $acct.secretManagement.PSObject.Properties['automaticManagementEnabled']) {
-                            $acct.secretManagement.automaticManagementEnabled } else { $false }
-        CPMStatus    = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
-                          $acct.secretManagement.PSObject.Properties['status']) {
-                            $acct.secretManagement.status } else { '' }
-        ManualReason = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
-                          $acct.secretManagement.PSObject.Properties['manualManagementReason']) {
-                            $acct.secretManagement.manualManagementReason } else { '' }
-        Created     = $createdDate
-    })
+    $categoryModifiedDate = if ($acct.PSObject.Properties['categoryModificationTime'] -and $acct.categoryModificationTime) {
+        try { [DateTimeOffset]::FromUnixTimeSeconds($acct.categoryModificationTime).LocalDateTime.ToString('yyyy-MM-dd') }
+        catch { '' }
+    } else { '' }
+
+    $deletedDate = if ($acct.PSObject.Properties['deletionTime'] -and $acct.deletionTime) {
+        try { [DateTimeOffset]::FromUnixTimeSeconds($acct.deletionTime).LocalDateTime.ToString('yyyy-MM-dd') }
+        catch { '' }
+    } else { '' }
+
+    $lastCPMModifiedDate = if ($secretMgmt -and $secretMgmt.PSObject.Properties['lastModifiedTime'] -and $secretMgmt.lastModifiedTime) {
+        try { [DateTimeOffset]::FromUnixTimeSeconds($secretMgmt.lastModifiedTime).LocalDateTime.ToString('yyyy-MM-dd') }
+        catch { '' }
+    } else { '' }
+
+    $lastReconciledDate = if ($secretMgmt -and $secretMgmt.PSObject.Properties['lastReconciledTime'] -and $secretMgmt.lastReconciledTime) {
+        try { [DateTimeOffset]::FromUnixTimeSeconds($secretMgmt.lastReconciledTime).LocalDateTime.ToString('yyyy-MM-dd') }
+        catch { '' }
+    } else { '' }
+
+    $lastVerifiedDate = if ($secretMgmt -and $secretMgmt.PSObject.Properties['lastVerifiedTime'] -and $secretMgmt.lastVerifiedTime) {
+        try { [DateTimeOffset]::FromUnixTimeSeconds($secretMgmt.lastVerifiedTime).LocalDateTime.ToString('yyyy-MM-dd') }
+        catch { '' }
+    } else { '' }
+
+    # id, name, address, userName, and secretType are all optional per the Swagger schema (only
+    # platformId and safeName are required on AccountModel) - guarded the same way as the nested
+    # fields below so a real account missing one of them doesn't crash this under strict mode.
+    #
+    # secret (the account's password/key value) is deliberately never surfaced here, even though
+    # it is a field on the schema - CyberArk does not return it from this endpoint (retrieving it
+    # requires the separate Invoke-AccountsGetCredential.ps1 action), and writing credentials into
+    # a plaintext CSV export by default would be a security hazard regardless.
+    $outRow = [ordered]@{
+        AccountID              = if ($acct.PSObject.Properties['id'])         { $acct.id }         else { '' }
+        AccountName            = if ($acct.PSObject.Properties['name'])       { $acct.name }       else { '' }
+        Address                = if ($acct.PSObject.Properties['address'])    { $acct.address }    else { '' }
+        UserName               = if ($acct.PSObject.Properties['userName'])   { $acct.userName }   else { '' }
+        PlatformID             = $acct.platformId
+        SafeName               = $acct.safeName
+        SecretType             = if ($acct.PSObject.Properties['secretType']) { $acct.secretType } else { '' }
+        AutoManaged            = if ($secretMgmt -and $secretMgmt.PSObject.Properties['automaticManagementEnabled']) { $secretMgmt.automaticManagementEnabled } else { $false }
+        CPMStatus              = if ($secretMgmt -and $secretMgmt.PSObject.Properties['status']) { $secretMgmt.status } else { '' }
+        ManualReason           = if ($secretMgmt -and $secretMgmt.PSObject.Properties['manualManagementReason']) { $secretMgmt.manualManagementReason } else { '' }
+        LastCPMModified        = $lastCPMModifiedDate
+        LastReconciled         = $lastReconciledDate
+        LastVerified           = $lastVerifiedDate
+        RemoteMachines         = if ($remoteAccess -and $remoteAccess.PSObject.Properties['remoteMachines']) { $remoteAccess.remoteMachines } else { '' }
+        RemoteAccessRestricted = if ($remoteAccess -and $remoteAccess.PSObject.Properties['accessRestrictedToRemoteMachines']) { $remoteAccess.accessRestrictedToRemoteMachines } else { $false }
+        CategoryModified       = $categoryModifiedDate
+        Deleted                = $deletedDate
+        Created                = $createdDate
+    }
+
+    # platformAccountProperties is a free-form object whose keys vary per platform (e.g.
+    # LogonDomain, Port) - not a fixed schema, confirmed against the bundled Swagger spec
+    # (additionalProperties: string). Flatten every key onto its own column, prefixed
+    # "Platform_" so it can never collide with a fixed column name above.
+    if ($acct.PSObject.Properties['platformAccountProperties'] -and $acct.platformAccountProperties) {
+        foreach ($prop in $acct.platformAccountProperties.PSObject.Properties) {
+            $outRow["Platform_$($prop.Name)"] = $prop.Value
+        }
+    }
+
+    $result.Results.Add([PSCustomObject]$outRow)
     $result.Successes++
     $result.ItemsProcessed++
 
