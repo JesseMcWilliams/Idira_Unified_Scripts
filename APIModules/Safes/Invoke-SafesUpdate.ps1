@@ -19,7 +19,7 @@ $ModuleMeta = @{
         @{ Column = 'AutoPurgeEnabled';           Required = $false; Description = 'Auto-purge: true/false.' }
     )
     Priority         = 13
-    Version          = '1.1.0'
+    Version          = '1.1.1'
 }
 
 function Get-SafesUpdateInput {
@@ -235,8 +235,15 @@ function Invoke-SafesUpdate {
             Description              = $mergedDescription
             Location                 = $currentLocation
             ManagingCPM              = $mergedManagingCPM
-            VersionRetention         = $body.NumberOfVersionsRetention
-            DayRetention             = $body.NumberOfDaysRetention
+            # Pattern C: bracket notation with ContainsKey, not dot notation - NumberOfVersionsRetention
+            # and NumberOfDaysRetention are mutually exclusive in $body (only one is ever set, per the
+            # retention rule in Step 3 above) - dot-accessing the absent one throws under Set-StrictMode.
+            # This crashed WhatIf mode unconditionally, every time, in real usage - masked by every unit
+            # test here, since this test file doesn't dot-source Manage-Privilege.ps1 and so never runs
+            # under strict mode itself. See Docs\Lessons-Learned-PowerShell-Pester.md, "Unit tests do not
+            # run under Set-StrictMode". Identical bug/fix as Invoke-SafesAddFromTemplate.ps1's WhatIf block.
+            VersionRetention         = if ($body.ContainsKey('NumberOfVersionsRetention')) { $body['NumberOfVersionsRetention'] } else { $null }
+            DayRetention             = if ($body.ContainsKey('NumberOfDaysRetention'))     { $body['NumberOfDaysRetention'] }     else { $null }
             AutoPurge                = $mergedAutoPurge
             Creator                  = ''
             Created                  = ''

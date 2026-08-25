@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Test API'
@@ -355,14 +355,19 @@ function Invoke-CustomTestApi {
                 try { New-Item -ItemType Directory -Path $folder -Force | Out-Null } catch {}
             }
             $savePath = Join-Path $folder "TestAPI_$($timestamp.ToString('yyyy-MM-dd_HHmmss')).json"
-            try {
-                $json = $allRuns | ConvertTo-Json -Depth 20
+            $json     = $allRuns | ConvertTo-Json -Depth 20
+            # Invoke-FileWriteWithRetry (defined in Manage-Privilege.ps1) is available because
+            # this module is dot-sourced into the driver scope. If the file is open/locked, it
+            # prompts to retry rather than discarding the captured run history.
+            $saved = Invoke-FileWriteWithRetry -Path $savePath -Action {
                 [System.IO.File]::WriteAllText($savePath, $json, [System.Text.Encoding]::UTF8)
+            }
+            if ($saved) {
                 Write-Host "  Saved: $savePath" -ForegroundColor Green
                 Write-CyberArkLog -Level 'INFO' -Message "Test API details saved to: $savePath"
-            } catch {
-                Write-Host "  Failed to save: $_" -ForegroundColor Red
-                Write-CyberArkLog -Level 'ERROR' -Message "Test API save failed: $_"
+            } else {
+                Write-Host '  Failed to save (user declined to retry).' -ForegroundColor Red
+                Write-CyberArkLog -Level 'ERROR' -Message "Test API save failed for '$savePath' (user declined to retry)."
             }
             continue
         }

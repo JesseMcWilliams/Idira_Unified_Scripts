@@ -20,7 +20,7 @@ $ModuleMeta = @{
         @{ Column = 'AutoPurgeEnabled';           Required = $false; Description = 'Auto-purge enabled: true/false (default: false).' }
     )
     Priority         = 12
-    Version          = '1.1.0'
+    Version          = '1.1.1'
 }
 
 function Get-SafesAddInput {
@@ -150,8 +150,13 @@ function Invoke-SafesAdd {
             Description      = $body.Description
             Location         = $body.Location
             ManagingCPM      = $body.ManagingCPM
-            VersionRetention = $body.NumberOfVersionsRetention
-            DayRetention     = $body.NumberOfDaysRetention
+            # Pattern C: NumberOfVersionsRetention and NumberOfDaysRetention are mutually
+            # exclusive in $body (only one is ever set, per the retention rule above) -
+            # dot-accessing the absent one throws under Set-StrictMode. Bracket notation with
+            # ContainsKey avoids the crash. See Invoke-SafesAddFromTemplate.ps1 for the
+            # identical fix.
+            VersionRetention = if ($body.ContainsKey('NumberOfVersionsRetention')) { $body['NumberOfVersionsRetention'] } else { $null }
+            DayRetention     = if ($body.ContainsKey('NumberOfDaysRetention'))     { $body['NumberOfDaysRetention'] }     else { $null }
             AutoPurge        = $body.AutoPurgeEnabled
             Creator          = ''
             Created          = ''
@@ -196,8 +201,12 @@ function Invoke-SafesAdd {
         Description      = if ($safe -and $safe.description)                { $safe.description }                else { $body.Description }
         Location         = if ($safe -and $safe.location)                   { $safe.location }                   else { $body.Location }
         ManagingCPM      = if ($safe -and $safe.managingCPM)               { $safe.managingCPM }               else { $body.ManagingCPM }
-        VersionRetention = if ($safe -and $safe.numberOfVersionsRetention)  { $safe.numberOfVersionsRetention }  else { $body.NumberOfVersionsRetention }
-        DayRetention     = if ($safe -and $safe.numberOfDaysRetention)      { $safe.numberOfDaysRetention }      else { $body.NumberOfDaysRetention }
+        # Pattern C: bracket notation with ContainsKey on the $body fallback branches - same
+        # reasoning as the WhatIf block above. NumberOfVersionsRetention and
+        # NumberOfDaysRetention are mutually exclusive in $body, so dot-accessing whichever one
+        # was not sent throws under Set-StrictMode.
+        VersionRetention = if ($safe -and $safe.numberOfVersionsRetention)  { $safe.numberOfVersionsRetention }  elseif ($body.ContainsKey('NumberOfVersionsRetention')) { $body['NumberOfVersionsRetention'] } else { $null }
+        DayRetention     = if ($safe -and $safe.numberOfDaysRetention)      { $safe.numberOfDaysRetention }      elseif ($body.ContainsKey('NumberOfDaysRetention'))     { $body['NumberOfDaysRetention'] }     else { $null }
         AutoPurge        = if ($safe)                                        { $safe.autoPurgeEnabled }           else { $body.AutoPurgeEnabled }
         Creator          = if ($safe -and $safe.creator)                    { $safe.creator.name }               else { '' }
         Created          = $creationDate

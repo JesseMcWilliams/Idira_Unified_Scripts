@@ -14,8 +14,15 @@ BeforeAll {
     . $script:ModulePath
     Initialize-CyberArkLog -Destination 'Console' -ProfileName 'CustomExportAllTests' -MinLevel 'ERROR'
 
-    # Stub for Driver helper - not available outside Manage-Privilege.ps1
+    # Stubs for Driver helpers - not available outside Manage-Privilege.ps1
     function global:Get-CsvSavePath { param([string]$DefaultFolder, [string]$ModuleName) return $null }
+    # Invoke-FileWriteWithRetry's real implementation prompts interactively (via Confirm-Action)
+    # on failure - this stub just runs Action once and surfaces whether it threw, which is all
+    # these tests need.
+    function global:Invoke-FileWriteWithRetry {
+        param([scriptblock]$Action, [string]$Path)
+        try { & $Action; return $true } catch { return $false }
+    }
 }
 
 Describe 'Invoke-CustomExportAll' {
@@ -129,6 +136,80 @@ Describe 'Invoke-CustomExportAll' {
             $result.Successes         | Should -BeGreaterThan 0
             $result.Results.Count     | Should -BeGreaterThan 0
             $result.Results[0].Module | Should -Be 'Data List'
+        }
+
+        It 'records a SaveFailed row (not Saved) when Invoke-FileWriteWithRetry reports failure' {
+            # e.g. the file was locked and the user declined to retry when prompted.
+            Mock Invoke-FileWriteWithRetry { return $false }
+
+            function Invoke-LockedCategoryList {
+                param($Token, $InputData, [switch]$WhatIf)
+                $r = [System.Collections.Generic.List[PSCustomObject]]::new()
+                $r.Add([PSCustomObject]@{ Name = 'Item1' })
+                return [PSCustomObject]@{
+                    Results   = $r
+                    Errors    = [System.Collections.Generic.List[PSCustomObject]]::new()
+                    Successes = 1; Failures = 0
+                }
+            }
+
+            $script:LoadedModules = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $script:LoadedModules.Add([PSCustomObject]@{
+                Meta = @{ Name = 'Locked List'; Category = 'LockedCategory'; Action = 'List'; ProducesOutput = $true; Priority = 10 }
+            })
+
+            $token  = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $result = Invoke-CustomExportAll -Token $token -InputData @{}
+            $result.Results[0].Status    | Should -Be 'SaveFailed'
+            $result.Results[0].SavedPath | Should -Be ''
+        }
+    }
+
+    Context 'Relative OutputFolder resolution' {
+        BeforeEach {
+            # $PSScriptRoot inside Invoke-CustomExportAll.ps1 is this file's own directory
+            # (APIModules\Custom), not the project root - even though Manage-Privilege.ps1
+            # dot-sources it into its own scope. A relative profile OutputFolder must resolve
+            # against $script:APIModulesPath's parent (set by Manage-Privilege.ps1), the same
+            # project root every other save-to-CSV path uses - not against this file's own
+            # location.
+            $script:TempProjectRoot = Join-Path ([System.IO.Path]::GetTempPath()) "ExportAllTest_$([System.Guid]::NewGuid().ToString('N'))"
+            New-Item -ItemType Directory -Path $script:TempProjectRoot -Force | Out-Null
+            $script:APIModulesPath = Join-Path $script:TempProjectRoot 'APIModules'
+            $script:ActiveProfile  = [PSCustomObject]@{ OutputFolder = 'Output' }
+        }
+
+        AfterEach {
+            $script:APIModulesPath = $null
+            if (Test-Path -LiteralPath $script:TempProjectRoot) {
+                Remove-Item -LiteralPath $script:TempProjectRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'saves the CSV under the project root OutputFolder, not under APIModules\Custom' {
+            function Invoke-RelPathCategoryList {
+                param($Token, $InputData, [switch]$WhatIf)
+                $r = [System.Collections.Generic.List[PSCustomObject]]::new()
+                $r.Add([PSCustomObject]@{ Name = 'Item1' })
+                return [PSCustomObject]@{
+                    Results   = $r
+                    Errors    = [System.Collections.Generic.List[PSCustomObject]]::new()
+                    Successes = 1; Failures = 0
+                }
+            }
+
+            $script:LoadedModules = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $script:LoadedModules.Add([PSCustomObject]@{
+                Meta = @{ Name = 'RelPath List'; Category = 'RelPathCategory'; Action = 'List'; ProducesOutput = $true; Priority = 10 }
+            })
+
+            $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $result = Invoke-CustomExportAll -Token $token -InputData @{}
+
+            $expectedPath = Join-Path $script:TempProjectRoot 'Output\Export_RelPathCategoryList.csv'
+            $result.Results[0].SavedPath | Should -Be $expectedPath
+            Test-Path -LiteralPath $expectedPath | Should -BeTrue
+            $result.Results[0].SavedPath | Should -Not -Match ([regex]::Escape('APIModules'))
         }
     }
 

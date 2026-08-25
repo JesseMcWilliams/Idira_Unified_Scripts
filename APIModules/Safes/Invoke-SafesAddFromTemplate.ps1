@@ -11,11 +11,154 @@ $ModuleMeta = @{
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'SafeName';    Required = $true;  Description = 'Unique name for the new safe (max 28 chars).' }
-        @{ Column = 'Description'; Required = $false; Description = 'Description for the new safe. Never copied from the template safe.' }
+        @{ Column = 'SafeName';     Required = $true;  Description = 'Unique name for the new safe (max 28 chars).'; Example = 'NewSafe01' }
+        @{ Column = 'Description';  Required = $false; Description = 'Description for the new safe. Never copied from the template safe.'; Example = 'Created from template' }
+        @{ Column = 'ManagingCPM';  Required = $false; Description = 'CPM username to assign to the new safe. Leave blank for no CPM (default) - no longer copied from the template safe. Interactive mode shows a picker from the profile CPM List.'; Example = 'PasswordManager' }
+        @{ Column = 'ExtraMembers'; Required = $false; Description = 'Additional members beyond those copied from the template, as Type:Name:RoleName triples separated by semicolons, e.g. "User:jdoe:Role_Viewer;Group:AdminsGroup:Role_Admin". Type is User or Group. RoleName must exactly match a role-prefixed member (Role_Group_Prefix) on the template safe (Role_Template_Safe) - its permissions are copied verbatim, same as SafeMembers/AddFromTemplateRole. Interactive mode collects these one at a time via prompts instead.'; Example = 'User:jdoe:Role_Viewer;Group:AdminsGroup:Role_Admin' }
     )
     Priority         = 15
-    Version          = '1.2.0'
+    Version          = '1.4.1'
+}
+
+function script:Get-ProfileCPMOptions {
+    <#
+        Returns the profile's CPM_List (comma-separated) as a trimmed, non-empty string array,
+        for the interactive Managing CPM picker. Returns an empty array - never throws - if the
+        profile is null, CPM_List is unset/blank, or every entry is blank after trimming.
+
+        The whole pipeline is wrapped in an OUTER @(...), not just the branch that has content:
+        `[array]$x = if (cond) { @(...) } else { @() }` looks safe but is not - PowerShell
+        auto-unrolls a script block's output, so an empty @() emitted from the else branch
+        collapses to zero output objects, which $x then captures as $null despite the [array]
+        type constraint. $null.Count throws under Set-StrictMode (always active once this file
+        is dot-sourced into Manage-Privilege.ps1's scope, which every real invocation goes
+        through) even though every unit test for this file passes regardless, because the test
+        file dot-sources only this module - not Manage-Privilege.ps1 - so strict mode is never
+        actually active during `Invoke-Pester` here. See
+        Docs\Lessons-Learned-PowerShell-Pester.md, "Unit tests do not run under Set-StrictMode".
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [PSCustomObject]$Profile
+    )
+
+    if (-not $Profile -or -not $Profile.PSObject.Properties['CPM_List'] -or -not $Profile.CPM_List) {
+        return @()
+    }
+
+    return @(("$($Profile.CPM_List)" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+}
+
+function script:Get-TemplateRoleOptions {
+    <#
+        Returns the list of template "roles" to choose from: members of the profile's
+        Role_Template_Safe whose memberName starts with Role_Group_Prefix (case-insensitive).
+        Each entry carries the role's raw permissions object (verbatim, camelCase, matching the
+        API's own body/response shape) for use once selected, plus a Description pulled from
+        GET /API/UserGroups - the same endpoint and response shape (a 'value' array of objects
+        with groupName/description) already used by Invoke-GroupsList.ps1. A role is just a
+        CyberArk group by naming convention, so its description lives on the group object, not
+        on the safe-membership record the rest of this function reads.
+
+        Returns an empty array - never throws, never blocks the flow - if Role_Template_Safe /
+        Role_Group_Prefix are not configured on the active profile, or if the template safe's
+        members cannot be read. The description lookup is best-effort on top of that: if it
+        fails, or a role's group can't be matched, Description stays '' and the flow is
+        otherwise unaffected - the role is still fully usable by name.
+
+        Duplicated from Invoke-SafeMembersAddFromTemplateRole.ps1 rather than shared, consistent
+        with how script:Get-SafeMembersSearchInOptions is already duplicated between SafeMembers
+        modules in this codebase - each module file is dot-sourced and unit-tested standalone.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Token
+    )
+
+    $options = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+    $templateSafe = if ($script:ActiveProfile -and $script:ActiveProfile.PSObject.Properties['Role_Template_Safe']) {
+        "$($script:ActiveProfile.Role_Template_Safe)".Trim()
+    } else { '' }
+    $rolePrefix = if ($script:ActiveProfile -and $script:ActiveProfile.PSObject.Properties['Role_Group_Prefix']) {
+        "$($script:ActiveProfile.Role_Group_Prefix)".Trim()
+    } else { '' }
+
+    if (-not $templateSafe -or -not $rolePrefix) { return $options.ToArray() }
+
+    $encodedTemplateSafe = [Uri]::EscapeDataString($templateSafe)
+
+    try {
+        $response = Invoke-CyberArkAPI -Token $Token -Method 'GET' -Endpoint "/API/Safes/$encodedTemplateSafe/Members"
+    } catch {
+        Write-CyberArkLog -Level 'WARN' -Message "Template role lookup failed: $_"
+        return $options.ToArray()
+    }
+
+    if (-not $response.IsSuccess) {
+        Write-CyberArkLog -Level 'WARN' -Message "Template role lookup failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+        return $options.ToArray()
+    }
+
+    if (-not $response.Data) { return $options.ToArray() }
+
+    # Outer @(...) around the whole if/else, not just its branches - see the comment on
+    # script:Get-ProfileCPMOptions above for why. Only iterated via foreach below, so this
+    # cannot crash today even when unfixed, but kept consistent to prevent a future regression.
+    [array]$members = @(if ($response.Data.PSObject.Properties['value']) { $response.Data.value } else { $response.Data })
+
+    foreach ($m in $members) {
+        $name = if ($m.PSObject.Properties['memberName']) { "$($m.memberName)" } else { '' }
+        if (-not $name) { continue }
+        if (-not $name.StartsWith($rolePrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $perms = if ($m.PSObject.Properties['permissions'] -and $m.permissions) { $m.permissions } else { @{} }
+        $options.Add([PSCustomObject]@{ Name = $name; Permissions = $perms; Description = '' })
+    }
+
+    if ($options.Count -eq 0) { return $options.ToArray() }
+
+    # Best-effort description lookup. 'search' narrows the payload server-side (a hint only,
+    # since this codebase never trusts server-side search alone for exact matching - see e.g.
+    # SafeMembers/AddFromTemplateRole's role resolution) - matching a role to its group is
+    # always done client-side by exact groupName, case-insensitive.
+    try {
+        $groupsResponse = Invoke-CyberArkAPI -Token $Token -Method 'GET' -Endpoint '/API/UserGroups' -QueryParams @{ search = $rolePrefix }
+        if ($groupsResponse.IsSuccess -and $groupsResponse.Data -and $groupsResponse.Data.PSObject.Properties['value']) {
+            [array]$groups = @($groupsResponse.Data.value)
+            foreach ($option in $options) {
+                $matchedGroup = $groups | Where-Object {
+                    $_.PSObject.Properties['groupName'] -and "$($_.groupName)".Equals($option.Name, [StringComparison]::OrdinalIgnoreCase)
+                } | Select-Object -First 1
+                if ($matchedGroup -and $matchedGroup.PSObject.Properties['description'] -and $matchedGroup.description) {
+                    $option.Description = "$($matchedGroup.description)"
+                }
+            }
+        }
+    } catch {
+        Write-CyberArkLog -Level 'WARN' -Message "Role description lookup (GET /API/UserGroups) failed: $_"
+    }
+
+    return $options.ToArray()
+}
+
+function script:Get-DescriptionDisplayLines {
+    <#
+        Splits a free-text description (e.g. a role/group description from GET /API/UserGroups)
+        into trimmed, non-empty lines for display, one Write-Host call per line so each one can
+        be indented consistently under whatever it's describing. Group descriptions are free
+        text and can contain embedded CR/LF - printing a raw multi-line string would only indent
+        its first line, with the rest landing back at the console's left margin. Blank lines
+        (including ones that are only whitespace) are dropped rather than printed as gaps.
+
+        Returns an empty array - never throws - for a blank, whitespace-only, or missing
+        Description.
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Description
+    )
+    if (-not $Description) { return @() }
+    return @($Description -split '\r\n|\r|\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 }
 
 function Get-SafesAddFromTemplateInput {
@@ -48,9 +191,98 @@ function Get-SafesAddFromTemplateInput {
         -Default $(if ($Defaults['Description']) { $Defaults['Description'] } else { '' }) `
         -Description 'Description for the new safe. Never copied from the template safe.'
 
+    # --- CPM picker: sourced from the profile's CPM_List (comma-separated), not a live API
+    # query - this keeps it fast and independent of how reliably the CyberArk API can filter
+    # for CPM users (Invoke-SafesAssignCPM.ps1's Assign CPM page uses a live query instead;
+    # kept separate per explicit decision, not a shared mechanism).
+    Write-Host ''
+    [array]$cpmList = @(script:Get-ProfileCPMOptions -Profile $script:ActiveProfile)
+
+    $managingCPM = ''
+    if ($cpmList.Count -gt 0) {
+        Write-Host '  Managing CPM:' -ForegroundColor DarkGray
+        Write-Host '    1 = (none)'
+        for ($i = 0; $i -lt $cpmList.Count; $i++) {
+            Write-Host "    $($i + 2) = $($cpmList[$i])"
+        }
+        Write-Host ''
+
+        $defaultCpmIndex = 1
+        if ($Defaults['ManagingCPM']) {
+            for ($i = 0; $i -lt $cpmList.Count; $i++) {
+                if ($cpmList[$i] -eq $Defaults['ManagingCPM']) { $defaultCpmIndex = $i + 2; break }
+            }
+        }
+
+        $cpmChoice = Read-Host "  Select CPM (1-$($cpmList.Count + 1), default=$defaultCpmIndex)"
+        $cpmIndex  = $defaultCpmIndex
+        $parsedCpm = 0
+        if ($cpmChoice -and [int]::TryParse($cpmChoice, [ref]$parsedCpm) -and $parsedCpm -ge 1 -and $parsedCpm -le ($cpmList.Count + 1)) {
+            $cpmIndex = $parsedCpm
+        }
+        if ($cpmIndex -gt 1) { $managingCPM = $cpmList[$cpmIndex - 2] }
+    } else {
+        Write-Host '  (No CPMs configured on this profile - see Profile Settings.)' -ForegroundColor Yellow
+        $managingCPM = Show-FieldPrompt -Label 'ManagingCPM' `
+            -Default $(if ($Defaults['ManagingCPM']) { $Defaults['ManagingCPM'] } else { '' }) `
+            -Description 'CPM username to assign, or leave blank for none.'
+    }
+
+    # --- Additional members: Type (User/Group) + Name + a role picked from the template
+    # safe's role-prefixed members, same permission-resolution mechanism as
+    # SafeMembers/AddFromTemplateRole. A single recurring prompt per member, defaulting to
+    # blank: leaving it blank is both "no (more) members to add" and the loop's exit condition
+    # - there is no separate "add another? Y/N" gate, since re-prompting for the next name IS
+    # that question.
+    Write-Host ''
+    [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $Token)
+    $extraMemberEntries = [System.Collections.Generic.List[string]]::new()
+
+    while ($true) {
+        $memberName = Show-FieldPrompt -Label 'Additional Member' -Default '' `
+            -Description 'Username or group name to add as an additional safe member. Leave blank when done adding members.'
+        if (-not $memberName) { break }
+
+        Write-Host '  Member Type:' -ForegroundColor DarkGray
+        Write-Host '    1 = User'
+        Write-Host '    2 = Group'
+        $typeChoice = Read-Host '  Select type (1-2, default=1)'
+        $memberType = if ($typeChoice -eq '2') { 'Group' } else { 'User' }
+
+        $roleName = ''
+        if ($roleOptions.Count -gt 0) {
+            Write-Host '  Template Role:' -ForegroundColor DarkGray
+            for ($i = 0; $i -lt $roleOptions.Count; $i++) {
+                Write-Host "    $($i + 1) = $($roleOptions[$i].Name)"
+                foreach ($descLine in (script:Get-DescriptionDisplayLines -Description $roleOptions[$i].Description)) {
+                    Write-Host "      $descLine" -ForegroundColor DarkGray
+                }
+            }
+            $roleChoice = Read-Host "  Select role (1-$($roleOptions.Count), default=1)"
+            $roleIndex  = 1
+            $parsedRole = 0
+            if ($roleChoice -and [int]::TryParse($roleChoice, [ref]$parsedRole) -and $parsedRole -ge 1 -and $parsedRole -le $roleOptions.Count) {
+                $roleIndex = $parsedRole
+            }
+            $roleName = $roleOptions[$roleIndex - 1].Name
+        } else {
+            Write-Host '  No template roles found (check Role_Template_Safe / Role_Group_Prefix in Profile Settings).' -ForegroundColor Yellow
+            $roleName = Show-FieldPrompt -Label 'RoleName' -Required $true `
+                -Description 'Exact name of the template role member to base permissions on.'
+        }
+
+        if ($roleName) {
+            $extraMemberEntries.Add("${memberType}:${memberName}:${roleName}")
+        }
+
+        Write-Host ''
+    }
+
     return @{
-        SafeName    = $safeName
-        Description = $description
+        SafeName     = $safeName
+        Description  = $description
+        ManagingCPM  = $managingCPM
+        ExtraMembers = ($extraMemberEntries -join ';')
     }
 }
 
@@ -186,16 +418,25 @@ function Invoke-SafesAddFromTemplate {
         return $result
     }
 
-    [array]$templateMembers = if ($templateMembersResponse.Data -and $templateMembersResponse.Data.PSObject.Properties['value']) {
-        @($templateMembersResponse.Data.value)
-    } else { @() }
+    # Outer @(...) around the whole if/else, not just the branch with content - an empty @()
+    # emitted from the else branch would otherwise collapse to $null on capture (PowerShell
+    # unrolls a script block's output; zero-length output becomes $null even with [array]
+    # typing on the LHS), and $templateMembers.Count below would throw under Set-StrictMode.
+    # See script:Get-ProfileCPMOptions's comment above for the full explanation - this is the
+    # same bug class that crashed in production for the CPM list, found here by the same audit.
+    [array]$templateMembers = @(if ($templateMembersResponse.Data -and $templateMembersResponse.Data.PSObject.Properties['value']) {
+        $templateMembersResponse.Data.value
+    })
 
     # Step 3: exclude role groups - any member whose name starts with Role_Group_Prefix
     # (case-insensitive), regardless of memberType - and exclude any member whose name
     # exactly matches (case-insensitive) an entry in the global $script:ExcludedTemplateMemberNames
     # list (defined in Manage-Privilege.ps1; shared by any Safes/SafeMembers module that reuses it).
     # Everything else is copied.
-    [array]$excludedNames = if ($script:ExcludedTemplateMemberNames) { @($script:ExcludedTemplateMemberNames) } else { @() }
+    # Same outer-@() fix as $templateMembers above - $script:ExcludedTemplateMemberNames = @()
+    # (an admin clearing the list, or the default before it's ever seeded) would otherwise
+    # collapse to $null and crash on $excludedNames.Count below.
+    [array]$excludedNames = @(if ($script:ExcludedTemplateMemberNames) { $script:ExcludedTemplateMemberNames })
 
     [array]$membersToCopy = @($templateMembers | Where-Object {
         $memberName = if ($_.PSObject.Properties['memberName']) { "$($_.memberName)" } else { '' }
@@ -209,22 +450,54 @@ function Invoke-SafesAddFromTemplate {
 
     Write-CyberArkLog -Level 'INFO' -Message "Template safe '$templateSafe' has $($templateMembers.Count) member(s); $($membersToCopy.Count) will be copied after excluding role groups matching prefix '$rolePrefix' and $($excludedNames.Count) globally excluded name(s)."
 
+    # Step 3a: parse ExtraMembers ("Type:Name:RoleName;Type:Name:RoleName...") into validated
+    # specs. Malformed entries are recorded as non-fatal errors and skipped individually -
+    # they never block safe creation or the other extra members.
+    [array]$extraMemberSpecs = @()
+    $extraMembersRaw = if ($InputData['ExtraMembers']) { "$($InputData['ExtraMembers'])".Trim() } else { '' }
+    if ($extraMembersRaw) {
+        foreach ($entry in ($extraMembersRaw -split ';')) {
+            $entry = $entry.Trim()
+            if (-not $entry) { continue }
+            $parts = $entry -split ':', 3
+            $entryType = if ($parts.Count -ge 1) { $parts[0].Trim() } else { '' }
+            $entryName = if ($parts.Count -ge 2) { $parts[1].Trim() } else { '' }
+            $entryRole = if ($parts.Count -ge 3) { $parts[2].Trim() } else { '' }
+
+            if ($parts.Count -ne 3 -or -not $entryName -or -not $entryRole -or $entryType -notin @('User', 'Group')) {
+                $msg = "Skipping malformed ExtraMembers entry '$entry' - expected 'Type:Name:RoleName' with Type of User or Group."
+                Write-CyberArkLog -Level 'ERROR' -Message $msg
+                $result.Errors.Add([PSCustomObject]@{ InputData = @{ SafeName = $safeName; ExtraMembers = $entry }; ErrorMessage = $msg; ErrorDetails = $null })
+                $result.Failures++
+                $result.ItemsProcessed++
+                continue
+            }
+
+            $extraMemberSpecs += [PSCustomObject]@{ Type = $entryType; Name = $entryName; RoleName = $entryRole }
+        }
+    }
+
     # Build the new safe's request body. SafeName/Description are always fresh input;
-    # every other setting is copied from the template safe (Decision D1). Field casing
-    # matches Invoke-SafesAdd.ps1 - POST /API/Safes expects PascalCase, but the GET
-    # response above returns camelCase (a documented quirk of this endpoint).
+    # Location and AutoPurgeEnabled are copied from the template safe (Decision D1).
+    # ManagingCPM is NOT copied from the template - it comes from InputData (a picker sourced
+    # from the profile's CPM_List in interactive mode), defaulting to '' (no CPM) when blank.
+    # Field casing matches Invoke-SafesAdd.ps1 - POST /API/Safes expects PascalCase, but the
+    # GET response above returns camelCase (a documented quirk of this endpoint).
     # OLACEnabled is intentionally never read or sent - it is not a supported field for
     # this module. NumberOfVersionsRetention and NumberOfDaysRetention are mutually
     # exclusive on this API - only one may be sent; Days wins when the template's value
     # is greater than 0, otherwise Versions is sent.
     $templateVersionsRetention = if ($templateSafeData.PSObject.Properties['numberOfVersionsRetention']) { [int]$templateSafeData.numberOfVersionsRetention } else { 5 }
     $templateDaysRetention     = if ($templateSafeData.PSObject.Properties['numberOfDaysRetention'])     { [int]$templateSafeData.numberOfDaysRetention }     else { 0 }
+    $managingCPM               = if ($InputData['ManagingCPM'] -and "$($InputData['ManagingCPM'])".Trim() -ne '') {
+        "$($InputData['ManagingCPM'])".Trim()
+    } else { '' }
 
     $safeBody = @{
         SafeName         = $safeName
         Description      = $description
         Location         = if ($templateSafeData.PSObject.Properties['location'])         { $templateSafeData.location }                else { '\' }
-        ManagingCPM      = if ($templateSafeData.PSObject.Properties['managingCPM'])      { $templateSafeData.managingCPM }              else { '' }
+        ManagingCPM      = $managingCPM
         AutoPurgeEnabled = if ($templateSafeData.PSObject.Properties['autoPurgeEnabled'])  { [bool]$templateSafeData.autoPurgeEnabled }   else { $false }
     }
     if ($templateDaysRetention -gt 0) {
@@ -234,7 +507,7 @@ function Invoke-SafesAddFromTemplate {
     }
 
     if ($WhatIf.IsPresent) {
-        Write-CyberArkLog -Level 'INFO' -Message "[WhatIf] Would POST /API/Safes for '$safeName', then copy $($membersToCopy.Count) member(s) from template '$templateSafe'."
+        Write-CyberArkLog -Level 'INFO' -Message "[WhatIf] Would POST /API/Safes for '$safeName', then copy $($membersToCopy.Count) member(s) from template '$templateSafe' and add $($extraMemberSpecs.Count) extra member(s)."
 
         $result.Results.Add([PSCustomObject]@{
             ItemType         = 'Safe'
@@ -242,11 +515,20 @@ function Invoke-SafesAddFromTemplate {
             Description      = $safeBody.Description
             Location         = $safeBody.Location
             ManagingCPM      = $safeBody.ManagingCPM
-            VersionRetention = $safeBody.NumberOfVersionsRetention
-            DayRetention     = $safeBody.NumberOfDaysRetention
+            # Bracket notation, not dot notation: NumberOfVersionsRetention and
+            # NumberOfDaysRetention are mutually exclusive in $safeBody (only one is ever set,
+            # per the retention rule above) - dot-accessing the absent one throws under
+            # Set-StrictMode. This crashed WhatIf mode unconditionally, every time, in real
+            # usage - masked by every unit test here, since this test file doesn't dot-source
+            # Manage-Privilege.ps1 and so never runs under strict mode itself. See
+            # Docs\Lessons-Learned-PowerShell-Pester.md, "Unit tests do not run under
+            # Set-StrictMode".
+            VersionRetention = if ($safeBody.ContainsKey('NumberOfVersionsRetention')) { $safeBody['NumberOfVersionsRetention'] } else { $null }
+            DayRetention     = if ($safeBody.ContainsKey('NumberOfDaysRetention'))     { $safeBody['NumberOfDaysRetention'] }     else { $null }
             AutoPurge        = $safeBody.AutoPurgeEnabled
             MemberName       = ''
             MemberType       = ''
+            RoleName         = ''
         })
         $result.Successes++
         $result.ItemsProcessed++
@@ -265,6 +547,25 @@ function Invoke-SafesAddFromTemplate {
                 AutoPurge        = $null
                 MemberName       = $memberName
                 MemberType       = $memberType
+                RoleName         = ''
+            })
+            $result.Successes++
+            $result.ItemsProcessed++
+        }
+
+        foreach ($spec in $extraMemberSpecs) {
+            $result.Results.Add([PSCustomObject]@{
+                ItemType         = 'Member'
+                SafeName         = $safeName
+                Description      = ''
+                Location         = ''
+                ManagingCPM      = ''
+                VersionRetention = $null
+                DayRetention     = $null
+                AutoPurge        = $null
+                MemberName       = $spec.Name
+                MemberType       = $spec.Type
+                RoleName         = $spec.RoleName
             })
             $result.Successes++
             $result.ItemsProcessed++
@@ -307,11 +608,14 @@ function Invoke-SafesAddFromTemplate {
         Description      = if ($createdSafe -and $createdSafe.PSObject.Properties['description'])               { $createdSafe.description }               else { $safeBody.Description }
         Location         = if ($createdSafe -and $createdSafe.PSObject.Properties['location'])                  { $createdSafe.location }                  else { $safeBody.Location }
         ManagingCPM      = if ($createdSafe -and $createdSafe.PSObject.Properties['managingCPM'])              { $createdSafe.managingCPM }              else { $safeBody.ManagingCPM }
-        VersionRetention = if ($createdSafe -and $createdSafe.PSObject.Properties['numberOfVersionsRetention']) { $createdSafe.numberOfVersionsRetention } else { $safeBody.NumberOfVersionsRetention }
-        DayRetention     = if ($createdSafe -and $createdSafe.PSObject.Properties['numberOfDaysRetention'])     { $createdSafe.numberOfDaysRetention }     else { $safeBody.NumberOfDaysRetention }
-        AutoPurge        = if ($createdSafe)                                                                    { $createdSafe.autoPurgeEnabled }          else { $safeBody.AutoPurgeEnabled }
+        # Bracket notation on $safeBody in the fallback branches - see the comment in the
+        # WhatIf block above for why dot notation on these two specifically throws.
+        VersionRetention = if ($createdSafe -and $createdSafe.PSObject.Properties['numberOfVersionsRetention']) { $createdSafe.numberOfVersionsRetention } elseif ($safeBody.ContainsKey('NumberOfVersionsRetention')) { $safeBody['NumberOfVersionsRetention'] } else { $null }
+        DayRetention     = if ($createdSafe -and $createdSafe.PSObject.Properties['numberOfDaysRetention'])     { $createdSafe.numberOfDaysRetention }     elseif ($safeBody.ContainsKey('NumberOfDaysRetention'))     { $safeBody['NumberOfDaysRetention'] }     else { $null }
+        AutoPurge        = if ($createdSafe -and $createdSafe.PSObject.Properties['autoPurgeEnabled'])          { $createdSafe.autoPurgeEnabled }          else { $safeBody.AutoPurgeEnabled }
         MemberName       = ''
         MemberType       = ''
+        RoleName         = ''
     })
     $result.Successes++
     $result.ItemsProcessed++
@@ -375,12 +679,100 @@ function Invoke-SafesAddFromTemplate {
             OLACEnabled      = $null
             MemberName       = if ($addedMember -and $addedMember.PSObject.Properties['memberName']) { $addedMember.memberName } else { $memberName }
             MemberType       = if ($addedMember -and $addedMember.PSObject.Properties['memberType']) { $addedMember.memberType } else { $memberType }
+            RoleName         = ''
         })
         $result.Successes++
         $result.ItemsProcessed++
     }
 
-    Write-CyberArkLog -Level 'INFO' -Message "Add Safe From Template complete. Safe '$safeName' created; $($result.Successes - 1) of $($membersToCopy.Count) member(s) copied."
+    # Step 6: add any extra members (parsed from InputData.ExtraMembers in Step 3a), resolving
+    # each one's permissions from the template safe's matching role-prefixed member - same
+    # mechanism as SafeMembers/AddFromTemplateRole, reusing $templateMembers already fetched in
+    # Step 2 rather than a second API call.
+    if ($extraMemberSpecs.Count -gt 0) {
+        Write-CyberArkLog -Level 'INFO' -Message "Adding $($extraMemberSpecs.Count) extra member(s) to safe '$safeName'."
+    }
+
+    foreach ($spec in $extraMemberSpecs) {
+        $roleMember = $null
+        foreach ($m in $templateMembers) {
+            $mName = if ($m.PSObject.Properties['memberName']) { "$($m.memberName)" } else { '' }
+            if (-not $mName) { continue }
+            if (-not $mName.StartsWith($rolePrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+            if ($mName.Equals($spec.RoleName, [StringComparison]::OrdinalIgnoreCase)) { $roleMember = $m; break }
+        }
+
+        if (-not $roleMember) {
+            $msg = "RoleName '$($spec.RoleName)' was not found among template safe '$templateSafe' members matching prefix '$rolePrefix' (extra member '$($spec.Name)')."
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = @{ SafeName = $safeName; MemberName = $spec.Name; RoleName = $spec.RoleName }
+                ErrorMessage = $msg
+                ErrorDetails = $null
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+            continue
+        }
+
+        $permissions = if ($roleMember.PSObject.Properties['permissions'] -and $roleMember.permissions) { $roleMember.permissions } else { @{} }
+
+        # membershipExpirationDate is never set here either, consistent with the template-copy
+        # loop above.
+        $extraMemberBody = @{
+            memberName               = $spec.Name
+            membershipExpirationDate = $null
+            permissions              = $permissions
+            memberType                = $spec.Type
+        }
+
+        Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Safes/$encodedNewSafe/Members | MemberName='$($spec.Name)' Role='$($spec.RoleName)'"
+
+        $extraMemberResponse = Invoke-CyberArkAPI `
+            -Token    $Token `
+            -Method   'POST' `
+            -Endpoint "/API/Safes/$encodedNewSafe/Members" `
+            -Body     $extraMemberBody
+
+        if (-not $extraMemberResponse.IsSuccess) {
+            $msg = "Add extra member '$($spec.Name)' to safe '$safeName' failed (HTTP $($extraMemberResponse.StatusCode)): $($extraMemberResponse.ErrorMessage)"
+            Write-CyberArkLog -Level 'ERROR' -Message $msg
+            $result.Errors.Add([PSCustomObject]@{
+                InputData    = @{ SafeName = $safeName; MemberName = $spec.Name }
+                ErrorMessage = $msg
+                ErrorDetails = $extraMemberResponse.ErrorDetails
+            })
+            $result.Failures++
+            $result.ItemsProcessed++
+            if ($extraMemberResponse.StatusCode -in @(401, 0)) {
+                $result.IsFatal = $true
+                Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
+                return $result
+            }
+            continue
+        }
+
+        $addedExtraMember = if ($extraMemberResponse.Data) { $extraMemberResponse.Data } else { $null }
+
+        $result.Results.Add([PSCustomObject]@{
+            ItemType         = 'Member'
+            SafeName         = $safeName
+            Description      = ''
+            Location         = ''
+            ManagingCPM      = ''
+            VersionRetention = $null
+            DayRetention     = $null
+            AutoPurge        = $null
+            OLACEnabled      = $null
+            MemberName       = if ($addedExtraMember -and $addedExtraMember.PSObject.Properties['memberName']) { $addedExtraMember.memberName } else { $spec.Name }
+            MemberType       = if ($addedExtraMember -and $addedExtraMember.PSObject.Properties['memberType']) { $addedExtraMember.memberType } else { $spec.Type }
+            RoleName         = $spec.RoleName
+        })
+        $result.Successes++
+        $result.ItemsProcessed++
+    }
+
+    Write-CyberArkLog -Level 'INFO' -Message "Add Safe From Template complete. Safe '$safeName' created; $($result.Successes - 1) of $($membersToCopy.Count + $extraMemberSpecs.Count) member(s) added."
     Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
     return $result
 }

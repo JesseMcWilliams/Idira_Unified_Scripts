@@ -79,6 +79,11 @@ Describe 'Manage-Privilege - New-BlankProfile' {
         $p.Created  | Should -Not -BeNullOrEmpty
         $p.Modified | Should -Not -BeNullOrEmpty
     }
+
+    It 'DP04a - CPM_List defaults to an empty string' {
+        $p = New-BlankProfile -Name 'X'
+        $p.CPM_List | Should -Be ''
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -137,6 +142,20 @@ Describe 'Manage-Privilege - Profile persistence (Save / Read / GetAll)' {
         Remove-DriverProfile -Name 'ToDelete'
         $jsonPath = Join-Path $script:TempDir 'ToDelete.json'
         Test-Path -LiteralPath $jsonPath | Should -Be $false
+    }
+
+    It 'DP11a - Get-AllDriverProfiles backfills CPM_List on an older profile saved without it' {
+        # Simulates a profile saved before CPM_List existed: every other field a real saved
+        # profile would have, just missing this one property.
+        $oldProfile = New-BlankProfile -Name 'OldProfile'
+        $oldProfile.PSObject.Properties.Remove('CPM_List')
+        Save-DriverProfile -currentProfile $oldProfile
+
+        $loaded = Read-DriverProfile -Name 'OldProfile'
+        $loaded.PSObject.Properties['CPM_List'] | Should -BeNullOrEmpty
+
+        $list = @(Get-AllDriverProfiles)
+        $list.Count | Should -Be 1
     }
 }
 
@@ -282,3 +301,14 @@ Describe 'Manage-Privilege - Invoke-ProfileManagementLoop (select profile then g
         Test-Path -LiteralPath $jsonPath | Should -Be $false
     }
 }
+
+# Invoke-FileWriteWithRetry is NOT unit-tested here. It is a Read-Host-driven interactive
+# helper (via Confirm-Action) - per this project's established testing boundary (see
+# Docs\Testing-Plan.md), interactive prompts are not unit tested. Beyond that: appending any
+# Describe block that calls it after DP01-DP17 in this specific file reproducibly hangs under
+# Pester v6.1 - even the non-throwing, no-retry-needed case - while the exact same function
+# body runs correctly (verified directly, no Pester involved: returns $true, Action invoked
+# once, no hang) when dot-sourced and called from a plain pwsh session. This is a Pester/file
+# interaction issue (in the spirit of Pester issue #2669, which this project has already hit
+# once before - see "Pester v6 Test File Structure" in Lessons-Learned-PowerShell-Pester.md),
+# not a defect in Invoke-FileWriteWithRetry itself.

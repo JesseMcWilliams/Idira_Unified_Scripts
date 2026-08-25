@@ -11,6 +11,7 @@
 #>
 
 BeforeAll {
+    Set-StrictMode -Version Latest
     $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
     $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
     $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\SafeMembers\Invoke-SafeMembersList.ps1'
@@ -85,6 +86,24 @@ BeforeAll {
         }
     }
 
+    # Factory: build a mock GET /API/Safes response (the "list all safes" lookup)
+    function script:New-SafesListApiResponse {
+        param([string[]]$SafeNames = @())
+        return [PSCustomObject]@{
+            IsSuccess     = $true
+            StatusCode    = 200
+            StatusMessage = 'OK'
+            ErrorMessage  = $null
+            ErrorDetails  = $null
+            DataType      = 'JSON'
+            RawResponse   = ''
+            Data          = [PSCustomObject]@{
+                value = @($SafeNames | ForEach-Object { [PSCustomObject]@{ safeName = $_ } })
+                count = $SafeNames.Count
+            }
+        }
+    }
+
     # Factory: build a mock API failure response
     function script:New-ApiErrorResponse {
         param([int]$StatusCode = 403, [string]$ErrorMessage = 'Forbidden')
@@ -139,6 +158,7 @@ Describe 'ModuleMeta' {
 Describe 'Invoke-SafeMembersList - successful response' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Invoke-CyberArkAPI {
             script:New-MembersApiResponse -Members @($script:SampleMember)
         }
@@ -215,26 +235,49 @@ Describe 'Invoke-SafeMembersList - successful response' {
 }
 
 # ─────────────────────────────────────────────────────────────────
+# NOTE: ML16/ML17 used to assert that a blank SafeName was a validation failure that never
+# called the API. Commit 0c1bef5 ("Add Groups drill-down to GetMembers and SafeMembers
+# all-safes list") deliberately removed that required-SafeName validation and made blank
+# SafeName mean "retrieve members for all safes" (GET /API/Safes, then Members per safe) - see
+# $ModuleMeta.InputSchema and Get-SafeMembersListInput's prompt text above, both of which say
+# "leave blank for all safes". These two tests were never updated for that refactor and were
+# asserting behavior the production code intentionally no longer has; rewritten below to cover
+# the actual, current, documented "blank SafeName" behavior instead.
 Describe 'Invoke-SafeMembersList - validation' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
     }
 
-    It 'ML16 - empty SafeName: returns failure, does not call API' {
-        Mock Invoke-CyberArkAPI { throw 'Should not be called' }
+    It 'ML16 - empty SafeName: retrieves members for all safes' {
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $WhatIf)
+            if ($Endpoint -eq '/API/Safes') {
+                script:New-SafesListApiResponse -SafeNames @('TestSafe')
+            } else {
+                script:New-MembersApiResponse -Members @($script:SampleMember)
+            }
+        }
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData @{ SafeName = '' }
-        $r.Failures     | Should -Be 1
-        $r.Errors.Count | Should -Be 1
-        $r.IsFatal      | Should -BeFalse
+        $r.Successes | Should -Be 1
+        $r.Failures  | Should -Be 0
+        $r.IsFatal   | Should -BeFalse
     }
 
-    It 'ML17 - null InputData: returns failure, does not call API' {
-        Mock Invoke-CyberArkAPI { throw 'Should not be called' }
+    It 'ML17 - null InputData: retrieves members for all safes' {
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $WhatIf)
+            if ($Endpoint -eq '/API/Safes') {
+                script:New-SafesListApiResponse -SafeNames @('TestSafe')
+            } else {
+                script:New-MembersApiResponse -Members @($script:SampleMember)
+            }
+        }
         $r = Invoke-SafeMembersList -Token $script:MockToken -InputData $null
-        $r.Failures     | Should -Be 1
-        $r.Errors.Count | Should -Be 1
-        $r.IsFatal      | Should -BeFalse
+        $r.Successes | Should -Be 1
+        $r.Failures  | Should -Be 0
+        $r.IsFatal   | Should -BeFalse
     }
 }
 
@@ -242,6 +285,7 @@ Describe 'Invoke-SafeMembersList - validation' {
 Describe 'Invoke-SafeMembersList - API errors' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
     }
 

@@ -1250,6 +1250,197 @@ reads the Pester result object after calling `Invoke-Pester -Configuration`.
 
 ---
 
+### 9.7 A new `Describe` appended to `Manage-Privilege.Tests.ps1` can hang instead of failing fast
+
+**Root cause:** Unknown precisely, but reliably reproduced. Adding `Invoke-FileWriteWithRetry`
+(a `Manage-Privilege.ps1` helper shaped `while ($true) { try { & $Action; return $true } catch
+{ ...; if (-not (Confirm-Action ...)) { return $false } } }`) to `Manage-Privilege.ps1`, then
+appending a new `Describe` block to `Manage-Privilege.Tests.ps1` that calls it — even in the
+simplest, non-throwing, no-retry-needed case — caused the whole Pester run to hang indefinitely
+right after printing the new `Describe`'s header, before any `It` result printed. This is a
+variant of the same family as 9.1 (Pester issue #2669: `break`/`continue` label confusion from
+user code interacting with Pester's own control flow), but manifests as a silent hang rather
+than 9.1's fast `InvalidOperationException` — much harder to diagnose, since `-Output Detailed`
+gives no indication where execution stopped.
+
+**How this was actually diagnosed (worth repeating, since several dead ends looked promising
+first):**
+1. Copying `Manage-Privilege.Tests.ps1`'s content into a scratch-directory file to attempt a
+   faster, isolated repro is **invalid** — the file computes its dot-source target as
+   `Split-Path (Split-Path $PSScriptRoot)` (two levels up from its own location) to find
+   `Manage-Privilege.ps1`. Moved to any other directory, that resolves to the wrong path, dot-
+   sourcing silently no-ops or fails, and the resulting `CommandNotFoundException`-flavored
+   breakage looks confusingly similar to the real bug (same `break`/`continue` exception text,
+   different actual cause). Every finding produced this way was a false lead.
+2. `[Console]::Error.WriteLine('MARK-N')` breadcrumbs placed directly inside the real `It` block
+   (bypassing `Write-Host`, which may be mocked, and stdout buffering) pinpointed the hang to
+   inside the call to `Invoke-FileWriteWithRetry` itself — after entering the `It`, after both
+   `Mock` calls, but before the function returned.
+3. Calling the *exact same function*, dot-sourced from the *exact same file*, from a plain
+   `pwsh` session with **no Pester involved** (via `Start-Job` + `Wait-Job -Timeout`, so a real
+   hang doesn't block the diagnosis) returned correctly in well under a second, every time. This
+   is the decisive test: it proves the function itself is correct and the bug is specific to
+   Pester's test-execution machinery interacting with this file, not a real defect.
+
+**Fix attempted and found NOT sufficient:** Moving the offending `BeforeAll { Mock Write-Host
+{} }` out of the `Describe` block (the 9.1 fix) did not resolve this — the hang persisted with
+`Mock Write-Host` inlined into each `It` instead. This is not the same trigger as 9.1's.
+
+**Rule:** Don't unit-test a new `while`-loop-shaped driver helper by appending a `Describe` to
+`Manage-Privilege.Tests.ps1`, even if it looks like every existing pattern in that file. If a
+new test for such a helper hangs, verify the helper directly with `Start-Job`/`Wait-Job
+-Timeout` outside Pester before assuming the helper is broken — if it returns correctly there,
+the helper is fine and the safest fix is to leave it untested with a comment explaining why
+(consistent with the project's existing testing boundary that `Read-Host`-driven interactive
+helpers aren't unit tested — see `Testing-Plan.md`), rather than spending further time chasing
+this specific Pester/file interaction.
+
+---
+
+### 9.8 `[array]$x = if (cond) {@(...)} else {@()}` collapses to `$null`, not an empty array
+
+**Root cause:** PowerShell auto-unrolls a script block's output onto the pipeline. An empty
+`@()` emitted as a branch's last statement produces *zero* output objects - not "one empty
+array object." When that's captured by an assignment, even one with an `[array]` type
+constraint on the left-hand side, the result is `$null`, because the constraint applies to
+what was actually emitted (nothing), not to what the literal looked like in the source. Later
+code calling `.Count`, `.Length`, or indexing that variable throws `PropertyNotFoundException`
+under `Set-StrictMode` - which every real invocation runs under, since `Manage-Privilege.ps1`
+sets it and every API module is dot-sourced into that same scope.
+
+**This caused a real production crash**, reported directly by the user: `Get-
+SafesAddFromTemplateInput` (`Invoke-SafesAddFromTemplate.ps1`) built its CPM picker list with
+`[array]$cpmList = if (cond) { @(...) } else { @() }`; any profile without `CPM_List` set took
+the `else` branch, `$cpmList` became `$null`, and `$cpmList.Count` crashed the whole session
+loop. The same file had two more instances of the identical pattern (`$templateMembers`,
+`$excludedNames`) that hadn't crashed yet only because nobody had hit the right condition -
+`$script:ExcludedTemplateMemberNames` ships non-empty by default, and a template safe with
+zero members is uncommon but entirely valid.
+
+**Wrong:**
+```powershell
+[array]$x = if ($cond) { @($thingWithContent) } else { @() }
+```
+
+**Correct - wrap the WHOLE if/else, not just a branch:**
+```powershell
+[array]$x = @(if ($cond) { $thingWithContent })
+```
+Dropping the `else` entirely is fine and clearer: if `$cond` is false, the `if` block itself
+emits nothing, and the outer `@(...)` turns "nothing" into a real empty array either way. This
+matches the pattern already used correctly elsewhere in this codebase for API-response
+wrapping, e.g. `[array]$searchInOptions = @(script:Get-SafeMembersSearchInOptions -Token
+$Token)` (`Invoke-SafeMembersAdd.ps1`) - the key is that the `@()` wraps the *entire*
+expression that might emit zero, one, or many objects, not just whichever branch happens to
+have visible content in the source.
+
+**The same bug can hide in an inline pipeline result**, not just an `if/else`:
+```powershell
+# Wrong - if Where-Object matches zero items, (...).Count throws:
+($list | Where-Object { $_.Foo -eq $bar }).Count
+
+# Correct:
+@($list | Where-Object { $_.Foo -eq $bar }).Count
+```
+This exact form caused a false failure in this codebase's own regression test for the bug
+above (`Tests\Unit\Invoke-SafesAddFromTemplate.Tests.ps1`, T31) - the fix for the production
+bug was correct, but the *test asserting the fix* used the same unguarded pipeline pattern
+and threw the identical exception when the expected match count was zero, which then had to
+be debugged as if it were a second production bug before the real cause (the test's own
+assertion line) was found.
+
+**Rule:** Whenever assigning to an `[array]`-typed variable from an `if/else`, a pipeline, or
+a function call, wrap the *entire* right-hand expression in `@(...)` - never just the branch
+that happens to have content, and never assume a bare `@()` literal is safe just because it
+looks like an array.
+
+---
+
+### 9.9 Unit tests for individual API modules do not run under `Set-StrictMode` - and that hid the bug above
+
+**Root cause:** `Set-StrictMode -Version Latest` is set once, at the top of
+`Manage-Privilege.ps1`. Every API module is dot-sourced *into that same scope* at runtime, so
+in real usage strict mode is always active. But each module's own `*.Tests.ps1` file dot-
+sources only the module file itself (plus `CyberArkLogging.psm1`/`CyberArkComms.psm1`) -
+never `Manage-Privilege.ps1` - so strict mode is **not** active when a module's tests run in
+isolation. `Manage-Privilege.Tests.ps1` is the one exception, since it dot-sources the driver
+directly.
+
+**This is exactly why the bug in 9.8 shipped and passed every test.** The existing tests
+`T09a`/`T09b` in `Invoke-SafesAddFromTemplate.Tests.ps1` already set
+`$script:ExcludedTemplateMemberNames = @()` - the precise condition that collapses
+`$excludedNames` to `$null` - and passed cleanly, because `.Count` on `$null` doesn't throw
+without strict mode; it just doesn't crash. The bug was invisible to the test suite by
+construction, not by bad luck.
+
+**Complication found while fixing this:** running the *entire* suite via `Tests\Run-Tests.ps1`
+(all files in one `Invoke-Pester` process) showed a different, larger set of failures than
+running `Invoke-SafesAddFromTemplate.Tests.ps1` in isolation - because `Set-StrictMode`, once
+set by `Manage-Privilege.Tests.ps1` dot-sourcing the driver, is not perfectly contained to that
+file's own Pester container and can affect later-run containers in the same process. Earlier
+sessions working on this codebase (see prior Documentation-Tracker.md entries referencing "N
+pre-existing unrelated failures, confirmed via `git stash`") treated the full-suite-only
+failures in `Invoke-SafesAdd.ps1`, `Invoke-SafesUpdate.ps1`, `Invoke-AccountsList.ps1`, and
+others as unrelated cross-file pollution, on the reasoning that they predated the change being
+made and reproduced identically before and after via `git stash`. That reasoning correctly
+identified them as *pre-existing*, but likely mischaracterized *why*: fixing the two other
+instances of the 9.8 bug in `Invoke-SafesAddFromTemplate.ps1` (`$templateMembers`,
+`$excludedNames`) made every one of that file's full-suite failures disappear - strongly
+suggesting the same bug class, not incidental pollution, is the actual cause in at least some
+of the still-failing files. This was raised as a hypothesis, not a proven diagnosis, and
+flagged for follow-up rather than acted on immediately.
+
+**Follow-up audit (same day):** dispatched five parallel investigations, one per remaining
+full-suite-only failure cluster - `Invoke-SafesAdd.ps1`, `Invoke-SafesUpdate.ps1`,
+`Invoke-SafeMembersList.ps1`, `Invoke-AccountsList.ps1`, `Invoke-AccountsLinkAccount.ps1` -
+each told to add `Set-StrictMode -Version Latest` to its test file's `BeforeEach`/`BeforeAll`
+blocks, reproduce under strict mode, and fix whatever it found (production code, test code, or
+both), following the exact methodology in this section. Results, confirming the hypothesis was
+directionally right but not universally the *same* bug:
+
+- `Invoke-SafesAdd.ps1` / `Invoke-SafesUpdate.ps1` - **real production bugs**, both Pattern C
+  (dot notation on a hashtable for a maybe-missing key): `$body.NumberOfVersionsRetention` /
+  `$body.NumberOfDaysRetention`, the identical mutually-exclusive-retention-keys shape already
+  fixed in `Invoke-SafesAddFromTemplate.ps1`. In `Invoke-SafesAdd.ps1` this hit both the
+  `WhatIf` branch and the success-result-mapping branch; in `Invoke-SafesUpdate.ps1`, the
+  `WhatIf` branch only. Both meant **WhatIf mode crashed unconditionally, every time**, in real
+  usage - the same severity as the original AddFromTemplate finding.
+- `Invoke-SafeMembersList.ps1` - a **different real production bug**, not from section 9.8/9.9
+  at all: a genuine logic/bookkeeping gap (a per-safe API failure branch, introduced by an
+  earlier refactor, never recorded the failure on `$result` the way the equivalent top-level
+  branch did - silently dropped errors instead of reporting them). Also found and hardened one
+  latent (not-yet-crashing) Pattern A instance while in there. Two of that file's four failing
+  tests turned out to be stale (asserting pre-refactor validation behavior the module
+  intentionally no longer has) and were rewritten to match documented current behavior.
+- `Invoke-AccountsList.ps1` - **no production bug at all**: the test file simply never
+  initialized `$script:ActiveProfile`, which the module legitimately expects to exist (real
+  invocations always have it, via `Manage-Privilege.ps1`). Fixed in the test file only.
+- `Invoke-AccountsLinkAccount.ps1` - **also no strict-mode bug**: the single failing test used
+  the wrong `InputData` hashtable keys (`Name`/`Safe` instead of the schema's `LinkName`/
+  `LinkSafe`), so production correctly rejected it as a validation failure while the test
+  asserted success. Reproduced identically with or without strict mode - a plain test-data
+  error, unrelated to 9.8/9.9. Two latent (currently-safe) Pattern A instances were hardened
+  anyway while investigating.
+
+Net result: the full suite went from 44 failing to 1 (the pre-existing, separately-diagnosed
+`AG06` InputSchema mismatch in `Invoke-AccountsGetCredential.Tests.ps1`, unrelated to any of
+this). **Confirms the rule below, but also confirms it cuts both ways**: "fails only in the
+full suite" is a real signal worth investigating with strict mode, but the cause found there
+is not always the 9.8 array-collapse bug specifically - it can be any bug strict mode
+surfaces, a genuine non-strict-mode logic error uncovered along the way, or nothing in
+production at all (a test-only setup gap or a stale/wrong test).
+
+**Rule:** Don't treat "fails only in the full suite, passes in isolation, and failed before my
+change too" as proof a failure is unrelated noise safe to ignore. It rules out *your specific
+change* as the cause, but it does not rule out a real bug that strict mode (leaked or direct)
+is the only thing currently exposing - and per the follow-up above, don't assume that bug will
+match the specific pattern you already found elsewhere. When touching a file with this
+signature, add `Set-StrictMode -Version Latest` to the relevant test(s) (scoped to the
+`It`/`BeforeEach`, not the file's `BeforeAll` where it can trigger the 9.1/9.7 hang risk),
+reproduce, and read the actual exception rather than assuming which pattern it'll be.
+
+---
+
 ## 10. File Encoding: UTF-8 with BOM is Required for PowerShell 5.1
 
 ### 10.1 Em-dash and other multi-byte Unicode characters silently corrupt double-quoted strings

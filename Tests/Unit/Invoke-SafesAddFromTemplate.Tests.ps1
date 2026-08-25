@@ -129,7 +129,19 @@ BeforeAll {
             return script:New-OkResponse -Data $script:TemplateMembersResponse
         }
         if ($Method -eq 'POST' -and $Endpoint -eq '/API/Safes') {
-            return script:New-OkResponse -Data $script:CreatedSafeResponse -StatusCode 201
+            # Echo back ManagingCPM from the submitted body, like the real API does - the rest
+            # of the fixture stays fixed since no other field is InputData-driven.
+            $echoedCPM = if ($Body -and $Body.ContainsKey('ManagingCPM')) { $Body.ManagingCPM } else { $script:CreatedSafeResponse.managingCPM }
+            return script:New-OkResponse -Data ([PSCustomObject]@{
+                safeName                  = $script:CreatedSafeResponse.safeName
+                description               = $script:CreatedSafeResponse.description
+                location                  = $script:CreatedSafeResponse.location
+                managingCPM               = $echoedCPM
+                numberOfVersionsRetention = $script:CreatedSafeResponse.numberOfVersionsRetention
+                numberOfDaysRetention     = $script:CreatedSafeResponse.numberOfDaysRetention
+                autoPurgeEnabled          = $script:CreatedSafeResponse.autoPurgeEnabled
+                olacEnabled               = $script:CreatedSafeResponse.olacEnabled
+            }) -StatusCode 201
         }
         if ($Method -eq 'POST' -and $Endpoint -like '/API/Safes/NewSafe/Members') {
             return script:New-OkResponse -Data ([PSCustomObject]@{ safeName = 'NewSafe'; memberName = $Body.memberName; memberType = $Body.memberType }) -StatusCode 201
@@ -187,12 +199,30 @@ Describe 'ModuleMeta' {
         $descField          | Should -Not -BeNullOrEmpty
         $descField.Required | Should -BeFalse
     }
+
+    It 'T06a - InputSchema contains ManagingCPM with Required=$false' {
+        $field = $ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'ManagingCPM' }
+        $field          | Should -Not -BeNullOrEmpty
+        $field.Required | Should -BeFalse
+    }
+
+    It 'T06b - InputSchema contains ExtraMembers with Required=$false' {
+        $field = $ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'ExtraMembers' }
+        $field          | Should -Not -BeNullOrEmpty
+        $field.Required | Should -BeFalse
+    }
+
+    It 'T06c - ExtraMembers Example demonstrates the Type:Name:RoleName;... CSV syntax' {
+        $field = $ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'ExtraMembers' }
+        $field.Example | Should -Match '^(User|Group):[^:;]+:[^:;]+(;(User|Group):[^:;]+:[^:;]+)*$'
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-SafesAddFromTemplate - success' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Invoke-CyberArkAPI { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint -Body $Body }
         Mock Write-CyberArkLog { }
@@ -240,16 +270,33 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
         $r.Failures  | Should -Be 0
     }
 
-    It 'T11 - safe creation POST body copies template settings' {
+    It 'T11 - safe creation POST body copies Location/AutoPurgeEnabled from the template; ManagingCPM defaults to blank (not copied)' {
         Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
             $Method -eq 'POST' -and $Endpoint -eq '/API/Safes' -and
             $Body.SafeName -eq 'NewSafe' -and
             $Body.Description -eq 'Stamped from template' -and
             $Body.Location -eq '\Templates' -and
-            $Body.ManagingCPM -eq 'PasswordManager' -and
+            $Body.ManagingCPM -eq '' -and
             $Body.AutoPurgeEnabled -eq $true
         } -Times 1
+    }
+
+    It 'T11d - ManagingCPM in InputData is sent as-is, still not copied from the template' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ManagingCPM = 'ChosenCPM'
+        Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'POST' -and $Endpoint -eq '/API/Safes' -and
+            $Body.ManagingCPM -eq 'ChosenCPM'
+        } -Times 1
+    }
+
+    It 'T11e - result Safe row reflects the chosen ManagingCPM' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ManagingCPM = 'ChosenCPM'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).ManagingCPM | Should -Be 'ChosenCPM'
     }
 
     It 'T11a - OLACEnabled is never included in the safe creation body' {
@@ -290,9 +337,306 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
 }
 
 # ─────────────────────────────────────────────────────────────────
+Describe 'Invoke-SafesAddFromTemplate - ExtraMembers' {
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        script:Reset-MockActiveProfile
+        Mock Invoke-CyberArkAPI { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint -Body $Body }
+        Mock Write-CyberArkLog { }
+        Mock Add-CyberArkLogSummaryEntry { }
+    }
+
+    It 'T25 - one valid ExtraMembers entry: added with the resolved role permissions and memberType' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'User:newuser:CyberArk_TemplateSafe_Admins'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+
+        $extraRow = $r.Results | Where-Object { $_.ItemType -eq 'Member' -and $_.MemberName -eq 'newuser' }
+        $extraRow                | Should -Not -BeNullOrEmpty
+        $extraRow.MemberType     | Should -Be 'User'
+        $extraRow.RoleName       | Should -Be 'CyberArk_TemplateSafe_Admins'
+
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'POST' -and $Endpoint -eq '/API/Safes/NewSafe/Members' -and
+            $Body.memberName -eq 'newuser' -and
+            $Body.memberType -eq 'User' -and
+            $null -eq $Body.membershipExpirationDate -and
+            $Body.permissions.manageSafe -eq $true -and
+            $Body.permissions.manageSafeMembers -eq $true
+        } -Times 1
+    }
+
+    It 'T26 - two ExtraMembers entries (semicolon-separated): both added' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'User:newuser:CyberArk_TemplateSafe_Admins;Group:newgroup:CyberArk_TemplateSafe_Admins'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+
+        $extraRows = $r.Results | Where-Object { $_.ItemType -eq 'Member' -and $_.MemberName -in @('newuser', 'newgroup') }
+        $extraRows.Count | Should -Be 2
+        ($extraRows | Where-Object { $_.MemberName -eq 'newgroup' }).MemberType | Should -Be 'Group'
+    }
+
+    It 'T27 - malformed ExtraMembers entry: recorded as an error, safe still created, other entries unaffected' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'NotAType:baduser:CyberArk_TemplateSafe_Admins;User:gooduser:CyberArk_TemplateSafe_Admins'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+
+        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        ($r.Results | Where-Object { $_.MemberName -eq 'gooduser' }).Count | Should -Be 1
+        $r.Errors.Count | Should -Be 1
+        $r.IsFatal       | Should -BeFalse
+    }
+
+    It 'T28 - RoleName not found among template role members: error recorded, safe and other members unaffected' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'User:newuser:CyberArk_NoSuchRole'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
+
+        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        $r.Errors.Count | Should -Be 1
+        $r.IsFatal       | Should -BeFalse
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
+            $Method -eq 'POST' -and $Endpoint -eq '/API/Safes/NewSafe/Members' -and $Body.memberName -eq 'newuser'
+        } -Times 0
+    }
+
+    It 'T29 - blank ExtraMembers: no extra members added, no error' {
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
+        $r.Errors.Count | Should -Be 0
+        ($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 2   # only the two template-copied members
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Regression coverage for a real production crash: [array]$x = if (cond) {@(...)} else {@()}
+# collapses to $null (not an empty array) when the else branch fires, because PowerShell
+# unrolls a script block's output and an empty @() emits zero objects. $null.Count then throws
+# PropertyNotFoundException under Set-StrictMode - which every real invocation runs under (via
+# Manage-Privilege.ps1), but this test file does NOT, since it dot-sources only the module file.
+# Every test below sets Set-StrictMode -Version Latest itself (scoped to its own It block, not
+# leaked to siblings - confirmed by T29 above and the ExtraMembers tests still passing) so it
+# actually catches a regression instead of silently passing regardless, the way T09a/T09b
+# already did for the $excludedNames instance of this same bug before it was fixed. See
+# Docs\Lessons-Learned-PowerShell-Pester.md, "Unit tests do not run under Set-StrictMode".
+Describe 'Invoke-SafesAddFromTemplate - array-collapse regression (strict mode)' {
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        script:Reset-MockActiveProfile
+        Mock Invoke-CyberArkAPI { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint -Body $Body }
+        Mock Write-CyberArkLog { }
+        Mock Add-CyberArkLogSummaryEntry { }
+    }
+
+    It 'T30 - empty $script:ExcludedTemplateMemberNames does not throw under strict mode' {
+        # No explicit try/catch or "Should -Not -Throw" needed: Pester already fails an It block
+        # on any uncaught exception, and wrapping the call in a scriptblock for
+        # "Should -Not -Throw" would run it in a child scope, so a result variable assigned
+        # inside would not actually propagate back out for the assertions below.
+        Set-StrictMode -Version Latest
+        $script:ExcludedTemplateMemberNames = @()
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
+        $r.IsFatal | Should -BeFalse
+    }
+
+    It 'T31 - template safe with zero members does not throw under strict mode' {
+        Set-StrictMode -Version Latest
+        Mock Invoke-CyberArkAPI {
+            if ($Method -eq 'GET' -and $Endpoint -eq '/API/Safes/TemplateSafe') {
+                return script:New-OkResponse -Data $script:TemplateSafeResponse
+            }
+            if ($Method -eq 'GET' -and $Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @() })
+            }
+            if ($Method -eq 'POST' -and $Endpoint -eq '/API/Safes') {
+                return script:New-OkResponse -Data $script:CreatedSafeResponse -StatusCode 201
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
+        # @(...) wrap required here too: zero matches from Where-Object collapses to $null on
+        # capture (same bug this whole Describe is about), and .Count on that throws.
+        @($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 0
+    }
+
+    It 'T32 - script:Get-ProfileCPMOptions: profile has no CPM_List property at all - does not throw under strict mode' {
+        Set-StrictMode -Version Latest
+        $testProfile = [PSCustomObject]@{ Role_Template_Safe = 'TemplateSafe' }
+        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
+        $result.Count | Should -Be 0
+    }
+
+    It 'T33 - script:Get-ProfileCPMOptions: null profile - does not throw under strict mode' {
+        Set-StrictMode -Version Latest
+        [array]$result = @(script:Get-ProfileCPMOptions -Profile $null)
+        $result.Count | Should -Be 0
+    }
+
+    It 'T34 - script:Get-ProfileCPMOptions: blank CPM_List - does not throw under strict mode' {
+        Set-StrictMode -Version Latest
+        $testProfile = [PSCustomObject]@{ CPM_List = '   ' }
+        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
+        $result.Count | Should -Be 0
+    }
+
+    It 'T35 - script:Get-ProfileCPMOptions: splits, trims, and filters CPM_List correctly' {
+        Set-StrictMode -Version Latest
+        $testProfile = [PSCustomObject]@{ CPM_List = ' PM1 , PM2 ,, ' }
+        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
+        $result.Count | Should -Be 2
+        $result[0]    | Should -Be 'PM1'
+        $result[1]    | Should -Be 'PM2'
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
+Describe 'script:Get-TemplateRoleOptions - role descriptions' {
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+        script:Reset-MockActiveProfile
+        Mock Write-CyberArkLog { }
+    }
+
+    It 'T36 - a role matched to a group with a description gets it populated' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ memberName = 'CyberArk_Admins'; memberType = 'Group'; permissions = [PSCustomObject]@{ manageSafe = $true } }
+                ) })
+            }
+            if ($Endpoint -eq '/API/UserGroups') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ groupName = 'CyberArk_Admins'; description = 'Full administrative access to the safe' }
+                ) })
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions.Count | Should -Be 1
+        $roleOptions[0].Description | Should -Be 'Full administrative access to the safe'
+    }
+
+    It 'T37 - a role matched to a group with no description stays blank' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ memberName = 'CyberArk_Viewers'; memberType = 'Group'; permissions = [PSCustomObject]@{ listAccounts = $true } }
+                ) })
+            }
+            if ($Endpoint -eq '/API/UserGroups') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ groupName = 'CyberArk_Viewers'; description = '' }
+                ) })
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions[0].Description | Should -Be ''
+    }
+
+    It 'T38 - no matching group found: role still returned, Description blank' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ memberName = 'CyberArk_Orphan'; memberType = 'Group'; permissions = [PSCustomObject]@{} }
+                ) })
+            }
+            if ($Endpoint -eq '/API/UserGroups') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @() })
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions.Count           | Should -Be 1
+        $roleOptions[0].Name         | Should -Be 'CyberArk_Orphan'
+        $roleOptions[0].Description  | Should -Be ''
+    }
+
+    It 'T39 - GET /API/UserGroups fails: roles still returned with blank descriptions, no throw' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @(
+                    [PSCustomObject]@{ memberName = 'CyberArk_Admins'; memberType = 'Group'; permissions = [PSCustomObject]@{ manageSafe = $true } }
+                ) })
+            }
+            if ($Endpoint -eq '/API/UserGroups') {
+                return script:New-ErrResponse -StatusCode 403 -ErrorMessage 'Forbidden'
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions.Count           | Should -Be 1
+        $roleOptions[0].Permissions.manageSafe | Should -BeTrue
+        $roleOptions[0].Description  | Should -Be ''
+    }
+
+    It 'T40 - zero roles found: GET /API/UserGroups is never called' {
+        Mock Invoke-CyberArkAPI {
+            if ($Endpoint -eq '/API/Safes/TemplateSafe/Members') {
+                return script:New-OkResponse -Data ([PSCustomObject]@{ value = @() })
+            }
+            return script:New-ErrResponse -StatusCode 500 -ErrorMessage 'Unrouted mock call'
+        }
+        [array]$roleOptions = @(script:Get-TemplateRoleOptions -Token $script:MockToken)
+        $roleOptions.Count | Should -Be 0
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Endpoint -eq '/API/UserGroups' } -Times 0
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
+Describe 'script:Get-DescriptionDisplayLines' {
+
+    BeforeEach {
+        Set-StrictMode -Version Latest
+    }
+
+    It 'T41 - splits CRLF, LF, and mixed line breaks into separate trimmed lines' {
+        $desc = "Full admin access`r`nto the safe.`n  Grants manage.`r`nSecond line."
+        [array]$lines = @(script:Get-DescriptionDisplayLines -Description $desc)
+        $lines.Count | Should -Be 4
+        $lines[0]    | Should -Be 'Full admin access'
+        $lines[1]    | Should -Be 'to the safe.'
+        $lines[2]    | Should -Be 'Grants manage.'
+        $lines[3]    | Should -Be 'Second line.'
+    }
+
+    It 'T42 - blank lines (including whitespace-only) are dropped, not returned as gaps' {
+        $desc = "First line.`r`n`r`n   `nSecond line."
+        [array]$lines = @(script:Get-DescriptionDisplayLines -Description $desc)
+        $lines.Count | Should -Be 2
+        $lines[0]    | Should -Be 'First line.'
+        $lines[1]    | Should -Be 'Second line.'
+    }
+
+    It 'T43 - blank, whitespace-only, or null Description returns an empty array, not $null' {
+        Set-StrictMode -Version Latest
+        [array]$blank      = @(script:Get-DescriptionDisplayLines -Description '')
+        [array]$whitespace = @(script:Get-DescriptionDisplayLines -Description "   `r`n  ")
+        [array]$nullDesc   = @(script:Get-DescriptionDisplayLines -Description $null)
+        $blank.Count      | Should -Be 0
+        $whitespace.Count | Should -Be 0
+        $nullDesc.Count   | Should -Be 0
+    }
+
+    It 'T44 - a single-line description with no line breaks returns one trimmed line' {
+        [array]$lines = @(script:Get-DescriptionDisplayLines -Description '  Single line description  ')
+        $lines.Count | Should -Be 1
+        $lines[0]    | Should -Be 'Single line description'
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-SafesAddFromTemplate - WhatIf' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
+        # Strict mode: this is the block that hid a real production crash (unconditional dot
+        # notation on $safeBody.NumberOfVersionsRetention/NumberOfDaysRetention, which are
+        # mutually exclusive - see the "array-collapse regression" Describe above for the full
+        # explanation of why this test file needs to opt into strict mode explicitly).
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Invoke-CyberArkAPI {
             if ($Method -eq 'GET') { script:Invoke-DefaultRouting -Method $Method -Endpoint $Endpoint }
@@ -317,12 +661,23 @@ Describe 'Invoke-SafesAddFromTemplate - WhatIf' {
         $r.Results.Count | Should -Be 3
         $r.IsFatal        | Should -BeFalse
     }
+
+    It 'T15a - WhatIf: ExtraMembers entries appear as additional synthetic Member rows, no POST' {
+        $testInput = $script:ValidInput.Clone()
+        $testInput.ExtraMembers = 'User:newuser:CyberArk_TemplateSafe_Admins'
+        $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput -WhatIf
+        $r.Results.Count | Should -Be 4
+        $extraRow = $r.Results | Where-Object { $_.MemberName -eq 'newuser' }
+        $extraRow.RoleName | Should -Be 'CyberArk_TemplateSafe_Admins'
+        Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Method -eq 'POST' } -Times 0
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-SafesAddFromTemplate - validation' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Invoke-CyberArkAPI { }
         Mock Write-CyberArkLog { }
@@ -358,6 +713,7 @@ Describe 'Invoke-SafesAddFromTemplate - validation' {
 Describe 'Invoke-SafesAddFromTemplate - errors' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         script:Reset-MockActiveProfile
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }

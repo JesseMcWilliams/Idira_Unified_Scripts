@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $false
     InputSchema      = @()
     Priority         = 80
-    Version          = '1.0.0'
+    Version          = '1.0.1'
 }
 
 function Invoke-CustomExportAll {
@@ -65,7 +65,14 @@ function Invoke-CustomExportAll {
         $script:ActiveProfile.OutputFolder
     } else { (Get-Location).Path }
     if (-not [System.IO.Path]::IsPathRooted($outputFolder)) {
-        $outputFolder = Join-Path $PSScriptRoot $outputFolder
+        # $PSScriptRoot here is this file's own directory (APIModules\Custom), NOT the project
+        # root - PowerShell binds it to where a function is lexically defined, not to the scope
+        # that dot-sources it, even though Manage-Privilege.ps1 dot-sources this file into its
+        # own scope. Resolve relative to the project root instead, via $script:APIModulesPath
+        # (set by Manage-Privilege.ps1 before any module runs) so a relative profile
+        # OutputFolder lands next to Manage-Privilege.ps1, matching every other save-to-CSV path.
+        $projectRoot  = if ($script:APIModulesPath) { Split-Path -Path $script:APIModulesPath -Parent } else { (Get-Location).Path }
+        $outputFolder = Join-Path $projectRoot $outputFolder
     }
     if (-not (Test-Path -LiteralPath $outputFolder)) {
         try { New-Item -ItemType Directory -Path $outputFolder -Force | Out-Null } catch {}
@@ -94,8 +101,14 @@ function Invoke-CustomExportAll {
             if ($recordCount -gt 0) {
                 Write-Host " - $recordCount record$(if ($recordCount -ne 1) { 's' })" -ForegroundColor Green
 
-                try {
+                # Invoke-FileWriteWithRetry (defined in Manage-Privilege.ps1) is available because
+                # this module is dot-sourced into the driver scope. If the file is open/locked
+                # (e.g. in Excel), it prompts to retry rather than discarding the records this
+                # module already fetched from the API.
+                $saved = Invoke-FileWriteWithRetry -Path $csvPath -Action {
                     $moduleResult.Results | Export-Csv -LiteralPath $csvPath -NoTypeInformation -Force
+                }
+                if ($saved) {
                     Write-Host "    Saved: $csvPath" -ForegroundColor DarkGreen
                     Write-CyberArkLog -Level 'INFO' -Message "Export All: saved '$safeModName' ($recordCount records) to '$csvPath'."
                     $result.Results.Add([PSCustomObject]@{
@@ -104,9 +117,9 @@ function Invoke-CustomExportAll {
                         Status    = 'Saved'
                         SavedPath = $csvPath
                     })
-                } catch {
-                    Write-Host "    Failed to save: $_" -ForegroundColor Red
-                    Write-CyberArkLog -Level 'ERROR' -Message "Export All: failed to write '$csvPath': $_"
+                } else {
+                    Write-Host '    Failed to save (user declined to retry).' -ForegroundColor Red
+                    Write-CyberArkLog -Level 'ERROR' -Message "Export All: failed to write '$csvPath' (user declined to retry)."
                     $result.Results.Add([PSCustomObject]@{
                         Module    = $modName
                         Records   = $recordCount

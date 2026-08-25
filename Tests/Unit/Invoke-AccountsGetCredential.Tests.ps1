@@ -9,7 +9,7 @@
     which is defined in Manage-Privilege.ps1. That function is covered by manual integration
     tests (Manage-Privilege.ps1 - D-series in Testing-Plan.md).
 
-    Test IDs: AC01-AC18
+    Test IDs: AC01-AC24
 #>
 
 BeforeAll {
@@ -66,6 +66,22 @@ BeforeAll {
             DataType      = 'JSON'
             RawResponse   = ''
             Data          = $null
+        }
+    }
+
+    # Factory: build a mock GET /API/Accounts lookup response (used to resolve AccountName+Safe
+    # to an AccountID, same as Invoke-AccountsGet.ps1 / Invoke-AccountsUnlock.ps1).
+    function script:New-AccountLookupResponse {
+        param([object[]]$Accounts = @())
+        return [PSCustomObject]@{
+            IsSuccess     = $true
+            StatusCode    = 200
+            StatusMessage = 'OK'
+            ErrorMessage  = $null
+            ErrorDetails  = $null
+            DataType      = 'JSON'
+            RawResponse   = ''
+            Data          = [PSCustomObject]@{ value = $Accounts }
         }
     }
 }
@@ -226,5 +242,78 @@ Describe 'Invoke-AccountsGetCredential - API errors' {
         $r.IsFatal      | Should -BeFalse
         $r.Failures     | Should -Be 1
         $r.Errors.Count | Should -Be 1
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
+Describe 'Invoke-AccountsGetCredential - resolve by AccountName/Safe' {
+
+    BeforeEach {
+        Mock Write-CyberArkLog { }
+        Mock Add-CyberArkLogSummaryEntry { }
+    }
+
+    It 'AC19 - AccountID blank, AccountName+Safe resolve: lookup GET then POST retrieve' {
+        $script:CallCount = 0
+        Mock Invoke-CyberArkAPI {
+            $script:CallCount++
+            if ($script:CallCount -eq 1) {
+                script:New-AccountLookupResponse -Accounts @(
+                    [PSCustomObject]@{ id = '999'; name = 'svc-account'; userName = 'svc-account'; safeName = 'TestSafe' }
+                )
+            } else {
+                script:New-CredentialApiResponse -CredValue 'ResolvedPassword'
+            }
+        }
+        $r = Invoke-AccountsGetCredential -Token $script:MockToken -InputData @{ AccountName = 'svc-account'; Safe = 'TestSafe' }
+        Should -Invoke Invoke-CyberArkAPI -Times 2 -Exactly
+        $r.Successes              | Should -Be 1
+        $r.Results[0].AccountID   | Should -Be '999'
+        $r.Results[0].Credential  | Should -Be 'ResolvedPassword'
+    }
+
+    It 'AC20 - AccountID, AccountName, and Safe all blank: Failures=1, no API call' {
+        Mock Invoke-CyberArkAPI { throw 'Should not be called' }
+        $r = Invoke-AccountsGetCredential -Token $script:MockToken -InputData @{}
+        $r.Failures | Should -Be 1
+        Should -Invoke Invoke-CyberArkAPI -Times 0
+    }
+
+    It 'AC21 - AccountName given but Safe blank: Failures=1, no API call' {
+        Mock Invoke-CyberArkAPI { throw 'Should not be called' }
+        $r = Invoke-AccountsGetCredential -Token $script:MockToken -InputData @{ AccountName = 'svc-account' }
+        $r.Failures | Should -Be 1
+        Should -Invoke Invoke-CyberArkAPI -Times 0
+    }
+
+    It 'AC22 - lookup GET fails (401): IsFatal=$true, no retrieve attempted' {
+        Mock Invoke-CyberArkAPI { script:New-ApiErrorResponse -StatusCode 401 -ErrorMessage 'Unauthorized' }
+        $r = Invoke-AccountsGetCredential -Token $script:MockToken -InputData @{ AccountName = 'svc-account'; Safe = 'TestSafe' }
+        $r.IsFatal | Should -BeTrue
+        Should -Invoke Invoke-CyberArkAPI -Times 1 -Exactly
+    }
+
+    It 'AC23 - no account matches AccountName in Safe: Failures=1' {
+        Mock Invoke-CyberArkAPI { script:New-AccountLookupResponse -Accounts @() }
+        $r = Invoke-AccountsGetCredential -Token $script:MockToken -InputData @{ AccountName = 'nonexistent'; Safe = 'TestSafe' }
+        $r.Failures | Should -Be 1
+    }
+
+    It 'AC24 - multiple matches: uses the first match and still succeeds' {
+        Mock Invoke-CyberArkAPI {
+            $script:CallCount++
+            if ($script:CallCount -eq 1) {
+                script:New-AccountLookupResponse -Accounts @(
+                    [PSCustomObject]@{ id = '111'; name = 'dup-account'; safeName = 'TestSafe' },
+                    [PSCustomObject]@{ id = '222'; name = 'dup-account'; safeName = 'TestSafe' }
+                )
+            } else {
+                script:New-CredentialApiResponse -CredValue 'FirstMatchPassword'
+            }
+        }
+        $script:CallCount = 0
+        $r = Invoke-AccountsGetCredential -Token $script:MockToken -InputData @{ AccountName = 'dup-account'; Safe = 'TestSafe' }
+        $r.Successes            | Should -Be 1
+        $r.Results[0].AccountID | Should -Be '111'
     }
 }

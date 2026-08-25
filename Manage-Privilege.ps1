@@ -207,6 +207,34 @@ function Get-CsvSavePath {
     }
 }
 
+function Invoke-FileWriteWithRetry {
+    <#
+        Runs $Action (a scriptblock that performs a single file write - Export-Csv,
+        [System.IO.File]::WriteAllText, Set-Content, etc.) and, if it throws, prompts the user
+        to retry instead of letting the error silently discard already-fetched report data. The
+        most common cause is the target file being open and locked in another program (Excel, a
+        text editor) - something the user can fix in a few seconds by closing it, without having
+        to re-run whatever produced the data in the first place.
+
+        Returns $true if $Action eventually completed without throwing, $false if the user
+        declined to retry.
+    #>
+    param(
+        [Parameter(Mandatory = $true)] [scriptblock]$Action,
+        [Parameter(Mandatory = $true)] [string]$Path
+    )
+    while ($true) {
+        try {
+            & $Action
+            return $true
+        } catch {
+            Write-Host "  Failed to write '$Path': $_" -ForegroundColor Red
+            Write-Host '  The file may be open in another program (e.g. Excel).' -ForegroundColor Yellow
+            if (-not (Confirm-Action 'Retry the write?')) { return $false }
+        }
+    }
+}
+
 function Invoke-EntitySearch {
     # Searches a list endpoint and lets the user pick from numbered results.
     # Returns the selected entity ID string, or $null if cancelled or nothing found.
@@ -324,7 +352,7 @@ function Get-AllDriverProfiles {
         try {
             $p        = Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
             # Normalize: add any fields introduced after this profile was saved
-            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder', 'TenantPortal', 'TenantVault', 'TenantAuth', 'Role_Template_Safe', 'Role_Group_Prefix')) {
+            foreach ($field in @('SystemType', 'AppName', 'AuthMethod', 'Username', 'BaseURL', 'LogFolder', 'InputFolder', 'OutputFolder', 'TenantPortal', 'TenantVault', 'TenantAuth', 'Role_Template_Safe', 'Role_Group_Prefix', 'CPM_List')) {
                 $defaultVal = if ($field -eq 'AppName') { 'PasswordVault' } else { '' }
                 if (-not $p.PSObject.Properties[$field]) {
                     $p | Add-Member -NotePropertyName $field -NotePropertyValue $defaultVal -Force
@@ -428,6 +456,7 @@ function New-BlankProfile {
         TenantAuth         = ''
         Role_Template_Safe = ''
         Role_Group_Prefix  = ''
+        CPM_List           = ''
         DisplayLimit       = 20
         LastUsed           = $null
         Created          = (Get-Date).ToUniversalTime().ToString('o')
@@ -537,6 +566,7 @@ function Show-ProfileDetail {
     Field 'Display Limit'   $(if ($dpLimit -eq 0) { 'Show all' } else { "$dpLimit rows" })
     if ($p.PSObject.Properties['Role_Template_Safe'] -and $p.Role_Template_Safe) { Field 'Role Template Safe' $p.Role_Template_Safe }
     if ($p.PSObject.Properties['Role_Group_Prefix']  -and $p.Role_Group_Prefix)  { Field 'Role Group Prefix'  $p.Role_Group_Prefix  }
+    if ($p.PSObject.Properties['CPM_List'] -and $p.CPM_List) { Field 'CPM List' $p.CPM_List }
     $created  = try { ([datetime]$p.Created).ToLocalTime().ToString('yyyy-MM-dd HH:mm') }  catch { $p.Created }
     $modified = try { ([datetime]$p.Modified).ToLocalTime().ToString('yyyy-MM-dd HH:mm') } catch { $p.Modified }
     Field 'Created'         $created
@@ -744,6 +774,10 @@ function Invoke-ProfileEditFlow {
     $currentProfile.Role_Group_Prefix = Show-FieldPrompt -Label 'Role Group Prefix' `
         -Default $(if ($currentProfile.PSObject.Properties['Role_Group_Prefix']) { $currentProfile.Role_Group_Prefix } else { '' }) `
         -Description 'Prefix for CyberArk role groups (e.g. "CyberArk_"). Used by Add/Update Safe Member role operations.'
+
+    $currentProfile.CPM_List = Show-FieldPrompt -Label 'CPM List' `
+        -Default $(if ($currentProfile.PSObject.Properties['CPM_List']) { $currentProfile.CPM_List } else { '' }) `
+        -Description 'Comma-separated list of CPM usernames (e.g. "PasswordManager,PasswordManager2"). Shown as a picker on pages that ask for a CPM, so you do not have to remember or type the names.'
 
     Write-Host ''
     Save-DriverProfile -currentProfile $currentProfile
@@ -1807,12 +1841,13 @@ function Invoke-CsvProcessing {
         }
 
         if ($outputRows.Count -gt 0) {
-            try {
+            $saved = Invoke-FileWriteWithRetry -Path $outputPath -Action {
                 $outputRows | Export-Csv -LiteralPath $outputPath -NoTypeInformation -Encoding UTF8
+            }
+            if ($saved) {
                 Write-Host "  Output: $outputPath" -ForegroundColor Green
-            } catch {
-                Write-Host "  Failed to write output file: $_" -ForegroundColor Red
-                Write-CyberArkLog -Level 'ERROR' -Message "Failed to write output CSV '$outputPath': $_"
+            } else {
+                Write-CyberArkLog -Level 'ERROR' -Message "Failed to write output CSV '$outputPath' (user declined to retry)."
             }
         }
 
@@ -1941,8 +1976,26 @@ function Invoke-ActionModule {
                         -ModuleName "$($meta.Name) Template"
                     if ($csvPath) {
                         $header = ($cols | ForEach-Object { "`"$_`"" }) -join ','
+                        $lines  = [System.Collections.Generic.List[string]]::new()
+                        $lines.Add($header)
+
+                        # If any InputSchema column defines an Example value, add one example
+                        # row beneath the header - blank for any column that doesn't have one -
+                        # so the CSV format is obvious at a glance (e.g. the Type:Name:RoleName;...
+                        # syntax for a delimited-list column like ExtraMembers). Bracket/ContainsKey
+                        # access, not dot notation - InputSchema entries are hashtables, and most
+                        # modules' entries don't define Example at all.
+                        $hasExample = @($meta.InputSchema | Where-Object { $_.ContainsKey('Example') -and $_['Example'] }).Count -gt 0
+                        if ($hasExample) {
+                            $exampleRow = ($meta.InputSchema | ForEach-Object {
+                                $ex = if ($_.ContainsKey('Example') -and $_['Example']) { "$($_['Example'])" } else { '' }
+                                "`"$ex`""
+                            }) -join ','
+                            $lines.Add($exampleRow)
+                        }
+
                         try {
-                            [System.IO.File]::WriteAllLines($csvPath, [string[]]@($header), [System.Text.Encoding]::UTF8)
+                            [System.IO.File]::WriteAllLines($csvPath, [string[]]$lines, [System.Text.Encoding]::UTF8)
                             Write-Host "  Template saved: $csvPath" -ForegroundColor Green
                         } catch {
                             Write-Host "  Failed to write template: $_" -ForegroundColor Red
@@ -2031,13 +2084,14 @@ function Invoke-ActionModule {
         if ($saveCsv -match '^[Yy]') {
             $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name
             if ($csvPath) {
-                try {
+                $saved = Invoke-FileWriteWithRetry -Path $csvPath -Action {
                     $result.Results | Export-Csv -Path $csvPath -NoTypeInformation -Force
+                }
+                if ($saved) {
                     Write-Host "  Saved: $csvPath" -ForegroundColor Green
                     Write-CyberArkLog -Message "Results saved to CSV: $csvPath" -Level 'INFO'
-                } catch {
-                    Write-Host "  Failed to save CSV: $_" -ForegroundColor Red
-                    Write-CyberArkLog -Message "Failed to save CSV to '$csvPath': $_" -Level 'ERROR'
+                } else {
+                    Write-CyberArkLog -Message "Failed to save CSV to '$csvPath' (user declined to retry)." -Level 'ERROR'
                 }
             }
         }

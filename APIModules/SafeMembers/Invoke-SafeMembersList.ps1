@@ -15,7 +15,7 @@ $ModuleMeta = @{
         @{ Column = 'SafeName'; Required = $false; Description = 'Name of the safe. Leave blank for all safes.' }
     )
     Priority             = 20
-    Version              = '1.1.0'
+    Version              = '1.1.1'
 }
 
 function Get-SafeMembersListInput {
@@ -109,17 +109,36 @@ function Invoke-SafeMembersList {
             -WhatIf:  $WhatIf.IsPresent
 
         if (-not $response.IsSuccess) {
+            # Bug fix: this per-safe branch used to set IsFatal/continue without ever recording
+            # the failure on $result, unlike the equivalent all-safes lookup failure above (which
+            # does Errors.Add + Failures++ + ItemsProcessed++). That asymmetry meant a 401 mid-loop
+            # returned IsFatal=$true with zero Errors to explain why, and a per-safe 403 silently
+            # vanished (no Failures/Errors) instead of being reported - a real, non-strict-mode
+            # logic bug (missing bookkeeping), now brought in line with the all-safes branch above.
+            $msg = "Safe members list failed for safe '$sn' (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+            $result.Errors.Add([PSCustomObject]@{ InputData = @{ SafeName = $sn }; ErrorMessage = $msg; ErrorDetails = $response.ErrorDetails })
+            $result.Failures++
+            $result.ItemsProcessed++
             if ($response.StatusCode -in @(401, 0)) {
+                Write-CyberArkLog -Level 'ERROR' -Message $msg
                 $result.IsFatal = $true
                 return $result
             }
-            Write-CyberArkLog -Level 'WARN' -Message "Members unavailable for safe '$sn' (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
+            Write-CyberArkLog -Level 'WARN' -Message $msg
             continue
         }
 
-        [array]$members = if ($response.Data -and $response.Data.PSObject.Properties['value']) {
-            @($response.Data.value)
-        } else { @() }
+        # Pattern A (array collapse): the original `else { @() }` branch emitted zero pipeline
+        # objects, which collapses to $null on capture despite the [array] type constraint -
+        # PowerShell unrolls a script block's output, and empty output becomes $null, not an
+        # empty array. $members was only ever consumed via `foreach`, which tolerates $null
+        # silently (so this never crashed today), but it is the exact same shape that crashed in
+        # production for Invoke-SafesAddFromTemplate.ps1 (see Docs\Lessons-Learned-PowerShell-
+        # Pester.md, "Unit tests do not run under Set-StrictMode"). Fixed defensively here by
+        # wrapping the whole if/else in an outer @(...) and dropping the now-unnecessary else.
+        [array]$members = @(if ($response.Data -and $response.Data.PSObject.Properties['value']) {
+            $response.Data.value
+        })
 
         foreach ($member in $members) {
             try {

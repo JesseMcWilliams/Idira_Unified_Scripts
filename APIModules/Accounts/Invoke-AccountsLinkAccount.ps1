@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Link Account'
@@ -19,7 +19,7 @@ $ModuleMeta = @{
         @{ Column = 'LinkFolder';        Required = $false; Description = 'Folder of the linked account (default: Root).' }
     )
     Priority         = 36
-    Version          = '1.2.0'
+    Version          = '1.2.1'
 }
 
 function script:Search-LinkedAccount {
@@ -51,9 +51,14 @@ function script:Search-LinkedAccount {
         return $null
     }
 
-    [array]$accounts = if ($searchResp.Data -and $searchResp.Data.PSObject.Properties['value']) {
-        @($searchResp.Data.value)
-    } else { @() }
+    # Pattern A fix: outer @(...) around the whole if, not just the true branch - an empty
+    # else-branch @() would otherwise collapse to $null on capture (PowerShell unrolls a
+    # script block's output; zero-length output becomes $null even with [array] typing on
+    # the LHS). Currently masked here by the `-not $accounts` short-circuit below, but fixed
+    # for consistency with the rest of the codebase's audited defensive pattern.
+    [array]$accounts = @(if ($searchResp.Data -and $searchResp.Data.PSObject.Properties['value']) {
+        $searchResp.Data.value
+    })
 
     if (-not $accounts -or $accounts.Count -eq 0) {
         Write-Host '  No accounts found. Enter details manually.' -ForegroundColor Yellow
@@ -261,11 +266,17 @@ function Invoke-AccountsLinkAccount {
             return $result
         }
 
-        [array]$accounts = if ($searchResp.Data -and
+        # Pattern A fix: outer @(...) around the whole if, not just the true branch - an empty
+        # else-branch @() would otherwise collapse to $null on capture (PowerShell unrolls a
+        # script block's output; zero-length output becomes $null even with [array] typing on
+        # the LHS), and the `| Where-Object` below would then be piping from a bare $null.
+        # Currently harmless since PowerShell handles $null | Where-Object gracefully, but
+        # fixed for consistency with the rest of the codebase's audited defensive pattern.
+        [array]$accounts = @(if ($searchResp.Data -and
                                $searchResp.Data.PSObject.Properties['value'] -and
                                $null -ne $searchResp.Data.value) {
-            @($searchResp.Data.value)
-        } else { @() }
+            $searchResp.Data.value
+        })
 
         # Match locally against name OR userName; $_ guard prevents null-PSObject crash under strict mode
         $match = $accounts | Where-Object {

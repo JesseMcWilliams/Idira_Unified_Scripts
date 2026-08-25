@@ -11,6 +11,7 @@
 #>
 
 BeforeAll {
+    Set-StrictMode -Version Latest
     $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
     $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
     $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\Safes\Invoke-SafesAdd.ps1'
@@ -128,6 +129,7 @@ Describe 'ModuleMeta' {
 Describe 'Invoke-SafesAdd - success (201)' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Invoke-CyberArkAPI {
             script:New-SafeApiResponse -Safe $script:SampleSafeResponse -StatusCode 201
         }
@@ -201,6 +203,7 @@ Describe 'Invoke-SafesAdd - success (201)' {
 Describe 'Invoke-SafesAdd - WhatIf' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Invoke-CyberArkAPI {
             [PSCustomObject]@{
                 IsSuccess     = $true
@@ -237,6 +240,7 @@ Describe 'Invoke-SafesAdd - WhatIf' {
 Describe 'Invoke-SafesAdd - validation' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Invoke-CyberArkAPI { }
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
@@ -261,6 +265,7 @@ Describe 'Invoke-SafesAdd - validation' {
 Describe 'Invoke-SafesAdd - errors' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }

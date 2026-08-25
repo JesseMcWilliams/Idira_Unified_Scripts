@@ -11,6 +11,7 @@
 #>
 
 BeforeAll {
+    Set-StrictMode -Version Latest
     $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
     $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
     $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\Safes\Invoke-SafesUpdate.ps1'
@@ -139,6 +140,7 @@ Describe 'ModuleMeta' {
 Describe 'Invoke-SafesUpdate - success' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
 
@@ -221,6 +223,7 @@ Describe 'Invoke-SafesUpdate - success' {
 Describe 'Invoke-SafesUpdate - WhatIf' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
 
@@ -248,6 +251,7 @@ Describe 'Invoke-SafesUpdate - WhatIf' {
 Describe 'Invoke-SafesUpdate - validation' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
         Mock Invoke-CyberArkAPI { }
@@ -271,6 +275,7 @@ Describe 'Invoke-SafesUpdate - validation' {
 Describe 'Invoke-SafesUpdate - GET phase errors' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
@@ -300,6 +305,7 @@ Describe 'Invoke-SafesUpdate - GET phase errors' {
 Describe 'Invoke-SafesUpdate - PUT phase errors' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }
