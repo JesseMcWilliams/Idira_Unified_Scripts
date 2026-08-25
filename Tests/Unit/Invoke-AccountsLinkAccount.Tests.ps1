@@ -5,6 +5,7 @@
 #>
 
 BeforeAll {
+    Set-StrictMode -Version Latest
     $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\Accounts\Invoke-AccountsLinkAccount.ps1'
     $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
     $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
@@ -45,11 +46,16 @@ Describe 'Invoke-AccountsLinkAccount' {
             Mock Invoke-CyberArkAPI {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{} }
             }
+            # Bug: this InputData previously used 'Name'/'Safe', which don't match the
+            # InputSchema's 'LinkName'/'LinkSafe' columns. $InputData['LinkName'] returned
+            # $null (key absent from the hashtable), so the production function correctly
+            # rejected the call with "LinkName is required." - the test was exercising the
+            # validation-failure path while asserting success-path expectations.
             $result = Invoke-AccountsLinkAccount -Token $token -InputData @{
                 AccountID          = 'acc123'
                 ExtraPasswordIndex = '1'
-                Name               = 'LinkedAcct'
-                Safe               = 'TestSafe'
+                LinkName           = 'LinkedAcct'
+                LinkSafe           = 'TestSafe'
             }
             $result.Successes   | Should -BeGreaterThan 0
             $result.Failures    | Should -Be 0

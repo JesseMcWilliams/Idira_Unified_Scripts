@@ -11,6 +11,7 @@
 #>
 
 BeforeAll {
+    Set-StrictMode -Version Latest
     $script:LoggingPath = Join-Path $PSScriptRoot '..\..\Modules\CyberArkLogging.psm1'
     $script:CommsPath   = Join-Path $PSScriptRoot '..\..\Modules\CyberArkComms.psm1'
     $script:ModulePath  = Join-Path $PSScriptRoot '..\..\APIModules\Accounts\Invoke-AccountsList.ps1'
@@ -33,6 +34,16 @@ BeforeAll {
         SystemType = 'SelfHosted'
         AuthMethod = 'CyberArk'
         BaseURL    = 'https://test.cyberark.local'
+    }
+
+    # Manage-Privilege.ps1 defines $script:ActiveProfile as a script-scoped constant, dot-sourced
+    # into every module's effective scope at real runtime. This test file dot-sources only the
+    # module, so $script:ActiveProfile must be faked explicitly here - same pattern as
+    # Tests\Unit\Invoke-SafesAddFromTemplate.Tests.ps1's Reset-MockActiveProfile helper.
+    function script:Reset-MockActiveProfile {
+        $script:ActiveProfile = [PSCustomObject]@{
+            IgnoreSSL = $false
+        }
     }
 
     # Factory: build a mock API success response containing the given account objects
@@ -104,6 +115,7 @@ BeforeAll {
 
 AfterAll {
     Close-CyberArkLog -ErrorAction SilentlyContinue
+    Remove-Variable -Name ActiveProfile -Scope Script -ErrorAction SilentlyContinue
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -142,6 +154,8 @@ Describe 'ModuleMeta' {
 Describe 'Invoke-AccountsList - successful response' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
+        script:Reset-MockActiveProfile
         Mock Invoke-CyberArkAPI {
             script:New-AccountsApiResponse -Accounts @($script:SampleAccount)
         }
@@ -281,6 +295,8 @@ Describe 'Invoke-AccountsList - successful response' {
 Describe 'Invoke-AccountsList - query parameters' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
+        script:Reset-MockActiveProfile
         Mock Write-CyberArkLog { }
     }
 
@@ -333,6 +349,8 @@ Describe 'Invoke-AccountsList - query parameters' {
 Describe 'Invoke-AccountsList - API errors' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
+        script:Reset-MockActiveProfile
         Mock Write-CyberArkLog { }
     }
 

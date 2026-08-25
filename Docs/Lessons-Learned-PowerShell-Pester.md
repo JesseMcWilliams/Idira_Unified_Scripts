@@ -1387,16 +1387,57 @@ identified them as *pre-existing*, but likely mischaracterized *why*: fixing the
 instances of the 9.8 bug in `Invoke-SafesAddFromTemplate.ps1` (`$templateMembers`,
 `$excludedNames`) made every one of that file's full-suite failures disappear - strongly
 suggesting the same bug class, not incidental pollution, is the actual cause in at least some
-of the still-failing files. **This has not been verified file-by-file; it's a hypothesis
-raised by one confirmed instance, not a proven diagnosis for the others.**
+of the still-failing files. This was raised as a hypothesis, not a proven diagnosis, and
+flagged for follow-up rather than acted on immediately.
+
+**Follow-up audit (same day):** dispatched five parallel investigations, one per remaining
+full-suite-only failure cluster - `Invoke-SafesAdd.ps1`, `Invoke-SafesUpdate.ps1`,
+`Invoke-SafeMembersList.ps1`, `Invoke-AccountsList.ps1`, `Invoke-AccountsLinkAccount.ps1` -
+each told to add `Set-StrictMode -Version Latest` to its test file's `BeforeEach`/`BeforeAll`
+blocks, reproduce under strict mode, and fix whatever it found (production code, test code, or
+both), following the exact methodology in this section. Results, confirming the hypothesis was
+directionally right but not universally the *same* bug:
+
+- `Invoke-SafesAdd.ps1` / `Invoke-SafesUpdate.ps1` - **real production bugs**, both Pattern C
+  (dot notation on a hashtable for a maybe-missing key): `$body.NumberOfVersionsRetention` /
+  `$body.NumberOfDaysRetention`, the identical mutually-exclusive-retention-keys shape already
+  fixed in `Invoke-SafesAddFromTemplate.ps1`. In `Invoke-SafesAdd.ps1` this hit both the
+  `WhatIf` branch and the success-result-mapping branch; in `Invoke-SafesUpdate.ps1`, the
+  `WhatIf` branch only. Both meant **WhatIf mode crashed unconditionally, every time**, in real
+  usage - the same severity as the original AddFromTemplate finding.
+- `Invoke-SafeMembersList.ps1` - a **different real production bug**, not from section 9.8/9.9
+  at all: a genuine logic/bookkeeping gap (a per-safe API failure branch, introduced by an
+  earlier refactor, never recorded the failure on `$result` the way the equivalent top-level
+  branch did - silently dropped errors instead of reporting them). Also found and hardened one
+  latent (not-yet-crashing) Pattern A instance while in there. Two of that file's four failing
+  tests turned out to be stale (asserting pre-refactor validation behavior the module
+  intentionally no longer has) and were rewritten to match documented current behavior.
+- `Invoke-AccountsList.ps1` - **no production bug at all**: the test file simply never
+  initialized `$script:ActiveProfile`, which the module legitimately expects to exist (real
+  invocations always have it, via `Manage-Privilege.ps1`). Fixed in the test file only.
+- `Invoke-AccountsLinkAccount.ps1` - **also no strict-mode bug**: the single failing test used
+  the wrong `InputData` hashtable keys (`Name`/`Safe` instead of the schema's `LinkName`/
+  `LinkSafe`), so production correctly rejected it as a validation failure while the test
+  asserted success. Reproduced identically with or without strict mode - a plain test-data
+  error, unrelated to 9.8/9.9. Two latent (currently-safe) Pattern A instances were hardened
+  anyway while investigating.
+
+Net result: the full suite went from 44 failing to 1 (the pre-existing, separately-diagnosed
+`AG06` InputSchema mismatch in `Invoke-AccountsGetCredential.Tests.ps1`, unrelated to any of
+this). **Confirms the rule below, but also confirms it cuts both ways**: "fails only in the
+full suite" is a real signal worth investigating with strict mode, but the cause found there
+is not always the 9.8 array-collapse bug specifically - it can be any bug strict mode
+surfaces, a genuine non-strict-mode logic error uncovered along the way, or nothing in
+production at all (a test-only setup gap or a stale/wrong test).
 
 **Rule:** Don't treat "fails only in the full suite, passes in isolation, and failed before my
 change too" as proof a failure is unrelated noise safe to ignore. It rules out *your specific
 change* as the cause, but it does not rule out a real bug that strict mode (leaked or direct)
-is the only thing currently exposing. When touching a file with this signature, consider
-explicitly adding `Set-StrictMode -Version Latest` to the relevant test(s) (scoped to the
-`It`/`BeforeEach`, not the file's `BeforeAll` where it can trigger the 9.1/9.7 hang risk) to
-find out which.
+is the only thing currently exposing - and per the follow-up above, don't assume that bug will
+match the specific pattern you already found elsewhere. When touching a file with this
+signature, add `Set-StrictMode -Version Latest` to the relevant test(s) (scoped to the
+`It`/`BeforeEach`, not the file's `BeforeAll` where it can trigger the 9.1/9.7 hang risk),
+reproduce, and read the actual exception rather than assuming which pattern it'll be.
 
 ---
 
