@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 $ModuleMeta = @{
     Name             = 'Update Account'
@@ -21,7 +21,9 @@ $ModuleMeta = @{
         @{ Column = 'AutoManaged'; Required = $false; Description = 'Enable automatic management: true/false.' }
     )
     Priority         = 33
-    Version          = '1.1.0'
+    Version          = '1.2.0'   # 1.2.0 switched from GET+full-PUT-merge to a JSON Patch (RFC 6902) PATCH
+                                  # call carrying only the fields actually being changed, matching the
+                                  # CyberArk API's current /API/Accounts/{id} contract (PATCH-only, PUT removed)
 }
 
 function Get-AccountsUpdateInput {
@@ -215,123 +217,83 @@ function Invoke-AccountsUpdate {
 
     $encodedId = [System.Uri]::EscapeDataString($accountId)
 
-    Write-CyberArkLog -Level 'INFO'  -Message "Starting account update for ID: $accountId"
-    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/Accounts/$encodedId"
+    # Build a JSON Patch (RFC 6902) body containing only the fields actually supplied - the
+    # CyberArk /API/Accounts/{id} endpoint is PATCH-only (PUT full-replace is no longer offered)
+    # and leaves any property not named in the patch untouched. Array order matters for JSON
+    # Patch semantics, so this is built as an ordered array of hashtables, not a hashtable/object.
+    $patchOps = [System.Collections.Generic.List[hashtable]]::new()
 
-    # Step 1: GET current account to retrieve values for fields not being updated
-    $getResponse = Invoke-CyberArkAPI `
-        -Token    $Token `
-        -Method   'GET' `
-        -Endpoint "/API/Accounts/$encodedId"
+    if ($InputData.ContainsKey('Name') -and "$($InputData['Name'])".Trim() -ne '') {
+        $patchOps.Add(@{ op = 'replace'; path = '/name'; value = "$($InputData['Name'])".Trim() })
+    }
+    if ($InputData.ContainsKey('Address') -and "$($InputData['Address'])".Trim() -ne '') {
+        $patchOps.Add(@{ op = 'replace'; path = '/address'; value = "$($InputData['Address'])".Trim() })
+    }
+    if ($InputData.ContainsKey('UserName') -and "$($InputData['UserName'])".Trim() -ne '') {
+        $patchOps.Add(@{ op = 'replace'; path = '/userName'; value = "$($InputData['UserName'])".Trim() })
+    }
+    if ($InputData.ContainsKey('PlatformID') -and "$($InputData['PlatformID'])".Trim() -ne '') {
+        $patchOps.Add(@{ op = 'replace'; path = '/platformId'; value = "$($InputData['PlatformID'])".Trim() })
+    }
+    if ($InputData.ContainsKey('SafeName') -and "$($InputData['SafeName'])".Trim() -ne '') {
+        $patchOps.Add(@{ op = 'replace'; path = '/safeName'; value = "$($InputData['SafeName'])".Trim() })
+    }
+    if ($InputData.ContainsKey('AutoManaged') -and "$($InputData['AutoManaged'])".Trim() -ne '') {
+        $autoManagedValue = if ("$($InputData['AutoManaged'])".Trim() -eq 'true') { 'true' } else { 'false' }
+        $patchOps.Add(@{ op = 'replace'; path = '/secretManagement/automaticManagementEnabled'; value = $autoManagedValue })
+    }
 
-    if (-not $getResponse.IsSuccess) {
-        $msg = "Failed to retrieve account '$accountId' before update (HTTP $($getResponse.StatusCode)): $($getResponse.ErrorMessage)"
+    [array]$patchOps = @($patchOps)
+
+    if ($patchOps.Count -eq 0) {
+        $msg = 'At least one optional field (Name, Address, UserName, PlatformID, SafeName, or AutoManaged) must be provided to update.'
         Write-CyberArkLog -Level 'ERROR' -Message $msg
-        $result.Errors.Add([PSCustomObject]@{
-            InputData    = $InputData
-            ErrorMessage = $getResponse.ErrorMessage
-            ErrorDetails = $getResponse.ErrorDetails
-        })
+        $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
         $result.Failures++
         $result.ItemsProcessed++
-        $result.IsFatal = ($getResponse.StatusCode -in @(401, 0))
         return $result
     }
 
-    $currentAccount = $getResponse.Data
+    Write-CyberArkLog -Level 'INFO'  -Message "Starting account update for ID: $accountId"
+    Write-CyberArkLog -Level 'DEBUG' -Message "PATCH /API/Accounts/$encodedId"
 
-    # Step 2: Merge - use input value when provided/non-empty, otherwise fall back to current account value
-
-    $mergedName = if ($InputData.ContainsKey('Name') -and "$($InputData['Name'])".Trim() -ne '') {
-        "$($InputData['Name'])".Trim()
-    } else {
-        if ($currentAccount.name) { $currentAccount.name } else { '' }
-    }
-
-    $mergedAddress = if ($InputData.ContainsKey('Address') -and "$($InputData['Address'])".Trim() -ne '') {
-        "$($InputData['Address'])".Trim()
-    } else {
-        if ($currentAccount.address) { $currentAccount.address } else { '' }
-    }
-
-    $mergedUserName = if ($InputData.ContainsKey('UserName') -and "$($InputData['UserName'])".Trim() -ne '') {
-        "$($InputData['UserName'])".Trim()
-    } else {
-        if ($currentAccount.userName) { $currentAccount.userName } else { '' }
-    }
-
-    $mergedPlatformID = if ($InputData.ContainsKey('PlatformID') -and "$($InputData['PlatformID'])".Trim() -ne '') {
-        "$($InputData['PlatformID'])".Trim()
-    } else {
-        if ($currentAccount.platformId) { $currentAccount.platformId } else { '' }
-    }
-
-    $mergedSafeName = if ($InputData.ContainsKey('SafeName') -and "$($InputData['SafeName'])".Trim() -ne '') {
-        "$($InputData['SafeName'])".Trim()
-    } else {
-        if ($currentAccount.safeName) { $currentAccount.safeName } else { '' }
-    }
-
-    $mergedAutoManaged = if ($InputData.ContainsKey('AutoManaged') -and "$($InputData['AutoManaged'])".Trim() -ne '') {
-        "$($InputData['AutoManaged'])".Trim() -eq 'true'
-    } else {
-        if ($currentAccount.secretManagement) { [bool]$currentAccount.secretManagement.automaticManagementEnabled } else { $false }
-    }
-
-    # secretType is not updatable via this module - keep current value
-    $currentSecretType = if ($currentAccount.secretType) { $currentAccount.secretType } else { 'password' }
-
-    # Step 3: Build PUT body (id is in the URL, not the body; secret field excluded)
-    $body = @{
-        name                     = $mergedName
-        address                  = $mergedAddress
-        userName                 = $mergedUserName
-        platformId               = $mergedPlatformID
-        safeName                 = $mergedSafeName
-        secretType               = $currentSecretType
-        platformAccountProperties = @{}
-        secretManagement         = @{
-            automaticManagementEnabled = $mergedAutoManaged
-            manualManagementReason     = ''
-        }
-    }
-
-    Write-CyberArkLog -Level 'DEBUG' -Message "PUT /API/Accounts/$encodedId"
-
-    # Step 4: PUT updated account
-    $putResponse = Invoke-CyberArkAPI `
+    $patchResponse = Invoke-CyberArkAPI `
         -Token    $Token `
-        -Method   'PUT' `
+        -Method   'PATCH' `
         -Endpoint "/API/Accounts/$encodedId" `
-        -Body     $body `
+        -Body     $patchOps `
         -WhatIf:  $WhatIf.IsPresent
 
-    if (-not $putResponse.IsSuccess) {
-        $msg = "Account update failed for '$accountId' (HTTP $($putResponse.StatusCode)): $($putResponse.ErrorMessage)"
+    if (-not $patchResponse.IsSuccess) {
+        $msg = "Account update failed for '$accountId' (HTTP $($patchResponse.StatusCode)): $($patchResponse.ErrorMessage)"
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData
-            ErrorMessage = $putResponse.ErrorMessage
-            ErrorDetails = $putResponse.ErrorDetails
+            ErrorMessage = $patchResponse.ErrorMessage
+            ErrorDetails = $patchResponse.ErrorDetails
         })
         $result.Failures++
         $result.ItemsProcessed++
-        $result.IsFatal = ($putResponse.StatusCode -in @(401, 0))
+        $result.IsFatal = ($patchResponse.StatusCode -in @(401, 0))
         return $result
     }
 
-    # WhatIf: Invoke-CyberArkAPI returns IsSuccess=$true without actually calling the API
+    # WhatIf: Invoke-CyberArkAPI returns IsSuccess=$true without actually calling the API. No GET
+    # is performed under the PATCH-only approach, so fields not included in this update are not
+    # known here and are left blank rather than guessed at.
     if ($WhatIf.IsPresent) {
         Write-CyberArkLog -Level 'INFO' -Message "WhatIf: Account update suppressed for '$accountId'."
         $result.Results.Add([PSCustomObject]@{
             AccountID   = $accountId
-            AccountName = $mergedName
-            Address     = $mergedAddress
-            UserName    = $mergedUserName
-            PlatformID  = $mergedPlatformID
-            SafeName    = $mergedSafeName
-            SecretType  = $currentSecretType
-            AutoManaged = $mergedAutoManaged
+            AccountName = if ($InputData.ContainsKey('Name'))       { "$($InputData['Name'])".Trim() }       else { '' }
+            Address     = if ($InputData.ContainsKey('Address'))    { "$($InputData['Address'])".Trim() }    else { '' }
+            UserName    = if ($InputData.ContainsKey('UserName'))   { "$($InputData['UserName'])".Trim() }   else { '' }
+            PlatformID  = if ($InputData.ContainsKey('PlatformID')) { "$($InputData['PlatformID'])".Trim() } else { '' }
+            SafeName    = if ($InputData.ContainsKey('SafeName'))   { "$($InputData['SafeName'])".Trim() }   else { '' }
+            SecretType  = ''
+            AutoManaged = if ($InputData.ContainsKey('AutoManaged') -and "$($InputData['AutoManaged'])".Trim() -ne '') {
+                              "$($InputData['AutoManaged'])".Trim() -eq 'true'
+                          } else { '' }
             CPMStatus   = ''
             Created     = ''
         })
@@ -341,8 +303,8 @@ function Invoke-AccountsUpdate {
         return $result
     }
 
-    # Map response fields
-    $acct = $putResponse.Data
+    # Map response fields - PATCH returns the full updated AccountModel, same shape as the old PUT response
+    $acct = $patchResponse.Data
 
     $createdDate = if ($acct.createdTime) {
         try { [DateTimeOffset]::FromUnixTimeSeconds($acct.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
