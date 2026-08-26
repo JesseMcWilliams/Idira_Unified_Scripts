@@ -249,6 +249,30 @@ Describe 'Invoke-CyberArkAPI - success paths (mocked Invoke-WebRequest)' {
 
         $script:capturedContentType | Should -Be 'application/json'
     }
+
+    It 'C25a - a single-element array Body is serialized as a JSON array, not unwrapped to a bare object' {
+        $json = '{"id":"123"}'
+        $capturedBody = $null
+        Mock Invoke-WebRequest {
+            param($Uri, $Method, $Headers, $Body, $ContentType, $UseBasicParsing, $ErrorAction)
+            Set-Variable -Name capturedBody -Value $Body -Scope Script
+            script:New-MockWebResponse -StatusCode 200 -Body $json
+        } -ModuleName 'CyberArkComms'
+
+        # A one-operation JSON Patch body - the case that regressed when ConvertTo-Json was fed
+        # via the pipeline (which unrolls a single-element array before serializing it). Parsed
+        # back rather than compared as a literal string, since PS 5.1 hashtable key order isn't
+        # guaranteed - the bug under test is the missing `[ ]` wrapper, not key ordering.
+        Invoke-CyberArkAPI -Token $script:MockToken -Method 'PATCH' -Endpoint '/API/Accounts/1' `
+            -Body @(@{ op = 'replace'; path = '/name'; value = 'X' }) | Out-Null
+
+        $script:capturedBody.TrimStart() | Should -Match '^\['
+        [array]$parsed = @($script:capturedBody | ConvertFrom-Json)
+        $parsed.Count      | Should -Be 1
+        $parsed[0].op      | Should -Be 'replace'
+        $parsed[0].path    | Should -Be '/name'
+        $parsed[0].value   | Should -Be 'X'
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────

@@ -129,6 +129,7 @@ Describe 'ModuleMeta' {
 Describe 'Invoke-AccountsUpdate - success' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
 
@@ -244,12 +245,27 @@ Describe 'Invoke-AccountsUpdate - success' {
         $body.path   | Should -Contain '/secretManagement/automaticManagementEnabled'
         ($body | Where-Object { $_.path -eq '/secretManagement/automaticManagementEnabled' }).value | Should -Be 'true'
     }
+
+    It 'AU21 - a minimal PATCH response missing optional AccountModel fields does not throw under strict mode' {
+        # Real CyberArk responses always include these fields, but nothing in the AccountModel
+        # schema guarantees it - the result-mapping block must not assume their presence.
+        Mock Invoke-CyberArkAPI {
+            script:New-AccountApiResponse -Account ([PSCustomObject]@{ id = '123_456'; name = 'X' }) -StatusCode 200
+        }
+        { Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput } | Should -Not -Throw
+        $r = Invoke-AccountsUpdate -Token $script:MockToken -InputData $script:ValidInput
+        $r.Failures            | Should -Be 0
+        $r.Results[0].AccountID | Should -Be '123_456'
+        $r.Results[0].Address   | Should -Be ''
+        $r.Results[0].Created   | Should -Be ''
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-AccountsUpdate - WhatIf' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
 
@@ -284,6 +300,7 @@ Describe 'Invoke-AccountsUpdate - WhatIf' {
 Describe 'Invoke-AccountsUpdate - validation' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
         Mock Invoke-CyberArkAPI { }
@@ -322,6 +339,7 @@ Describe 'Invoke-AccountsUpdate - validation' {
 Describe 'Invoke-AccountsUpdate - PATCH phase errors' {
 
     BeforeEach {
+        Set-StrictMode -Version Latest
         Mock Write-CyberArkLog { }
         Mock Add-CyberArkLogSummaryEntry { }
     }

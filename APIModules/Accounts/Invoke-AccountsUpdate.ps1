@@ -21,9 +21,13 @@ $ModuleMeta = @{
         @{ Column = 'AutoManaged'; Required = $false; Description = 'Enable automatic management: true/false.' }
     )
     Priority         = 33
-    Version          = '1.2.0'   # 1.2.0 switched from GET+full-PUT-merge to a JSON Patch (RFC 6902) PATCH
+    Version          = '1.2.1'   # 1.2.0 switched from GET+full-PUT-merge to a JSON Patch (RFC 6902) PATCH
                                   # call carrying only the fields actually being changed, matching the
                                   # CyberArk API's current /API/Accounts/{id} contract (PATCH-only, PUT removed)
+                                  # 1.2.1 fixed real production bug: single-op patches were sent as a bare
+                                  # object instead of a JSON array (root cause in Invoke-CyberArkAPI, see
+                                  # CyberArkComms.psm1); also hardened the result-mapping block's field
+                                  # access with PSObject.Properties guards
 }
 
 function Get-AccountsUpdateInput {
@@ -306,19 +310,19 @@ function Invoke-AccountsUpdate {
     # Map response fields - PATCH returns the full updated AccountModel, same shape as the old PUT response
     $acct = $patchResponse.Data
 
-    $createdDate = if ($acct.createdTime) {
+    $createdDate = if ($acct.PSObject.Properties['createdTime'] -and $acct.createdTime) {
         try { [DateTimeOffset]::FromUnixTimeSeconds($acct.createdTime).LocalDateTime.ToString('yyyy-MM-dd') }
         catch { '' }
     } else { '' }
 
     $result.Results.Add([PSCustomObject]@{
-        AccountID   = $acct.id
-        AccountName = $acct.name
-        Address     = $acct.address
-        UserName    = $acct.userName
-        PlatformID  = $acct.platformId
-        SafeName    = $acct.safeName
-        SecretType  = $acct.secretType
+        AccountID   = if ($acct.PSObject.Properties['id'])         { $acct.id }         else { $accountId }
+        AccountName = if ($acct.PSObject.Properties['name'])       { $acct.name }       else { '' }
+        Address     = if ($acct.PSObject.Properties['address'])    { $acct.address }    else { '' }
+        UserName    = if ($acct.PSObject.Properties['userName'])   { $acct.userName }   else { '' }
+        PlatformID  = if ($acct.PSObject.Properties['platformId']) { $acct.platformId } else { '' }
+        SafeName    = if ($acct.PSObject.Properties['safeName'])   { $acct.safeName }   else { '' }
+        SecretType  = if ($acct.PSObject.Properties['secretType']) { $acct.secretType } else { '' }
         AutoManaged = if ($acct.PSObject.Properties['secretManagement'] -and $acct.secretManagement -and
                           $acct.secretManagement.PSObject.Properties['automaticManagementEnabled']) {
                             $acct.secretManagement.automaticManagementEnabled } else { $false }

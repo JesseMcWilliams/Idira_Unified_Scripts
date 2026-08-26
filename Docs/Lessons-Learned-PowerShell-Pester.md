@@ -2812,3 +2812,57 @@ $params = @{ Label = 'API Path' }
 if ($isRequired) { $params['Required'] = $true }
 Show-FieldPrompt @params
 ```
+
+## 30. Piping a Single-Element Array Into `ConvertTo-Json` Drops the Array Wrapper
+
+### 30.1 `$arr | ConvertTo-Json` unrolls a one-item array before serializing it
+
+**Root cause:** PowerShell's pipeline enumerates any array passed through it one element at a
+time. When an array has exactly one element, `ConvertTo-Json` never sees "an array of one" - it
+sees a single bare object, because the pipeline already unrolled it before `ConvertTo-Json`'s
+process block ran. The result is JSON for the lone element with no `[ ]` wrapper. An array with
+zero or two-or-more elements does not have this problem: zero elements means `ConvertTo-Json`
+runs with no pipeline input at all (and correctly emits nothing / is skipped by an `if ($Body)`
+guard), and two-or-more elements still arrive as multiple pipeline objects, which
+`ConvertTo-Json` correctly collects and re-wraps in `[ ]`. Only the single-element case is silently
+wrong - which makes it easy to ship, since testing tends to reach for "a couple of items" fixtures.
+
+**Symptom:** Discovered via a real production 400 Bad Request from `Invoke-AccountsUpdate.ps1`
+(v1.2.0) when a CSV row updated exactly one field (`Name`). The JSON Patch (RFC 6902) body was
+built correctly as a one-element array of `{ op; path; value }`, but the DEBUG log showed the
+request body as a bare object - `{"path":"/name","op":"replace","value":"Test_user"}` - instead
+of an array - `[{"path":"/name","op":"replace","value":"Test_user"}]`. CyberArk's API expects a
+JSON Patch **document**, i.e. a top-level array; a bare object is rejected with HTTP 400. Any
+other single-op patch call (or any other single-element array body) sent through
+`Invoke-CyberArkAPI` was silently broken the same way - this was a latent bug in the shared comms
+layer, not specific to Accounts Update, that simply hadn't been exercised with a one-item array
+body before.
+
+**Root cause location:** `Modules/CyberArkComms.psm1`, `Invoke-CyberArkAPI`'s body-serialization
+step:
+```powershell
+# Wrong - pipes $Body into ConvertTo-Json
+$bodyString = $Body | ConvertTo-Json -Depth 20 -Compress
+```
+
+**Fix:** Pass the array via `-InputObject` instead of the pipeline. `ConvertTo-Json -InputObject`
+receives the whole array as a single argument and correctly wraps it in `[ ]` regardless of
+element count:
+```powershell
+# Correct
+$bodyString = ConvertTo-Json -InputObject $Body -Depth 20 -Compress
+```
+```powershell
+# Demonstrating the difference directly:
+$arr = @(@{a=1})
+$arr | ConvertTo-Json -Compress            # {"a":1}   <- wrong, no array
+ConvertTo-Json -InputObject $arr -Compress # [{"a":1}] <- correct
+```
+
+**Rule:** Whenever a value that might be a single-element array is serialized with
+`ConvertTo-Json`, always pass it via `-InputObject`, never via the pipeline. This applies broadly
+to any REST body, config array, or exported collection that could legitimately contain exactly
+one item - not just JSON Patch documents. Caught by a new regression test
+(`Tests\Unit\CyberArkComms.Tests.ps1` C25a) that sends a one-op JSON Patch body through the real
+`Invoke-CyberArkAPI` (with only `Invoke-WebRequest` mocked) and asserts the captured request body
+parses back as a one-element array, not a bare object.

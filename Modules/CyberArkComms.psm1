@@ -305,9 +305,13 @@ function Invoke-CyberArkAPI {
     foreach ($key in $Token.Headers.Keys) { $headers[$key] = $Token.Headers[$key] }
 
     # --- Serialize body ---
+    # ConvertTo-Json must receive $Body via -InputObject, not the pipeline: piping a single-
+    # element array unrolls it to its lone element first, so ConvertTo-Json serializes that
+    # element bare instead of wrapping it in `[ ]` - silently corrupting single-op JSON Patch
+    # bodies (and any other single-element array body) into a bare object.
     $bodyString = $null
     if ($Body) {
-        $bodyString = if ($Body -is [string]) { $Body } else { $Body | ConvertTo-Json -Depth 20 -Compress }
+        $bodyString = if ($Body -is [string]) { $Body } else { ConvertTo-Json -InputObject $Body -Depth 20 -Compress }
     }
 
     # --- Profile page size override (PageSize on token, 0 = use parameter default) ---
