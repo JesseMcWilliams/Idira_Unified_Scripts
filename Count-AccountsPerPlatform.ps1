@@ -18,32 +18,32 @@
 
 .PARAMETER PlatformsCsvPath
     Path to the exported platforms CSV (must have PlatformID and Name columns - the shape
-    produced by Invoke-PlatformsList.ps1). Defaults to .\Export_PlatformsList.csv.
+    produced by Invoke-PlatformsList.ps1). If omitted, an Open File dialog is shown.
 
 .PARAMETER AccountsCsvPath
     Path to the exported accounts CSV (must have a PlatformID column - the shape produced by
-    Invoke-AccountsList.ps1). Defaults to .\Export_AccountsList.csv.
+    Invoke-AccountsList.ps1). If omitted, an Open File dialog is shown.
 
 .PARAMETER OutputCsvPath
-    Path to write the resulting CSV. Defaults to Count-AccountsPerPlatform_<yyyy-MM-dd>.csv in
-    the same folder as PlatformsCsvPath.
+    Path to write the resulting CSV. If omitted, a Save File dialog is shown, pre-filled with
+    Count-AccountsPerPlatform_<yyyy-MM-dd>.csv in the same folder as PlatformsCsvPath.
 
 .EXAMPLE
     .\Count-AccountsPerPlatform.ps1
-    Reads Export_PlatformsList.csv and Export_AccountsList.csv from the current directory and
-    writes Count-AccountsPerPlatform_<today>.csv alongside them.
+    No paths supplied - prompts with an Open File dialog for each input CSV and a Save File
+    dialog for the output.
 
 .EXAMPLE
     .\Count-AccountsPerPlatform.ps1 -PlatformsCsvPath 'Output\Export_PlatformsList.csv' -AccountsCsvPath 'Output\Export_AccountsList.csv' -OutputCsvPath 'Output\PlatformUsage.csv'
-    Reads both exports from the Output folder and writes the result to an explicit path.
+    All three paths supplied explicitly - no dialogs shown.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [string]$PlatformsCsvPath = '.\Export_PlatformsList.csv',
+    [string]$PlatformsCsvPath,
 
     [Parameter(Mandatory = $false)]
-    [string]$AccountsCsvPath = '.\Export_AccountsList.csv',
+    [string]$AccountsCsvPath,
 
     [Parameter(Mandatory = $false)]
     [string]$OutputCsvPath
@@ -55,6 +55,85 @@ $ErrorActionPreference = 'Stop'
 $NotFoundLabel    = '(Not Found)'
 $NoPlatformLabel  = '(No Platform Assigned)'
 
+# Single-file Open dialog. Falls back to a Read-Host prompt if System.Windows.Forms is
+# unavailable (e.g. a headless/non-desktop session) - matches the fallback pattern already used
+# by Get-CsvSavePath in Manage-Privilege.ps1. Returns $null on cancel.
+function Select-CsvOpenDialog {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Title,
+        [Parameter(Mandatory = $false)][string]$InitialDirectory
+    )
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        $dialog                  = New-Object System.Windows.Forms.OpenFileDialog
+        $dialog.Title            = $Title
+        $dialog.Filter           = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'
+        $dialog.Multiselect      = $false
+        $dialog.InitialDirectory = if ($InitialDirectory -and (Test-Path -LiteralPath $InitialDirectory -PathType Container)) {
+            $InitialDirectory
+        } else { (Get-Location).Path }
+        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            return $dialog.FileName
+        }
+        return $null
+    } catch {
+        $path = Read-Host "$Title (full path, blank to cancel)"
+        if ($path) { return $path } else { return $null }
+    }
+}
+
+# Save dialog pre-filled with a suggested name/folder. Same WinForms-unavailable fallback as
+# Select-CsvOpenDialog above, except blank at the Read-Host prompt accepts the suggested default
+# (matching Get-CsvSavePath's Show-FieldPrompt behavior) rather than cancelling - X cancels.
+# Returns $null on cancel.
+function Select-CsvSaveDialog {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Title,
+        [Parameter(Mandatory = $true)] [string]$DefaultFileName,
+        [Parameter(Mandatory = $false)][string]$InitialDirectory
+    )
+    $initialDir = if ($InitialDirectory -and (Test-Path -LiteralPath $InitialDirectory -PathType Container)) {
+        $InitialDirectory
+    } else { (Get-Location).Path }
+
+    try {
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+        $dialog                  = New-Object System.Windows.Forms.SaveFileDialog
+        $dialog.Title            = $Title
+        $dialog.Filter           = 'CSV Files (*.csv)|*.csv|All Files (*.*)|*.*'
+        $dialog.DefaultExt       = 'csv'
+        $dialog.FileName         = $DefaultFileName
+        $dialog.InitialDirectory = $initialDir
+        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            return $dialog.FileName
+        }
+        return $null
+    } catch {
+        $defaultPath = Join-Path $initialDir $DefaultFileName
+        $entered = Read-Host "$Title`nPress Enter to accept [$defaultPath], type a different path, or X to cancel"
+        if ($entered -match '^[Xx]$') { return $null }
+        if ($entered) { return $entered } else { return $defaultPath }
+    }
+}
+
+if (-not $PlatformsCsvPath) {
+    $PlatformsCsvPath = Select-CsvOpenDialog -Title 'Select Platforms CSV'
+    if (-not $PlatformsCsvPath) {
+        Write-Host 'Cancelled - no platforms CSV selected.' -ForegroundColor Yellow
+        exit 0
+    }
+}
+if (-not $AccountsCsvPath) {
+    $accountsInitialDir = if (Test-Path -LiteralPath $PlatformsCsvPath -PathType Leaf) {
+        Split-Path -Path (Resolve-Path -LiteralPath $PlatformsCsvPath).Path -Parent
+    } else { $null }
+    $AccountsCsvPath = Select-CsvOpenDialog -Title 'Select Accounts CSV' -InitialDirectory $accountsInitialDir
+    if (-not $AccountsCsvPath) {
+        Write-Host 'Cancelled - no accounts CSV selected.' -ForegroundColor Yellow
+        exit 0
+    }
+}
+
 if (-not (Test-Path -LiteralPath $PlatformsCsvPath -PathType Leaf)) {
     Write-Error "Platforms CSV not found: $PlatformsCsvPath"
     exit 1
@@ -64,10 +143,17 @@ if (-not (Test-Path -LiteralPath $AccountsCsvPath -PathType Leaf)) {
     exit 1
 }
 
+$platformsFullPath  = (Resolve-Path -LiteralPath $PlatformsCsvPath).Path
+$defaultOutputFolder = Split-Path -Path $platformsFullPath -Parent
+$defaultOutputName   = "Count-AccountsPerPlatform_$((Get-Date).ToString('yyyy-MM-dd')).csv"
+
 if (-not $OutputCsvPath) {
-    $platformsFullPath = (Resolve-Path -LiteralPath $PlatformsCsvPath).Path
-    $outputFolder       = Split-Path -Path $platformsFullPath -Parent
-    $OutputCsvPath       = Join-Path $outputFolder "Count-AccountsPerPlatform_$((Get-Date).ToString('yyyy-MM-dd')).csv"
+    $OutputCsvPath = Select-CsvSaveDialog -Title 'Save Platform Account Counts As' `
+        -DefaultFileName $defaultOutputName -InitialDirectory $defaultOutputFolder
+    if (-not $OutputCsvPath) {
+        Write-Host 'Cancelled - no output path selected.' -ForegroundColor Yellow
+        exit 0
+    }
 }
 
 Write-Host "Platforms CSV : $PlatformsCsvPath" -ForegroundColor DarkGray
