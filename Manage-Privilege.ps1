@@ -2093,7 +2093,11 @@ function Invoke-ActionModule {
     if ($meta.ProducesOutput -and $result.Results.Count -gt 0) {
         # AutoSaveCsv modules (bulk export tools whose whole purpose is producing a CSV) save
         # straight to the default path with no prompt or dialog - see ModuleMeta.AutoSaveCsv.
-        $autoSave = [bool]$meta.AutoSaveCsv
+        # Bracket notation, not dot notation: $meta is a hashtable, and most modules don't
+        # declare this optional key at all - dot-accessing a missing hashtable key throws
+        # PropertyNotFoundException under Set-StrictMode (always active here), the same class
+        # of bug documented throughout this codebase for exactly this reason.
+        $autoSave = [bool]$meta['AutoSaveCsv']
         $doSave   = $autoSave
         if (-not $autoSave) {
             $saveCsv = Read-MenuChoice -Prompt 'Save results to CSV? [y/N]'
