@@ -93,11 +93,12 @@ IdiraUnifiedScripts/
   - Accounts/                   # Add, Get, List, Update, Delete accounts
   - Safes/                      # Add, Get, List, Update, Delete, AddFromTemplate, AssignCPM, UnassignCPM safes
   - SafeMembers/                # Add, List, Update, Remove, AddFromTemplateRole, UpdateFromTemplateRole safe members
-  - Platforms/                  # Get, List platforms
+  - Platforms/                  # Get, List (SystemType filter), Enable, Disable, Copy, Rename (Self-Hosted only), Remove, Import, SetPSMConfig platforms
+  - Policies/                   # Get, Set Master Policy (Self-Hosted only)
   - Users/                      # Get, List users
   - Groups/                     # Add, Get, List, Update, Delete groups; Add/Remove members
-  - Applications/               # List, Add auth methods (Self-Hosted only)
-  - Reports/                    # List reports (Self-Hosted only)
+  - Applications/               # List, Add, Add auth methods
+  - Reports/                    # List reports
   - Custom/                     # Export All, Export Entitlements, Export Group Members (Local/LDAP), Test API
 - Tests/
   - Unit/                       # Pester v6 unit tests

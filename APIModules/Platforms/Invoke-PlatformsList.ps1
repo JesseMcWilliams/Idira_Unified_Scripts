@@ -10,9 +10,11 @@ $ModuleMeta = @{
     AcceptsInputFile = $false
     ProducesOutput   = $true
     HasCustomInput   = $true
-    InputSchema      = @()
+    InputSchema      = @(
+        @{ Column = 'SystemType'; Required = $false; Description = 'Filter by system type (e.g. Windows, Unix). Leave blank for all system types.' }
+    )
     Priority         = 40
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-PlatformsListInput {
@@ -39,9 +41,14 @@ function Get-PlatformsListInput {
         -Default $(if ($Defaults['ActiveOnly']) { 'Y' } else { 'N' }) `
         -Description 'Return only active platforms? (Y/N)'
 
+    $systemType = Show-FieldPrompt -Label 'System Type' `
+        -Default $(if ($Defaults['SystemType']) { $Defaults['SystemType'] } else { '' }) `
+        -Description 'Filter by system type (e.g. Windows, Unix). Leave blank for all.'
+
     return @{
         Search     = $search
         ActiveOnly = ($activeOnlyStr -match '^[Yy]$')
+        SystemType = $systemType
     }
 }
 
@@ -78,16 +85,19 @@ function Invoke-PlatformsList {
     # tokens instead (also handles a real interactive-mode [bool] input, since PowerShell
     # stringifies $true/$false to "True"/"False").
     $activeOnly = "$($InputData['ActiveOnly'])".Trim() -match '(?i)^(true|yes|y|1)$'
+    $systemType = if ($InputData['SystemType']) { "$($InputData['SystemType'])".Trim() } else { $null }
 
     # Build query parameters - only include keys that have a value
     $queryParams = @{}
-    if ($search)     { $queryParams['Search'] = $search  }
-    if ($activeOnly) { $queryParams['Active'] = 'true'   }
+    if ($search)     { $queryParams['Search']     = $search     }
+    if ($activeOnly) { $queryParams['Active']     = 'true'      }
+    if ($systemType) { $queryParams['SystemType'] = $systemType }
 
     $criteriaLog = $(
         $parts = @()
         if ($search)     { $parts += "Search='$search'" }
         if ($activeOnly) { $parts += 'Active=true' }
+        if ($systemType) { $parts += "SystemType='$systemType'" }
         if ($parts)      { $parts -join '  ' } else { '(all platforms)' }
     )
 

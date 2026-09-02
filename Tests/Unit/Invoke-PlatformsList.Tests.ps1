@@ -274,6 +274,28 @@ Describe 'Invoke-PlatformsList - query parameters' {
         Invoke-PlatformsList -Token $script:MockToken -InputData @{ Search = ''; ActiveOnly = 'false' }
         $script:capturedParams.QueryParams.ContainsKey('Active') | Should -BeFalse
     }
+
+    It 'PL18 - SystemType value is sent in QueryParams' {
+        $capturedParams = $null
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+            Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
+            script:New-PlatformsApiResponse
+        }
+        Invoke-PlatformsList -Token $script:MockToken -InputData @{ SystemType = 'Windows' }
+        $script:capturedParams.QueryParams['SystemType'] | Should -Be 'Windows'
+    }
+
+    It 'PL19 - empty SystemType means no SystemType key in QueryParams' {
+        $capturedParams = $null
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+            Set-Variable -Name capturedParams -Value $PSBoundParameters -Scope Script
+            script:New-PlatformsApiResponse
+        }
+        Invoke-PlatformsList -Token $script:MockToken -InputData @{ SystemType = '' }
+        $script:capturedParams.QueryParams.ContainsKey('SystemType') | Should -BeFalse
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────
