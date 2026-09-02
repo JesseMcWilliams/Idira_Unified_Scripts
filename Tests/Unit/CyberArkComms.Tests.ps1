@@ -266,12 +266,64 @@ Describe 'Invoke-CyberArkAPI - success paths (mocked Invoke-WebRequest)' {
         Invoke-CyberArkAPI -Token $script:MockToken -Method 'PATCH' -Endpoint '/API/Accounts/1' `
             -Body @(@{ op = 'replace'; path = '/name'; value = 'X' }) | Out-Null
 
-        $script:capturedBody.TrimStart() | Should -Match '^\['
-        [array]$parsed = @($script:capturedBody | ConvertFrom-Json)
+        # Body is sent as raw UTF8 bytes, not a String (see C25d) - decode before asserting on content.
+        # Comma operator prevents the pipeline from unrolling the byte[] into individual bytes
+        # before Should sees it (see Lessons-Learned-PowerShell-Pester.md Section 30).
+        ,$script:capturedBody | Should -BeOfType 'System.Byte[]'
+        $decodedBody = [System.Text.Encoding]::UTF8.GetString($script:capturedBody)
+        $decodedBody.TrimStart() | Should -Match '^\['
+        [array]$parsed = @($decodedBody | ConvertFrom-Json)
         $parsed.Count      | Should -Be 1
         $parsed[0].op      | Should -Be 'replace'
         $parsed[0].path    | Should -Be '/name'
         $parsed[0].value   | Should -Be 'X'
+    }
+
+    It 'C25d - Body is encoded as raw UTF8 bytes, not a plain String, so PowerShell module/script-block logging cannot record the literal JSON (credential exposure fix)' {
+        $json = '{"id":"123"}'
+        $capturedBody = $null
+        Mock Invoke-WebRequest {
+            param($Uri, $Method, $Headers, $Body, $ContentType, $UseBasicParsing, $ErrorAction)
+            Set-Variable -Name capturedBody -Value $Body -Scope Script
+            script:New-MockWebResponse -StatusCode 201 -Body $json
+        } -ModuleName 'CyberArkComms'
+
+        Invoke-CyberArkAPI -Token $script:MockToken -Method 'POST' -Endpoint '/API/Accounts' `
+            -Body @{ secret = 'CorrectHorseBatteryStaple' } | Out-Null
+
+        ,$script:capturedBody | Should -BeOfType 'System.Byte[]'
+        $decoded = [System.Text.Encoding]::UTF8.GetString($script:capturedBody)
+        $decoded | Should -Match 'CorrectHorseBatteryStaple'
+    }
+
+    It 'C25b - a trailing slash on -Endpoint is preserved in the request URI (PIMServices.svc requires it)' {
+        $json = '{"application":[]}'
+        $capturedUri = $null
+        Mock Invoke-WebRequest {
+            param($Uri) ; Set-Variable -Name capturedUri -Value $Uri -Scope Script
+            script:New-MockWebResponse -StatusCode 200 -Body $json
+        } -ModuleName 'CyberArkComms'
+
+        Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' `
+            -Endpoint '/WebServices/PIMServices.svc/Applications/' -PageSize 0 | Out-Null
+
+        # Join-CyberArkUrl itself still trims a bare trailing slash (C12) - Invoke-CyberArkAPI
+        # restores it at the call site when the caller's own -Endpoint string ended with '/'.
+        $script:capturedUri | Should -Match '/Applications/(\?|$)'
+    }
+
+    It 'C25c - no trailing slash added when -Endpoint does not end with one' {
+        $json = '{"value":[],"count":0}'
+        $capturedUri = $null
+        Mock Invoke-WebRequest {
+            param($Uri) ; Set-Variable -Name capturedUri -Value $Uri -Scope Script
+            script:New-MockWebResponse -StatusCode 200 -Body $json
+        } -ModuleName 'CyberArkComms'
+
+        Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes' -PageSize 0 | Out-Null
+
+        $script:capturedUri | Should -Match '/API/Safes(\?|$)'
+        $script:capturedUri | Should -Not -Match '/API/Safes/'
     }
 }
 

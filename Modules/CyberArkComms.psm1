@@ -290,6 +290,14 @@ function Invoke-CyberArkAPI {
     if (-not $Uri) {
         if (-not $Endpoint) { throw "Either -Endpoint or -Uri must be supplied." }
         $Uri = Join-CyberArkUrl -Base $Token.BaseURL -Segments @($Endpoint)
+        # Join-CyberArkUrl always trims a trailing slash off the joined result (by design -
+        # see CyberArkComms.Tests.ps1 C12). Some endpoints require the trailing slash to be
+        # preserved (the legacy PIMServices.svc WCF REST service used by every Applications
+        # module rejects/misroutes requests without it - see Lessons-Learned-PowerShell-Pester.md
+        # Section 28/Documentation-Tracker.md 2026-08-16 for the history of this exact endpoint
+        # losing its trailing slash). Restore it here, at the call site, based on the caller's
+        # own explicit -Endpoint string, rather than changing Join-CyberArkUrl's generic contract.
+        if ($Endpoint.EndsWith('/') -and -not $Uri.EndsWith('/')) { $Uri += '/' }
     }
 
     # --- WhatIf blocking ---
@@ -363,7 +371,13 @@ function Invoke-CyberArkAPI {
                 ErrorAction     = 'Stop'
             }
             if ($bodyString) {
-                $iwrParams['Body']        = $bodyString
+                # Encode as raw UTF8 bytes rather than a String so PowerShell's own
+                # ParameterBinding/module logging (e.g. GPO-enabled Module Logging / Script
+                # Block Logging) records a non-revealing System.Byte[] type name instead of the
+                # literal JSON content - which for many callers includes plaintext account
+                # passwords, CPM NewCredentials, or safe-member permission bodies. Mirrors
+                # psPAS's Invoke-PASRestMethod.ps1.
+                $iwrParams['Body']        = [System.Text.Encoding]::UTF8.GetBytes($bodyString)
                 $iwrParams['ContentType'] = 'application/json'
             }
 

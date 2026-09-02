@@ -2866,3 +2866,128 @@ one item - not just JSON Patch documents. Caught by a new regression test
 (`Tests\Unit\CyberArkComms.Tests.ps1` C25a) that sends a one-op JSON Patch body through the real
 `Invoke-CyberArkAPI` (with only `Invoke-WebRequest` mocked) and asserts the captured request body
 parses back as a one-element array, not a bare object.
+
+---
+
+## 31. `[bool]"false"` Is `$true` — CSV/String Booleans Must Never Be Cast Directly
+
+### 31.1 Casting a CSV cell straight to `[bool]` treats every non-empty string as true
+
+**Root cause:** In .NET/PowerShell, `[bool]` conversion from `[string]` is not a parse of "true" vs
+"false" - it is a check for an empty string. `[bool]"false"`, `[bool]"0"`, and `[bool]"no"` are all
+`$true`, because the string is non-empty. Since every CSV-sourced value arrives as `[string]`, any
+module that wrote `[bool]$row.SomeFlag` directly was silently treating the literal text `false` (and
+`0`, and `no`) from a CSV cell as `$true`. This is easy to miss in testing because a quick manual
+test tends to use the pipeline/interactive path (which may pass a real `[bool]` or omit the flag
+entirely) rather than a CSV file with an explicit `false` row.
+
+**Symptom:** A CSV batch row that explicitly set a boolean-looking column to `false` (or `0`/`no`)
+was processed as if the column were `true`. Found across five independent modules during the
+2026-09-02 Self-Hosted review, all with the identical root cause: `Invoke-ApplicationsAdd.ps1`
+(`Disabled`), `Invoke-ApplicationsAddAuthMethod.ps1` (`IsFolder`, `AllowInternalScripts`),
+`Invoke-ApplicationsList.ps1` (`IncludeSublocations`), `Invoke-PlatformsList.ps1` (`ActiveOnly`),
+and `Invoke-SafesList.ps1` (`ExtendedDetails`).
+
+**Wrong:**
+```powershell
+$disabled = [bool]$row.Disabled   # "false" (string) -> $true
+```
+
+**Correct:**
+```powershell
+$disabled = $row.Disabled -match '(?i)^(true|yes|y|1)$'
+```
+
+**Rule:** Never cast a CSV-sourced (or otherwise string-typed) field directly to `[bool]`. Always
+match it against an explicit truthy pattern. When writing a **new** module, grep the existing
+codebase for `[bool]$` before shipping a boolean CSV field - this is a recurring bug class, not a
+one-off, and every module that accepts a boolean-shaped CSV column is a candidate. Regression tests
+were added to each affected module's test file asserting that the literal CSV string `"false"` is
+NOT treated as true.
+
+### 31.2 A one-off fix at the call site can regress if the underlying helper's contract changes later
+
+The `Join-CyberArkUrl` trailing-slash issue (Section 28) recurred a second time via a different
+mechanism during this same review: the helper's own trailing-slash-trim behavior (added to fix an
+unrelated test regression, C12) silently undid the Section 28 fix for the `Applications` endpoints
+that need the slash preserved (a separate WCF/PIMServices.svc quirk from the dot-in-segment case
+Section 28 covers). The 2026-08-16 history in `Documentation-Tracker.md` shows the slash was added,
+then reverted the same day, and not re-fixed until this session. **Rule:** when a shared helper
+(`Join-CyberArkUrl`, `Invoke-CyberArkAPI`, etc.) changes its general contract to fix one caller's
+regression, check `Documentation-Tracker.md` for any other caller that depended on the old behavior
+before considering the change complete - a fix at the helper level can silently break a fix already
+made at a call site, and vice versa. The current fix restores the trailing slash at the
+`Invoke-CyberArkAPI` call site (keyed off the caller's own `-Endpoint` string) rather than changing
+`Join-CyberArkUrl`'s generic contract again, specifically to avoid re-triggering this cycle.
+
+### 31.3 Secret-masking regexes keyed to a fixed field-name list miss new secret-shaped fields
+
+**Root cause:** `CyberArkLogging.psm1`'s sensitive-data masking only matched a hardcoded set of
+OAuth field names (`access_token`, `refresh_token`, `id_token`). Any other JSON key that is
+secret-shaped by name but not on that list — e.g. `NewCredentials` (the literal new vault password
+in `Invoke-AccountsChangeInVault.ps1`'s request body) — was logged in cleartext at DEBUG/`-FileOnly`
+level.
+
+**Fix:** Added a generic pattern that masks the value of **any** quoted JSON key containing
+`password`, `secret`, `token`, or `credential` (case-insensitive), rather than maintaining a
+fixed list of known field names:
+```powershell
+'(?i)("[^"]*(?:password|secret|token|credential)[^"]*")\s*:\s*"[^"\\]*(?:\\.[^"\\]*)*"'
+```
+
+**Rule:** Prefer a name-pattern match over a fixed field-name list for secret masking. A new API
+module that introduces a new secret-shaped field name (e.g. `NewPassword`, `ClientSecret`,
+`ApiKey`) is automatically covered without needing a corresponding logging-module change, as long
+as the field name contains one of the masked substrings.
+
+## 32. `{ $result = Call-Something } | Should -Not -Throw` Never Assigns `$result` in the Outer Scope
+
+**Root cause:** Piping a scriptblock into `Should -Not -Throw` runs that scriptblock in a child
+scope, the same way any scriptblock invoked via the pipeline does in PowerShell. An assignment
+inside it (`$result = Invoke-Something ...`) sets a new variable in that child scope and does not
+write back to the `$result` already declared in the enclosing `It` block - regardless of whether
+`Set-StrictMode` is active. This reproduces with a trivial repro, no Pester test needed:
+```powershell
+function Test-Foo { return [PSCustomObject]@{ Failures = 1 } }
+$result = $null
+{ $result = Test-Foo } | Should -Not -Throw
+$result.Failures   # $null, not 1 - the assignment never left the scriptblock's scope
+```
+
+**Symptom:** Without `Set-StrictMode`, `$result.Failures` on the still-`$null` `$result` silently
+evaluates to `$null`, so a `Should -Be 1` assertion right after it fails with a comparison mismatch
+that looks like a genuine functional bug rather than a scoping mistake. Under `Set-StrictMode
+-Version Latest` (which `Tests\Run-Tests.ps1` sets globally but no individual test file does), the
+same `$null.Failures` throws `PropertyNotFoundException` instead - which is the exact "fails only in
+the full suite, passes in isolation" signature this file already documents in Section 9.9, and three
+separate `Invoke-ApplicationsAdd.Tests.ps1` tests (two pre-existing, one newly added and initially
+written the same way) were misfiled under that signature as unexplained pre-existing failures before
+this was traced to its actual cause here.
+
+**Fix:** Don't rely on the scriptblock-pipe pattern to both check for no-throw and capture a return
+value. Assign directly instead - `$result = Invoke-Something ...` - and let an unexpected exception
+fail the test naturally (Pester reports an uncaught exception as a failure with the exception
+message, which is an equally clear signal as a `Should -Not -Throw` failure would have been):
+```powershell
+# Wrong - $result is $null outside the scriptblock, always, regardless of strict mode:
+$result = $null
+{ $result = Invoke-Something -Param $x } | Should -Not -Throw
+$result.Failures | Should -Be 1
+
+# Correct:
+$result = Invoke-Something -Param $x
+$result.Failures | Should -Be 1
+```
+The `{ ... } | Should -Not -Throw` pattern is still fine on its own when nothing inside it needs to
+be captured for a later assertion (e.g. `{ Invoke-Something -WhatIf } | Should -Not -Throw` with no
+follow-up inspection of a return value) - the bug is specific to combining it with an inner
+assignment the test then reads afterward.
+
+**Rule:** When a test needs both "assert this doesn't throw" and "capture the return value for
+further assertions," do a plain direct assignment and skip the `Should -Not -Throw` wrapper entirely
+- it adds no real protection here (a thrown exception fails the test either way) and silently
+discards the assignment it looks like it's making. Two other full-suite-only failures with the same
+`PropertyNotFoundException`-on-`$null` signature remain open in this codebase as of this writing
+(`Invoke-CustomExportGroupMembersLocal.Tests.ps1`'s ISPSS groupType test and
+`Invoke-ReportsList.Tests.ps1`'s RL08a) and have not yet been checked for this same root cause -
+worth checking before assuming they're a different bug.

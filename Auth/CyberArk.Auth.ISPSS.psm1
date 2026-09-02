@@ -8,6 +8,18 @@ Import-Module (Join-Path $PSScriptRoot 'CyberArk.Auth.Common.psm1') -Force -Glob
 
 $script:PCLOUD_BASE_TEMPLATE = 'https://{0}.privilegecloud.cyberark.cloud/PasswordVault'
 
+# Fallback only - used when Get-PVWASessionTimeoutMinutes (GET {BaseURL}/api/Settings/Timeout)
+# cannot be reached. Privilege Cloud/ISPSS tenants have been observed returning 404 for this
+# endpoint (it's a self-hosted PVWA setting not exposed the same way there), so this fallback
+# is expected to be used routinely on most ISPSS tenants today - it's kept in case CyberArk
+# exposes the setting for some tenants, and to match the Self-Hosted module's pattern.
+$script:ISPSS_SESSION_EXPIRY_HOURS = 4
+
+# CyberArk's documented platform-discovery service - the same endpoint psPAS's
+# Find-SharedServicesURL.ps1 and New-PASSession's ISPSS-Subdomain-* auth path use to resolve
+# a Privilege Cloud subdomain's Identity tenant URL. See Resolve-IdentityTenantURL.
+$script:PLATFORM_DISCOVERY_URL = 'https://platform-discovery.cyberark.cloud/api/v2/services/subdomain/'
+
 #endregion
 
 #region Private Helpers
@@ -32,10 +44,11 @@ function Resolve-IdentityTenantURL {
     .SYNOPSIS
         Discovers the CyberArk Identity tenant URL for a given Privilege Cloud subdomain.
     .DESCRIPTION
-        Probes three candidate URLs using System.Net.HttpWebRequest with AllowAutoRedirect = $false.
-        3xx responses are returned as normal response objects; the Location header is read directly.
-        200 responses are checked for the *.id.cyberark.cloud host pattern.
-        Falls back to constructing {subdomain}.id.cyberark.cloud if no identity host is detected.
+        Calls CyberArk's platform-discovery service directly - the same documented endpoint
+        psPAS's Find-SharedServicesURL.ps1 and New-PASSession's ISPSS-Subdomain-* auth path use
+        - rather than guessing candidate hostnames and following redirects. The service returns
+        every shared-service URL for the subdomain as structured JSON; this function reads
+        identity_user_portal.api from that response.
     .PARAMETER PCloudSubdomain
         The subdomain portion of the Privilege Cloud URL (e.g. 'acme' from acme.privilegecloud.cyberark.cloud).
     .PARAMETER ExistingIdentityHost
@@ -56,75 +69,33 @@ function Resolve-IdentityTenantURL {
         return $url
     }
 
-    script:Write-ISPSSLog -Message "Discovering Identity tenant URL for subdomain '$PCloudSubdomain'." -Level 'INFO' -Fn $fn
+    script:Write-ISPSSLog -Message "Discovering Identity tenant URL for subdomain '$PCloudSubdomain' via platform-discovery." -Level 'INFO' -Fn $fn
 
-    $candidates = @(
-        "https://$PCloudSubdomain.cyberark.cloud",
-        "https://$PCloudSubdomain-userportal.cyberark.cloud",
-        "https://$PCloudSubdomain.privilegecloud.cyberark.cloud"
-    )
+    $discoveryUrl = "$script:PLATFORM_DISCOVERY_URL$PCloudSubdomain"
 
-    foreach ($candidate in $candidates) {
-        script:Write-ISPSSLog -Message "Probing candidate: $candidate" -Level 'DEBUG' -Fn $fn
-        $webResp = $null
-        try {
-            $req                   = [System.Net.HttpWebRequest][System.Net.WebRequest]::Create($candidate)
-            $req.Method            = 'GET'
-            $req.AllowAutoRedirect = $false
-            $req.Timeout           = 20000
-            $webResp               = [System.Net.HttpWebResponse]$req.GetResponse()
-            $statusCode            = [int]$webResp.StatusCode
-            $responseHost          = $webResp.ResponseUri.Host
+    try {
+        $result = Invoke-RestMethod -Uri $discoveryUrl -Method GET -ErrorAction Stop
 
-            script:Write-ISPSSLog -Message "  HTTP $statusCode from '$candidate' — host: $responseHost" -Level 'DEBUG' -Fn $fn
-
-            if ($statusCode -ge 300 -and $statusCode -lt 400) {
-                $redirectHost = $null
-                $location     = $webResp.GetResponseHeader('Location')
-                if ($location) {
-                    try { $redirectHost = ([System.Uri]$location).Host } catch { }
-                }
-                if (-not $redirectHost) { $redirectHost = $responseHost }
-                script:Write-ISPSSLog -Message "  Redirect — target host: $(if ($redirectHost) { $redirectHost } else { '(none)' })" -Level 'DEBUG' -Fn $fn
-                if ($redirectHost -match '\.id\.cyberark\.cloud$') {
-                    $url = "https://$redirectHost"
-                    script:Write-ISPSSLog -Message "Identity tenant resolved via redirect from '$candidate': $url" -Level 'INFO' -Fn $fn
-                    return $url
-                }
-                if ($redirectHost) {
-                    script:Write-ISPSSLog -Message "  Redirect host '$redirectHost' is not an identity host. Trying next candidate." -Level 'DEBUG' -Fn $fn
-                }
-            } elseif ($statusCode -eq 200) {
-                if ($responseHost -match '\.id\.cyberark\.cloud$') {
-                    $url = "https://$responseHost"
-                    script:Write-ISPSSLog -Message "Identity tenant resolved via 200 response from '$candidate': $url" -Level 'INFO' -Fn $fn
-                    return $url
-                }
-                script:Write-ISPSSLog -Message "  Response host '$responseHost' is not an identity host. Trying next candidate." -Level 'DEBUG' -Fn $fn
-            } else {
-                script:Write-ISPSSLog -Message "  Unexpected HTTP $statusCode from '$candidate'. Trying next candidate." -Level 'WARN' -Fn $fn
-            }
-        } catch [System.Net.WebException] {
-            # Typed catch — .Response is always safe to access on System.Net.WebException
-            $webEx      = $_.Exception
-            $statusCode = 0
-            try {
-                if ($webEx.Response) {
-                    $statusCode = [int]([System.Net.HttpWebResponse]$webEx.Response).StatusCode
-                }
-            } catch { }
-            script:Write-ISPSSLog -Message "  WebException from '$candidate' [HTTP $statusCode]: $($webEx.Message)" -Level 'WARN' -Fn $fn
-        } catch {
-            $exMessage = 'Exception details unavailable'
-            try { $exMessage = $_.Exception.Message } catch { }
-            script:Write-ISPSSLog -Message "  Error probing '$candidate': $exMessage" -Level 'WARN' -Fn $fn
-        } finally {
-            if ($webResp) { try { $webResp.Close() } catch { } }
+        $identityApi = $null
+        if ($null -ne $result -and $result.PSObject.Properties['identity_user_portal'] -and $result.identity_user_portal) {
+            $identityApi = $result.identity_user_portal | Select-Object -ExpandProperty api -ErrorAction SilentlyContinue
         }
+
+        if ($identityApi) {
+            $url = $identityApi.TrimEnd('/')
+            script:Write-ISPSSLog -Message "Identity tenant resolved via platform-discovery: $url" -Level 'INFO' -Fn $fn
+            return $url
+        }
+
+        script:Write-ISPSSLog -Message "platform-discovery response for '$PCloudSubdomain' did not include identity_user_portal.api." -Level 'WARN' -Fn $fn
+    } catch {
+        $exMessage = 'Exception details unavailable'
+        try { $exMessage = $_.Exception.Message } catch { }
+        script:Write-ISPSSLog -Message "platform-discovery request failed for '$PCloudSubdomain': $exMessage" -Level 'WARN' -Fn $fn
     }
 
     $url = "https://$PCloudSubdomain.id.cyberark.cloud"
-    script:Write-ISPSSLog -Message "All candidates exhausted without detecting an identity redirect. Using constructed fallback: $url" -Level 'WARN' -Fn $fn
+    script:Write-ISPSSLog -Message "platform-discovery did not resolve an identity tenant. Using constructed fallback: $url" -Level 'WARN' -Fn $fn
     return $url
 }
 
@@ -149,9 +120,14 @@ function Invoke-ISPSSClientCredentials {
     $tokenUrl = "$IdentityURL/oauth2/platformtoken"
     Write-Verbose "Requesting client_credentials token from: $tokenUrl"
     try {
+        # Body is encoded as raw UTF8 bytes rather than a String so PowerShell's own
+        # ParameterBinding/module logging (e.g. GPO-enabled Module Logging / Script Block
+        # Logging) records a non-revealing System.Byte[] type name instead of the literal
+        # request content, which includes the OAuth2 client secret. Mirrors psPAS's
+        # Invoke-PASRestMethod.ps1.
         $resp = Invoke-RestMethod -Uri $tokenUrl -Method POST `
             -Headers @{ 'Content-Type' = 'application/x-www-form-urlencoded' } `
-            -Body $body -ErrorAction Stop
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ErrorAction Stop
     } catch {
         throw "ClientCredentials token request failed: $_"
     }
@@ -198,9 +174,15 @@ function Invoke-IdentityAdvancedAuth {
     }
     if ($Answer) { $body.Answer = $Answer }
 
+    $bodyJson = $body | ConvertTo-Json
+
+    # Body is encoded as raw UTF8 bytes rather than a String so PowerShell's own
+    # ParameterBinding/module logging cannot record the literal request content, which can
+    # include the user's password/OTP/other MFA answer in the Answer field. Mirrors psPAS's
+    # Invoke-PASRestMethod.ps1.
     Invoke-RestMethod -Uri "$IdentityURL/Security/AdvanceAuthentication" -Method POST `
         -Headers @{ 'X-IDAP-NATIVE-CLIENT' = 'true'; 'Content-Type' = 'application/json' } `
-        -Body ($body | ConvertTo-Json) -ErrorAction Stop
+        -Body ([System.Text.Encoding]::UTF8.GetBytes($bodyJson)) -ErrorAction Stop
 }
 
 function Invoke-IdentityChallengeLoop {
@@ -338,8 +320,10 @@ function Invoke-ISPSSInteractive {
 
     Write-Verbose "Starting Identity authentication for: $Username"
     try {
+        # Encoded as raw UTF8 bytes for consistency with every other request body in this
+        # module - see Invoke-ISPSSClientCredentials for why.
         $startResp = Invoke-RestMethod -Uri "$IdentityURL/Security/StartAuthentication" `
-            -Method POST -Headers $startHeaders -Body $startBody -ErrorAction Stop
+            -Method POST -Headers $startHeaders -Body ([System.Text.Encoding]::UTF8.GetBytes($startBody)) -ErrorAction Stop
     } catch {
         throw "StartAuthentication failed: $_"
     }
@@ -372,6 +356,10 @@ function Invoke-ISPSSInteractive {
 
     if (-not $token) { throw "Interactive authentication did not return a token." }
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $BaseURL -Token "Bearer $token"
+    $expiry    = if ($expiryMin) { [DateTime]::UtcNow.AddMinutes($expiryMin) }
+                 else { [DateTime]::UtcNow.AddHours($script:ISPSS_SESSION_EXPIRY_HOURS) }
+
     New-AuthTokenObject `
         -Token        $token `
         -TokenType    'Bearer' `
@@ -380,7 +368,7 @@ function Invoke-ISPSSInteractive {
             'X-IDAP-NATIVE-CLIENT' = 'true'
             'Content-Type'         = 'application/json'
         } `
-        -Expiry       ([DateTime]::UtcNow.AddHours(4)) `
+        -Expiry       $expiry `
         -RefreshToken $null `
         -SystemType   'ISPSS' `
         -AuthMethod   'Interactive' `
@@ -413,6 +401,10 @@ function Invoke-ISPSSSO {
     $captured = Invoke-WebView2Window -NavigateUrl $loginUrl -CookieName 'idToken' `
         -Title 'CyberArk Identity SSO Login'
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $BaseURL -Token "Bearer $($captured.Token)"
+    $expiry    = if ($expiryMin) { [DateTime]::UtcNow.AddMinutes($expiryMin) }
+                 else { [DateTime]::UtcNow.AddHours($script:ISPSS_SESSION_EXPIRY_HOURS) }
+
     New-AuthTokenObject `
         -Token        $captured.Token `
         -TokenType    'Bearer' `
@@ -421,7 +413,7 @@ function Invoke-ISPSSSO {
             'X-IDAP-NATIVE-CLIENT' = 'true'
             'Content-Type'         = 'application/json'
         } `
-        -Expiry       ([DateTime]::UtcNow.AddHours(4)) `
+        -Expiry       $expiry `
         -RefreshToken $null `
         -SystemType   'ISPSS' `
         -AuthMethod   'SSO' `
@@ -559,10 +551,13 @@ function Update-ISPSSAuthToken {
                     $body = ("grant_type=refresh_token" +
                              "&refresh_token=$([Uri]::EscapeDataString($TokenObject.RefreshToken))" +
                              "&client_id=$([Uri]::EscapeDataString($ctx['ClientId']))")
+                    # Body is encoded as raw UTF8 bytes rather than a String so PowerShell's own
+                    # ParameterBinding/module logging cannot record the literal refresh_token
+                    # value. Mirrors psPAS's Invoke-PASRestMethod.ps1.
                     $resp = Invoke-RestMethod -Uri "$($ctx['IdentityURL'])/oauth2/platformtoken" `
                         -Method POST `
                         -Headers @{ 'Content-Type' = 'application/x-www-form-urlencoded' } `
-                        -Body $body -ErrorAction Stop
+                        -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ErrorAction Stop
                     $expiresIn  = if ($resp.expires_in) { [int]$resp.expires_in } else { 3600 }
                     $newRefresh = if ($resp.refresh_token) { $resp.refresh_token } else { $TokenObject.RefreshToken }
                     return New-AuthTokenObject `

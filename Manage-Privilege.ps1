@@ -1620,6 +1620,11 @@ function Invoke-SelfHostedKeepalive {
             -Endpoint '/API/LoggedOnUser' -IgnoreSSL:$script:ActiveProfile.IgnoreSSL
         if ($resp.IsSuccess) {
             $script:SessionToken.Expiry = (Get-Date).ToUniversalTime().AddMinutes($script:PVWA_SESSION_EXPIRY_MIN)
+            # Persist the extended expiry, matching every sibling refresh path
+            # (Invoke-ProactiveRefresh, Invoke-TokenRefresh) - without this, the on-disk .cred
+            # file's Expiry goes stale after a successful keepalive, understating how long the
+            # session is actually still good for (e.g. in the profile list's token-status display).
+            $null = Save-AuthToken -TokenObject $script:SessionToken -ProfileName $script:ActiveProfile.AuthTokenProfile
             Write-CyberArkLog -Message 'Keepalive succeeded. Token expiry extended.' -Level 'INFO'
         } else {
             Write-CyberArkLog -Message "Keepalive call failed ($($resp.StatusCode)): $($resp.ErrorMessage)" -Level 'WARN'
@@ -2218,6 +2223,45 @@ function Invoke-SessionLoop {
 
                     # --- Action loop for this category ---
                     while ($true) {
+                        # --- Inactivity + token health, mirroring the outer category-menu loop
+                        # above. Without this block, a user who stays inside one category
+                        # (performing several actions in a row without pressing [B] to return to
+                        # the category menu) never got the SelfHosted keepalive call or the ISPSS
+                        # proactive refresh, and the inactivity timeout/warning never fired -
+                        # since all of that previously lived only in the outer loop. The user's
+                        # very next action after the real session actually expired would then
+                        # force a full re-auth prompt instead of the silent keepalive/refresh this
+                        # logic exists to provide.
+                        $idleSec    = ((Get-Date) - $script:LastActivityTime).TotalSeconds
+                        $timeoutSec = $script:InactivityTimeoutMin * 60
+                        $warnAtSec  = $timeoutSec * 0.9
+
+                        if ($idleSec -ge $timeoutSec) {
+                            Write-CyberArkLog -Message "Inactivity timeout ($($script:InactivityTimeoutMin) min). Ending session." -Level 'INFO'
+                            return 'Exit'
+                        }
+
+                        if ($idleSec -ge $warnAtSec -and -not $warnShown) {
+                            $remainSec = [int]($timeoutSec - $idleSec)
+                            Write-Host ''
+                            Write-Host "  Inactivity warning: session will end in ~$remainSec seconds due to inactivity." -ForegroundColor Yellow
+                            $warnShown = $true
+                        }
+
+                        Invoke-ProactiveRefresh
+                        switch (Test-TokenExpiry) {
+                            'Expired' {
+                                if (-not (Invoke-TokenRefresh)) {
+                                    Write-CyberArkLog -Message 'Session ended - could not renew token.' -Level 'ERROR'
+                                    return 'Exit'
+                                }
+                                $warnShown = $false
+                            }
+                            'Warning' {
+                                Invoke-SelfHostedKeepalive
+                            }
+                        }
+
                         Show-ActionMenu -Breadcrumbs $catCrumbs -CategoryModules $catModules
                         $actChoice = Read-MenuChoice -Prompt 'Action / [B]ack (default: B)'
                         if (-not $actChoice) { $actChoice = 'B' }

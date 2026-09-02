@@ -74,7 +74,7 @@ All fields are optional depending on `AuthMethod`. Only fields relevant to the m
 | `ConvertTo-PlainText` | `-SecureString [SecureString]` | `[string]` | Zeroes unmanaged memory after conversion |
 | `Get-FilteredClientCertificate` | `-Thumbprint [string]` (optional) | `[X509Certificate2]` or `$null` | Prompts cert picker if no thumbprint |
 | `Import-WebView2Assembly` | `-AssemblyPath [string]` | `[void]` (throws on failure) | Memoises — only loads DLL once per session |
-| `Invoke-WebView2Window` | `-Uri [string]`, `-SuccessPattern [string]`, `-Title [string]`, `-TimeoutSec [int]` | `[hashtable]` with `Token`, `Cookies` | STA runspace; throws on timeout |
+| `Invoke-WebView2Window` | `-NavigateUrl [string]`, `-CookieName [string]`, `-TargetHost [string]`, `-Title [string]` (default `'CyberArk Authentication'`) | `[hashtable]` with `Token`, `TokenType` (`'Bearer'` or `'CyberArkSession'`), or `$null` on timeout | STA runspace; timeout is the fixed `$script:WEBVIEW2_TIMEOUT_SEC` constant, not a parameter |
 | `Save-AuthToken` | `-TokenObject [PSCustomObject]`, `-ProfileName [string]` | `[void]` | DPAPI via `Export-Clixml` to `.cred` |
 | `Import-AuthToken` | `-Path [string]`, `-IgnoreExpiry [switch]` | `[PSCustomObject]` or `$null` | Warns if expired; caller handles refresh |
 | `Get-AuthTokenProfiles` | _(none)_ | `[PSCustomObject[]]` | Lists all `.cred` profiles in profile directory |
@@ -138,11 +138,15 @@ function Resolve-IdentityTenantURL {
 ```powershell
 function Get-SelfHostedAuthToken {
     param(
-        [Parameter(Mandatory)]
+        # NOT actually [Parameter(Mandatory)] in the implementation, despite being
+        # conceptually required - both AuthMethod and PVWAUrl fall back to an interactive
+        # Read-Host prompt when omitted (deliberately, per Auth-Module-Rework-Design.md
+        # "prompts for missing mandatory inputs only when not provided - same as today").
+        # A caller expecting the PowerShell binding engine to reject a missing value outright
+        # (e.g. an unattended/scheduled script) will instead hang on the prompt.
         [ValidateSet('CyberArk','LDAP','RADIUS','Shared','PKI','PKIPN','SAML','OIDC')]
         [string]$AuthMethod,
 
-        [Parameter(Mandatory)]
         [string]$PVWAUrl,                    # Full URL including AppName (e.g. https://pvwa.co/PasswordVault)
 
         [System.Management.Automation.PSCredential]$Credential,

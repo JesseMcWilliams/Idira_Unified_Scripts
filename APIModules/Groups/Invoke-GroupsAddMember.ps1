@@ -13,11 +13,11 @@ $ModuleMeta = @{
     InputSchema      = @(
         @{ Column = 'GroupID';    Required = $true;  Description = 'Numeric ID of the group.' }
         @{ Column = 'MemberID';   Required = $true;  Description = 'Numeric user ID to add.' }
-        @{ Column = 'MemberType'; Required = $false; Description = 'EPVUser or Group, default EPVUser.' }
+        @{ Column = 'MemberType'; Required = $false; Description = 'ISPSS: EPVUser or Group (default EPVUser). Self-Hosted: Domain or Vault (default Vault).' }
         @{ Column = 'DomainName'; Required = $false; Description = 'FQDN for domain users.' }
     )
     Priority         = 65
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-GroupsAddMemberInput {
@@ -78,9 +78,13 @@ function Get-GroupsAddMemberInput {
         if (-not $memberId) { return $null }
     }
 
+    $isSelfHosted      = ($Token.PSObject.Properties['SystemType'] -and $Token.SystemType -eq 'SelfHosted')
+    $defaultMemberType = if ($isSelfHosted) { 'Vault' } else { 'EPVUser' }
+    $memberTypeHint    = if ($isSelfHosted) { "Domain or Vault (default $defaultMemberType)." } else { "EPVUser or Group (default $defaultMemberType)." }
+
     $memberType = Show-FieldPrompt -Label 'MemberType' `
-        -Default $(if ($Defaults['MemberType']) { $Defaults['MemberType'] } else { 'EPVUser' }) `
-        -Description 'EPVUser or Group (default EPVUser).'
+        -Default $(if ($Defaults['MemberType']) { $Defaults['MemberType'] } else { $defaultMemberType }) `
+        -Description $memberTypeHint
 
     $domainName = Show-FieldPrompt -Label 'DomainName' `
         -Default $(if ($Defaults['DomainName']) { $Defaults['DomainName'] } else { '' }) `
@@ -153,7 +157,27 @@ function Invoke-GroupsAddMember {
 
     $encodedId = [Uri]::EscapeDataString($groupId)
 
-    $memberType = if ($InputData['MemberType']) { "$($InputData['MemberType'])".Trim() } else { 'EPVUser' }
+    # MemberType's valid values differ by platform: ISPSS uses EPVUser/Group, Self-Hosted uses
+    # Domain/Vault, for the identical POST /API/UserGroups/{id}/Members endpoint.
+    $tokenSystemType   = if ($Token.PSObject.Properties['SystemType']) { $Token.SystemType } else { '' }
+    $isSelfHosted      = ($tokenSystemType -eq 'SelfHosted')
+    $validMemberTypes  = if ($isSelfHosted) { @('Domain', 'Vault') } else { @('EPVUser', 'Group') }
+    $defaultMemberType = if ($isSelfHosted) { 'Vault' } else { 'EPVUser' }
+
+    $memberType = if ($InputData['MemberType']) { "$($InputData['MemberType'])".Trim() } else { $defaultMemberType }
+    if ($memberType -notin $validMemberTypes) {
+        $msg = "MemberType '$memberType' is not valid for $tokenSystemType. Valid values: $($validMemberTypes -join ', ')."
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = $msg
+            ErrorDetails = $null
+        })
+        $result.Failures++
+        $result.ItemsProcessed++
+        return $result
+    }
+
     $body = @{ memberId = [int]$memberId; memberType = $memberType }
 
     $domainName = if ($InputData['DomainName']) { "$($InputData['DomainName'])".Trim() } else { '' }

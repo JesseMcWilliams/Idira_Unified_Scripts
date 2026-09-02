@@ -5,7 +5,14 @@
 This document describes the testing strategy for the Idira Unified Scripts project.
 Tests are organized into **unit tests** (no live CyberArk connection required) and
 **integration tests** (require a real CyberArk environment). All unit tests use
-[Pester v5](https://pester.dev) and live under `Tests\Unit\`.
+[Pester v5/v6](https://pester.dev) and live under `Tests\Unit\`.
+
+**Current focus: Self-Hosted PVWA.** This revision of the plan was produced for a full
+functional test pass of the **Self-Hosted** deployment path specifically. See
+[Self-Hosted vs. Privilege Cloud (SaaS) Scope and Caution](#self-hosted-vs-privilege-cloud-saas-scope-and-caution)
+below before relying on this document for ISPSS/Privilege Cloud testing — the SaaS path has
+**not** been fully tested, and several modules that declare support for both platforms have
+only ever been exercised against Self-Hosted.
 
 ---
 
@@ -17,7 +24,68 @@ Tests are organized into **unit tests** (no live CyberArk connection required) a
 | CyberArk ISPSS (dev/lab) | Integration tests — ISPSS | Auth, API module integration |
 | CyberArk SelfHosted (dev/lab) | Integration tests — SelfHosted | Auth, API module integration |
 
+A live Self-Hosted PVWA test/lab host is available for this test pass. Configure a profile with
+`SystemType = Self-Hosted`, `BaseURL` pointed at that host, and `AppName = PasswordVault` (default)
+unless the environment uses a custom application name. Do not run integration tests against
+production environments, and prefer a dedicated test Safe/test accounts for any write operation
+(Add/Update/Delete) so real vault data is never at risk.
+
 **Do not run integration tests against production environments.**
+
+---
+
+## Self-Hosted vs. Privilege Cloud (SaaS) Scope and Caution
+
+Every API module declares `$ModuleMeta.SupportedSystems` as `@('SelfHosted')`,
+`@('ISPSS')`, or `@('ISPSS', 'SelfHosted')` (dual-use). As of this revision:
+
+- **SelfHosted-only (8 modules, no ambiguity):** the entire `Applications` category (7 modules -
+  `Add`, `AddAuthMethod`, `Delete`, `DeleteAuthMethod`, `Get`, `List`, `ListAuthMethods`) and
+  `Reports/Invoke-ReportsList.ps1`. Both use legacy Self-Hosted-only endpoints
+  (`/WebServices/PIMServices.svc/Applications` and `/API/Reports`) that do not exist on Privilege
+  Cloud. These modules are hidden from the menu entirely for an ISPSS profile.
+- **Dual-use (all remaining ~47 modules across Accounts, Safes, SafeMembers, Platforms, Users,
+  Groups, Custom):** declared to support both platforms, but **ISPSS coverage for this whole set
+  has not been fully tested** — most of the deep, iterative bug-fixing history in
+  `Documentation-Tracker.md` was driven by Self-Hosted testing/use. Treat a dual-use module's
+  ISPSS behavior as unverified until someone actually exercises it against a Privilege Cloud
+  tenant, even though the code path is shared.
+- **Known, already-confirmed platform-specific traps inside dual-use modules** (background for
+  anyone testing or extending these — not new findings from this pass, see
+  `Lessons-Learned-PowerShell-Pester.md` Section 16 for the originals):
+  - ISPSS returns `groupType='Vault'` (and no `directory.directoryType`) for **every** group,
+    including LDAP/directory-backed ones. `Groups/Invoke-GroupsList.ps1`'s `GroupType` filter is
+    effectively unusable on ISPSS as a result — filtering for anything but `Vault` silently
+    returns zero rows with no explanation. `Custom/Invoke-CustomExportGroupMembersLDAP.ps1` and
+    `Custom/Invoke-CustomExportGroupMembersLocal.ps1` both work around this with a
+    groupName-contains-`@` heuristic (this session fixed the Local module, which had not received
+    that fix when the LDAP module did — see the Findings section below).
+  - CyberArk's `/API/Accounts` endpoint caps results at roughly 20,000 without a safe filter
+    (`Invoke-AccountsList.ps1`'s "By-Safe" mode works around this) — confirm whether the same cap
+    applies identically on the Self-Hosted PVWA version under test; it may differ by version.
+  - Field-name/response-shape differences by PVWA version are common for Platforms (`id` vs
+    `PlatformID`, `platformType` vs `SystemType`, nested under `general` or at the root) and Safe
+    Members (camelCase vs PascalCase permission keys) - see Lessons-Learned Sections 12 and 19.
+    These were previously fixed for `Invoke-PlatformsGet.ps1`; this session found and fixed the
+    same gap in `Invoke-PlatformsList.ps1` (see Findings below). When testing against the live
+    Self-Hosted host, note its exact PVWA version so a future field-shape mismatch can be
+    correlated to a version boundary.
+  - `SafeMembers/Invoke-SafeMembersAdd.ps1` and `SafeMembers/Invoke-SafeMembersAddFromTemplateRole.ps1`
+    call `GET /API/Configuration/LDAP/Directories` for the interactive "SearchIn" directory
+    picker; the exact response field names for that endpoint were unconfirmed against a live
+    system when written (falls back to Vault-only, never blocks the flow, but verify the picker
+    actually lists real directories against the live host).
+  - `Safes/Invoke-SafesAssignCPM.ps1` queries `GET /API/Users?userType=CPM&componentUser=true`
+    live for its CPM picker (deliberately different from `Safes/AddFromTemplate`'s profile-based
+    `CPM_List`) — confirm this query returns the expected CPM accounts on the live host.
+- **Recommendation for any module found broken specifically on ISPSS while dual-declared:**
+  follow the precedent already set by `Custom/Invoke-CustomExportGroupMembersLocal.ps1` /
+  `Invoke-CustomExportGroupMembersLDAP.ps1` — fix the platform-specific branch in place rather
+  than forking the file, *unless* the SelfHosted and ISPSS implementations diverge so much that a
+  shared function body is no longer readable/maintainable, in which case split into
+  `Invoke-<Category><Action>.ps1` (SelfHosted) and a distinctly-named ISPSS counterpart, following
+  the same pattern already used for the Auth layer (`CyberArk.Auth.SelfHosted.psm1` vs
+  `CyberArk.Auth.ISPSS.psm1`).
 
 ---
 
@@ -41,18 +109,138 @@ instructions if it is missing.
 
 ## Component Test Matrix
 
-| Component | Unit Tests | Integration Tests | Test File |
+This table was significantly out of date relative to the actual `Tests\Unit\` folder (which
+already had unit tests for every shipped module) — it listed only a handful of modules. It now
+lists every component and module that exists in this project, its unit-test file, and whether it
+also needs manual/live Self-Hosted integration verification per this test pass. "SH" = SupportedSystems
+includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution section above).
+
+### Core / Shared
+
+| Component | Unit Tests | Test File | Live Self-Hosted Verification Needed |
 |---|---|---|---|
-| `CyberArkLogging.psm1` | Yes | No | `Unit\CyberArkLogging.Tests.ps1` |
-| `CyberArkComms.psm1` | Partial (helpers + success path) | Yes | `Unit\CyberArkComms.Tests.ps1` |
-| `Get-AuthToken.ps1` | No (UI / auth flows) | Yes (manual) | — |
-| `Manage-Privilege.ps1` — profile CRUD | Yes (filesystem) | No | `Unit\Manage-Privilege.Tests.ps1` |
-| `Manage-Privilege.ps1` — session loop | No (UI) | Yes (manual) | — |
-| `APIModules\Safes\Invoke-SafesList.ps1` | Yes | Yes | `Unit\Invoke-SafesList.Tests.ps1` |
-| `APIModules\Safes\Invoke-SafesAddFromTemplate.ps1` | Yes | Yes | `Unit\Invoke-SafesAddFromTemplate.Tests.ps1` |
-| `APIModules\SafeMembers\Invoke-SafeMembersAddFromTemplateRole.ps1` | Yes | Yes | `Unit\Invoke-SafeMembersAddFromTemplateRole.Tests.ps1` |
-| `APIModules\SafeMembers\Invoke-SafeMembersUpdateFromTemplateRole.ps1` | Yes | Yes | `Unit\Invoke-SafeMembersUpdateFromTemplateRole.Tests.ps1` |
-| _(future modules)_ | Yes | Yes | `Unit\Invoke-<Category><Action>.Tests.ps1` |
+| `CyberArkLogging.psm1` | Yes | `Unit\CyberArkLogging.Tests.ps1` | No |
+| `CyberArkComms.psm1` | Partial (helpers + success path; 401/429/504 error paths need `Invoke-CyberArkAPI` mocking at the module-caller level - see Testing Boundaries) | `Unit\CyberArkComms.Tests.ps1` | Yes — 429 backoff and 504 retry/page-shrink against a real PVWA; also confirm behavior is unchanged if the driver is ever run under PowerShell 7/`pwsh` instead of Windows PowerShell 5.1 (see Known Issues) |
+| `Auth\CyberArk.Auth.Common.psm1` | No (WebView2/cert-store/DPAPI all require a live Windows session) | — | Yes — `Save-AuthToken`/`Import-AuthToken` round-trip, `Get-FilteredClientCertificate` picker |
+| `Auth\CyberArk.Auth.SelfHosted.psm1` | No (auth flows) | — | Yes (manual, all 8 methods — see the dedicated section below) |
+| `Auth\CyberArk.Auth.ISPSS.psm1` | No (auth flows) | — | Out of scope for this pass (ISPSS) |
+| `Manage-Privilege.ps1` — profile CRUD | Yes (filesystem) | `Unit\Manage-Privilege.Tests.ps1` | No |
+| `Manage-Privilege.ps1` — session loop, keepalive, token refresh, CSV loop | No (UI/interactive) | — | Yes (manual — D-series below, including the new D23-D25 regression/known-gap cases) |
+
+### APIModules — SelfHosted only (no ISPSS ambiguity)
+
+| Module | Unit Tests | Test File | Live Self-Hosted Verification Needed |
+|---|---|---|---|
+| Applications / Add | Yes | `Unit\Invoke-ApplicationsAdd.Tests.ps1` | Yes |
+| Applications / AddAuthMethod | Yes | `Unit\Invoke-ApplicationsAddAuthMethod.Tests.ps1` | Yes |
+| Applications / Delete | Yes | `Unit\Invoke-ApplicationsDelete.Tests.ps1` | Yes |
+| Applications / DeleteAuthMethod | Yes | `Unit\Invoke-ApplicationsDeleteAuthMethod.Tests.ps1` | Yes |
+| Applications / Get | Yes | `Unit\Invoke-ApplicationsGet.Tests.ps1` | Yes |
+| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | Yes — also confirm the `Join-CyberArkUrl` trailing-slash fix (this session) actually resolves the PIMServices.svc routing against a real PVWA, not just in the mocked unit test |
+| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Yes |
+| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | Yes |
+
+### APIModules — dual-use (Both; ISPSS coverage unverified — see caution section)
+
+| Module | Unit Tests | Test File | Live Self-Hosted Verification Needed |
+|---|---|---|---|
+| Accounts / Add | Yes | `Unit\Invoke-AccountsAdd.Tests.ps1` | Yes |
+| Accounts / CancelCpmTask | Yes | `Unit\Invoke-AccountsCancelCpmTask.Tests.ps1` | Yes |
+| Accounts / ChangeImmediate | Yes | `Unit\Invoke-AccountsChangeImmediate.Tests.ps1` | Yes |
+| Accounts / ChangeInVault | Yes | `Unit\Invoke-AccountsChangeInVault.Tests.ps1` | Yes — also confirm the new JSON-key log-masking pattern (this session) actually keeps the new vault password out of the log file at DEBUG level against a real call |
+| Accounts / CheckIn | Yes | `Unit\Invoke-AccountsCheckIn.Tests.ps1` | Yes |
+| Accounts / Delete | Yes | `Unit\Invoke-AccountsDelete.Tests.ps1` | Yes |
+| Accounts / Get | Yes | `Unit\Invoke-AccountsGet.Tests.ps1` | Yes |
+| Accounts / GetActivity | Yes | `Unit\Invoke-AccountsGetActivity.Tests.ps1` | Yes |
+| Accounts / GetCredential | Yes | `Unit\Invoke-AccountsGetCredential.Tests.ps1` | Yes |
+| Accounts / LinkAccount | Yes | `Unit\Invoke-AccountsLinkAccount.Tests.ps1` | Yes |
+| Accounts / List (incl. By-Safe mode) | Yes | `Unit\Invoke-AccountsList.Tests.ps1` | Yes — confirm the ~20K-result cap and the By-Safe workaround against the live host's actual account count |
+| Accounts / Reconcile | Yes | `Unit\Invoke-AccountsReconcile.Tests.ps1` | Yes |
+| Accounts / ResumeAutoManagement | Yes | `Unit\Invoke-AccountsResumeAutoManagement.Tests.ps1` | Yes |
+| Accounts / UnlinkAccount | Yes | `Unit\Invoke-AccountsUnlinkAccount.Tests.ps1` | Yes |
+| Accounts / Unlock | Yes | `Unit\Invoke-AccountsUnlock.Tests.ps1` | Yes |
+| Accounts / Update (JSON Patch) | Yes | `Unit\Invoke-AccountsUpdate.Tests.ps1` | Yes |
+| Accounts / Verify | Yes | `Unit\Invoke-AccountsVerify.Tests.ps1` | Yes |
+| Safes / Add | Yes | `Unit\Invoke-SafesAdd.Tests.ps1` | Yes |
+| Safes / AddFromTemplate | Yes | `Unit\Invoke-SafesAddFromTemplate.Tests.ps1` | Yes |
+| Safes / AssignCPM | Yes | `Unit\Invoke-SafesAssignCPM.Tests.ps1` | Yes — confirm the live CPM query against the real host |
+| Safes / Delete | Yes | `Unit\Invoke-SafesDelete.Tests.ps1` | Yes |
+| Safes / Get | Yes | `Unit\Invoke-SafesGet.Tests.ps1` | Yes |
+| Safes / List | Yes | `Unit\Invoke-SafesList.Tests.ps1` | Yes — confirm the `ExtendedDetails` CSV-boolean fix (this session) with a real CSV bulk run |
+| Safes / UnassignCPM | Yes | `Unit\Invoke-SafesUnassignCPM.Tests.ps1` | Yes |
+| Safes / Update | Yes | `Unit\Invoke-SafesUpdate.Tests.ps1` | Yes |
+| SafeMembers / Add | Yes | `Unit\Invoke-SafeMembersAdd.Tests.ps1` | Yes — confirm the SearchIn directory picker lists real LDAP directories |
+| SafeMembers / AddFromTemplateRole | Yes | `Unit\Invoke-SafeMembersAddFromTemplateRole.Tests.ps1` | Yes |
+| SafeMembers / List | Yes | `Unit\Invoke-SafeMembersList.Tests.ps1` | Yes |
+| SafeMembers / Remove | Yes | `Unit\Invoke-SafeMembersRemove.Tests.ps1` | Yes |
+| SafeMembers / Update | Yes | `Unit\Invoke-SafeMembersUpdate.Tests.ps1` | Yes |
+| SafeMembers / UpdateFromTemplateRole | Yes | `Unit\Invoke-SafeMembersUpdateFromTemplateRole.Tests.ps1` | Yes |
+| Platforms / Get | Yes | `Unit\Invoke-PlatformsGet.Tests.ps1` | Yes |
+| Platforms / List | Yes | `Unit\Invoke-PlatformsList.Tests.ps1` | Yes — confirm the alternate-field-name fallback fix (this session) against whatever shape the live PVWA version actually returns |
+| Users / Get | Yes | `Unit\Invoke-UsersGet.Tests.ps1` | Yes |
+| Users / List | Yes | `Unit\Invoke-UsersList.Tests.ps1` | Yes |
+| Groups / Add | Yes | `Unit\Invoke-GroupsAdd.Tests.ps1` | Yes |
+| Groups / AddMember | Yes | `Unit\Invoke-GroupsAddMember.Tests.ps1` | Yes |
+| Groups / Delete | Yes | `Unit\Invoke-GroupsDelete.Tests.ps1` | Yes |
+| Groups / GetMembers | Yes | `Unit\Invoke-GroupsGetMembers.Tests.ps1` | Yes |
+| Groups / List | Yes | `Unit\Invoke-GroupsList.Tests.ps1` | Yes — the `GroupType` filter should work meaningfully on Self-Hosted (unlike ISPSS, see caution section) |
+| Groups / RemoveMember | Yes | `Unit\Invoke-GroupsRemoveMember.Tests.ps1` | Yes |
+| Groups / Update | Yes | `Unit\Invoke-GroupsUpdate.Tests.ps1` | Yes |
+| Custom / ExportAll | Yes | `Unit\Invoke-CustomExportAll.Tests.ps1` | Yes |
+| Custom / ExportEntitlements | Yes | `Unit\Invoke-CustomExportEntitlements.Tests.ps1` | Yes |
+| Custom / ExportGroupMembersLDAP | Yes | `Unit\Invoke-CustomExportGroupMembersLDAP.Tests.ps1` | Yes — requires line-of-sight from wherever the script runs to the actual Active Directory (ADSI-based, not a CyberArk API call) |
+| Custom / ExportGroupMembersLocal | Yes (incl. new ISPSS-groupType-quirk regression test this session) | `Unit\Invoke-CustomExportGroupMembersLocal.Tests.ps1` | Yes |
+| Custom / TestApi | **No unit test file exists** (interactive raw API tester — same exemption class as other `Read-Host`-driven helpers) | — | Yes (manual smoke test only) |
+
+---
+
+## Findings and Fixes — 2026-09-02 Self-Hosted Review
+
+This full-project review (triggered by the request to produce a Self-Hosted test plan and fix
+anything found broken) turned up and fixed the following. All fixes were made via careful static
+code reading and cross-reference against this project's own `Documentation-Tracker.md` and
+`Lessons-Learned-PowerShell-Pester.md` history; **no PowerShell interpreter was available in the
+environment this review was performed in**, so none of the fixes below have been executed against
+a real PVWA or run through Pester yet — see the "Yes" rows in the Component Test Matrix above and
+the checklist later in this document for what still needs live confirmation.
+
+| # | File(s) | Issue | Fix | Test(s) added |
+|---|---|---|---|---|
+| F01 | `Modules/CyberArkComms.psm1` | `Join-CyberArkUrl` unconditionally trims a trailing slash from the joined URI. The legacy `PIMServices.svc` WCF REST endpoint used by every `Applications` module needs that trailing slash preserved on some routes (e.g. `Applications` list) or the request is misrouted/rejected. The slash was added once (2026-08-16) to fix this, then reverted the same day to resolve an unrelated regression in test C12, and never re-fixed. | `Invoke-CyberArkAPI` now restores the trailing slash at the call site, based on the caller's own `-Endpoint` string, when present — without changing `Join-CyberArkUrl`'s generic (always-trimmed) contract. | C25b, C25c in `CyberArkComms.Tests.ps1` |
+| F02 | `Modules/CyberArkLogging.psm1` | The sensitive-data log-masking regex list only matched a hardcoded set of OAuth field names (`access_token`, `refresh_token`, `id_token`). Any other secret-shaped JSON key — notably `NewCredentials` (the literal new vault password) in `Invoke-AccountsChangeInVault.ps1`'s request body — was logged in cleartext at DEBUG/`-FileOnly` level via `CyberArkComms.psm1`'s request-body logging. | Added a generic pattern matching any quoted JSON key containing `password`, `secret`, `token`, or `credential` (case-insensitive), masking the value regardless of key name. | L22a, L22b, L22c in `CyberArkLogging.Tests.ps1` |
+| F03 | `APIModules/Applications/Invoke-ApplicationsAdd.ps1` | `[int]$AccessFrom` / `[int]$AccessTo` casts on CSV input throw an unhandled exception (crashing the whole batch) if the CSV cell isn't a clean integer. | Replaced with `[int]::TryParse`, returning a normal non-fatal `Failures` entry with an `ErrorMessage` instead of throwing. | New tests under "AccessPermittedFrom / AccessPermittedTo validation" in `Invoke-ApplicationsAdd.Tests.ps1` |
+| F04 | `APIModules/Reports/Invoke-ReportsList.ps1` | Dot-notation access on 6 result fields (`ReportID`, `ReportName`, `Description`, `ReportType`, `RunDate`, `Aggregated`) throws `PropertyNotFoundException` under strict mode (always active via the driver) if the live PVWA response omits any of them. | Added `PSObject.Properties[...]` existence guards on all 6 fields. | RL08a (with `Set-StrictMode -Version Latest` and a sparse report object) in `Invoke-ReportsList.Tests.ps1` |
+| F05 | `Invoke-ApplicationsAdd.ps1` (`Disabled`), `Invoke-ApplicationsAddAuthMethod.ps1` (`IsFolder`, `AllowInternalScripts`), `Invoke-ApplicationsList.ps1` (`IncludeSublocations`), `Invoke-PlatformsList.ps1` (`ActiveOnly`), `Invoke-SafesList.ps1` (`ExtendedDetails`) | Five separate modules cast a CSV-sourced string directly to `[bool]`. In .NET, `[bool]"false"` evaluates to `$true` (any non-empty string is truthy), so every CSV row with the literal text `false` was silently treated as `true`. | All five now use a `-match '(?i)^(true|yes|y|1)$'`-style pattern instead of a `[bool]` cast. | New CSV-string "false"/"true" tests added to each module's test file (see Component Test Matrix rows above) |
+| F06 | `APIModules/Platforms/Invoke-PlatformsList.ps1` | Field-mapping only checked one shape of the platform object (`PlatformID`/`SystemType`/nested `general`), while `Invoke-PlatformsGet.ps1` already had a 4-variant fallback chain for PVWA-version differences (`id` vs `PlatformID`, `platformType` vs `SystemType`, `general` sub-object vs root). `PlatformsList` would silently return blank fields against a PVWA version whose List response used the shape `Get` already handled. | Rewrote `PlatformsList`'s mapping to mirror `PlatformsGet`'s full fallback chain. | PL12a (alt-shape object) in `Invoke-PlatformsList.Tests.ps1` |
+| F07 | `APIModules/Custom/Invoke-CustomExportGroupMembersLocal.ps1` | ISPSS returns `groupType='Vault'` for every group, including LDAP-backed ones, with no `directoryType` to disambiguate. The sibling `ExportGroupMembersLDAP` module already had an `@`-in-name heuristic to detect LDAP groups despite this; `ExportGroupMembersLocal` did not, so on ISPSS it would misclassify LDAP groups as local ones. | Added the same `-or ($gname -and $gname -match '@')` condition to the `$isLdap` check. | New "ISPSS groupType quirk" context in `Invoke-CustomExportGroupMembersLocal.Tests.ps1` |
+| F08 | `Manage-Privilege.ps1` — `Invoke-SelfHostedKeepalive` | The keepalive call extends the session's expiry on the PVWA side but never persisted the new expiry to the saved `.cred` file. A crash or unexpected exit shortly after a keepalive would leave the on-disk token looking expired sooner than it actually was. | Added a `Save-AuthToken` call after a successful keepalive. | Not unit-tested (see note below) |
+| F09 | `Manage-Privilege.ps1` — inner category/action loop (`Invoke-SessionLoop`) | The outer (category-selection) menu loop ran inactivity-timeout, proactive-refresh, and token-expiry checks on every iteration; the **inner** (action-within-category) loop did not run any of them. A user who stayed inside one category performing many actions in a row never got a keepalive, a proactive refresh, or an inactivity timeout until they backed out to the category menu. | Duplicated the outer loop's check block (inactivity check, `Invoke-ProactiveRefresh`, `Test-TokenExpiry` handling for `Expired`/`Warning`) at the top of the inner loop. | Not unit-tested (see note below) |
+| F10 | `Auth/Get-AuthToken.ps1` | Dead file — a legacy shim with zero real call sites (only referenced by an unrelated same-named Pester mock stub), left over from the Auth-module rework. `Auth-Module-Rework-Design.md` itself documents deleting this file as a never-executed final step of that rework. | Deleted. | N/A |
+| F11 | `README.md`, `Docs/API-Module-Development-Guide.md`, `Docs/Interfaces.md` | Stale documentation: project-structure trees still listed the deleted `Get-AuthToken.ps1`; `Interfaces.md` described `Invoke-WebView2Window`'s actual parameters and return shape incorrectly, and showed `Get-SelfHostedAuthToken`'s `AuthMethod`/`PVWAUrl` as falsely `[Parameter(Mandatory)]` when both actually fall back to interactive `Read-Host` prompts if omitted. | Corrected all three documents to match the actual code. | N/A (documentation only) |
+
+> **Note on F08/F09:** `Manage-Privilege.Tests.ps1` is documented (in `Documentation-Tracker.md`) as
+> having a reproducible Pester v6.1 hang risk when new `Describe` blocks are added around
+> `Invoke-FileWriteWithRetry`-adjacent code. No new automated test was added for these two driver
+> fixes for that reason. **These two fixes are Self-Hosted-critical and must be verified manually**
+> — see D23/D24 in the Manage-Privilege.ps1 manual test section below.
+
+---
+
+## Known Issues / Risk Register (not fixed this session — verify manually)
+
+These were identified during this review but are **not yet fixed**. None of them block this test
+pass, but each is a real gap worth confirming (or scheduling a follow-up fix for) during live
+Self-Hosted testing.
+
+| # | Area | Risk | Recommended manual check |
+|---|---|---|---|
+| K01 | `CyberArkComms.psm1` error handling | Assumes Windows PowerShell 5.1's `[System.Net.WebException]` typing for HTTP error responses. Behavior if this project is ever run under PowerShell 7/`pwsh` (where the underlying exception types differ) is untested and likely broken, even though the project is documented as Windows PowerShell 5.1 only. | Confirm the driver is never launched with `pwsh.exe`; consider adding an explicit version guard at startup if this risk needs closing. |
+| K02 | Profile switching + `IgnoreSSL` | The SSL certificate validation bypass this profile setting enables is applied process-globally (not scoped to a single profile/session) and is never reset when the user switches from an `IgnoreSSL=$true` profile to a different profile in the same running session. | Test switching from an IgnoreSSL lab profile to a normal profile without restarting the script; confirm whether cert validation is (incorrectly) still bypassed. |
+| K03 | WebView2 + `IgnoreSSL` | The `IgnoreSSL` profile setting appears to have no effect inside the embedded WebView2 browser control used for SAML/OIDC login — certificate validation in that control is governed separately from the setting. | If SAML/OIDC is tested against a lab host with a self-signed or internal CA certificate, confirm whether the WebView2 window shows a cert warning/blocks navigation regardless of `IgnoreSSL`. |
+| K04 | Profile edit vs. active token | At several call sites, a freshly-edited `PVWAUrl` on a profile is not picked up if a token object saved under the old URL is still loaded — the stale `BaseURL` on the token object is used instead of the profile's current value. | Edit a profile's URL, then reuse a still-valid saved token for that profile; confirm which URL is actually called. |
+| K05 | `Groups/Invoke-GroupsList.ps1` `GroupType` filter | Works correctly on Self-Hosted but is silently unusable on ISPSS (see the groupType caution above) with no warning surfaced to the user — a filtered ISPSS query just returns zero rows. | Out of scope for this Self-Hosted pass; flag as a UX follow-up if ISPSS is tested later. |
+| K06 | `Update-SelfHostedAuthToken` | Falls back to an interactive `Read-Host` prompt rather than failing loudly when an expected stored credential is missing from `_RefreshContext`. In an unattended/scheduled context this would hang indefinitely waiting for console input rather than erroring out. | Not relevant to interactive manual testing; flag if this project is ever wrapped for unattended/scheduled use. |
+| K07 | `Invoke-TokenRefresh` (SelfHosted branch) | Missing a `Username` fallback that the ISPSS branch has, for one re-authentication path. | Confirm re-authentication succeeds for all 8 Self-Hosted auth methods (see the Auth manual test section below) even when `Username` isn't pre-populated on the profile. |
 
 ---
 
@@ -304,26 +492,38 @@ Design reference: `Docs\Add-Safe-From-Template-Design.md`. Test file:
 
 ---
 
-## Get-AuthToken.ps1 — Manual Integration Test Procedures
+## Self-Hosted Auth — Manual Integration Test Procedures
 
-Unit testing is not feasible for this script (browser auth flows, DPAPI, interactive prompts).
-Run these procedures manually against a lab environment.
+`Auth/Get-AuthToken.ps1` was a dead legacy shim (see Findings F10 above) and has been deleted; the
+current auth surface for this pass is `Auth/CyberArk.Auth.SelfHosted.psm1` (plus the shared
+`CyberArk.Auth.Common.psm1` for token persistence, WebView2, and profile I/O). Unit testing is not
+feasible for these modules (browser auth flows, DPAPI, interactive prompts, live directory/PKI
+dependencies) — run these procedures manually against the live Self-Hosted lab host for **all 8**
+Self-Hosted auth methods. **SAML, OIDC, PKI, and PKIPN are the highest-risk methods** for this pass:
+they depend on the WebView2 runtime, a real IdP, or a real certificate/smart-card being present in
+the test environment, none of which can be simulated, and (per K03 above) `IgnoreSSL` is known not
+to reliably apply inside the WebView2 control used by SAML/OIDC.
 
 | # | Test Case | Pass Criteria |
 |---|---|---|
-| A01 | ISPSS — ClientCredentials | Token returned; `SystemType=ISPSS`; Expiry ~1h from now |
-| A02 | ISPSS — Interactive (WebView2) | Browser opens; login completes; token returned |
-| A03 | SelfHosted — CyberArk auth | Token returned; `SystemType=SelfHosted` |
-| A04 | SelfHosted — LDAP auth | Token returned with LDAP method |
-| A05 | SelfHosted — PKI cert auth | Correct cert selected; token returned |
-| A06 | Save-AuthToken | Profile XML created in `%APPDATA%\IdiraUnifiedScripts\Profiles\` |
-| A07 | Import-AuthToken — valid token | Token object returned with all fields |
-| A08 | Import-AuthToken — expired | `IsExpired` flag present |
-| A09 | Import-AuthToken — AutoRefresh | New token obtained for ClientCredentials |
-| A10 | Get-AuthTokenProfiles | All saved profiles listed |
-| A11 | Remove-AuthTokenProfile | Both JSON and XML deleted |
-| A12 | IgnoreSSL — self-signed cert environment | No SSL error |
-| A13 | Import-AuthToken — Created field | Returned token's `Created` equals the `.cred` file's persisted `SavedAt`, not the load time; re-saving via `Save-AuthToken` after a refresh updates `SavedAt`/`Created` to the refresh time |
+| A01 | SelfHosted — CyberArk auth | Token returned; `SystemType=SelfHosted`; `TokenType=CyberArkSession`; `Authorization` header has no `Bearer` prefix |
+| A02 | SelfHosted — LDAP auth | Token returned with `AuthMethod=LDAP` |
+| A03 | SelfHosted — RADIUS auth | Token returned with `AuthMethod=RADIUS`; if the RADIUS server requires a challenge/response (e.g. a one-time passcode), confirm the prompt flow completes |
+| A04 | SelfHosted — Shared auth | Token returned with `AuthMethod=Shared` |
+| A05 | SelfHosted — PKI cert auth (**high risk**) | Correct cert selected via `Get-FilteredClientCertificate`; token returned; requires a real client certificate installed in the test environment's cert store |
+| A06 | SelfHosted — PKIPN auth (**high risk**) | Same as A05 but via PIN-protected smart card/token; requires physical/virtual smart-card hardware |
+| A07 | SelfHosted — SAML auth (**high risk**) | WebView2 window opens; IdP login completes; token captured via cookie/redirect detection; confirm behavior if the lab host uses a self-signed cert (see K03) |
+| A08 | SelfHosted — OIDC auth (**high risk**) | Same as A07 but OIDC flow; confirm token exchange completes and `Token`/`TokenType` are populated correctly |
+| A09 | Save-AuthToken | `.cred` file created/updated under the profile's token storage location |
+| A10 | Import-AuthToken — valid token | Token object returned with all fields (`Token`, `TokenType`, `Headers`, `Expiry`, `SystemType`, `AuthMethod`, `BaseURL`, `Created`, etc.) |
+| A11 | Import-AuthToken — expired token on disk | Caller correctly detects expiry (session age > `$script:PVWA_SESSION_EXPIRY_MIN`) and triggers re-authentication rather than using a dead token |
+| A12 | Update-SelfHostedAuthToken — silent re-auth path | Confirm this uses the stored `_RefreshContext` credentials without prompting, for auth methods where that's expected; cross-check against K06 (Read-Host fallback if the context is missing) |
+| A13 | Get-AuthTokenProfiles | All saved profiles listed |
+| A14 | Remove-AuthTokenProfile | Token file removed; profile no longer resolves a stored token |
+| A15 | IgnoreSSL — self-signed cert environment, non-WebView2 methods (CyberArk/LDAP/RADIUS/Shared/PKI/PKIPN) | No SSL error |
+| A16 | Import-AuthToken — Created field | Returned token's `Created` equals the token file's persisted save time, not the load time; re-saving via `Save-AuthToken` after a refresh updates `Created` to the refresh time |
+| A17 | `Invoke-SelfHostedKeepalive` persists extended expiry (Findings F08) | After a keepalive call (`GET /API/LoggedOnUser`), confirm the on-disk token file's expiry is updated, not just the in-memory session token |
+| A18 | Logoff | `POST /API/auth/Logoff` called on exit (D12); confirm the PVWA session is actually invalidated server-side (a captured token can no longer be used) |
 
 ---
 
@@ -353,6 +553,73 @@ Run these procedures manually against a lab environment.
 | D20 | Logon with a valid, recently-saved token (`Created` < 15 min ago) | No refresh message; token loaded directly, unchanged from today's behavior |
 | D21 | Any module call returns HTTP 401 with a message that does NOT contain the word "401" or "Unauthorized" | Session is still invalidated — re-auth prompt appears on the next action, same as a normally-worded 401 |
 | D22 | Any module call fails with a genuine network error (`StatusCode 0`) | Session is also invalidated (by design, since `IsFatal` covers both cases) — re-auth prompt appears; confirm this is the intended tradeoff, not a regression |
+| D23 | **(Findings F09)** Stay inside a single category and perform several actions in a row, spanning past a keepalive interval, without ever returning to the category menu | Inactivity check, proactive refresh, and token-expiry (`Expired`/`Warning`) handling all fire correctly from *inside* the action loop, not only when returning to the category menu — this is a fix made this session and was previously broken |
+| D24 | **(Findings F08)** Trigger a keepalive (`Invoke-SelfHostedKeepalive`) by staying logged in past the keepalive threshold, then kill the process (e.g. close the console) without a clean exit, then relaunch | The reloaded token's expiry reflects the keepalive-extended session, not the original pre-keepalive expiry — confirms the extended expiry was actually persisted to disk, not just held in memory |
+| D25 | Full session using a live Self-Hosted profile end-to-end: profile creation → auth → category menu → several module actions across categories → inactivity warning → idle past timeout → re-auth → exit | No unhandled exceptions; log file contains a coherent full-session narrative; summary block at exit reflects all actions taken |
+
+---
+
+## Self-Hosted Full Functional Checklist
+
+This is the master checklist for the live functional pass against `https://pvwa.company.com`
+(or whichever Self-Hosted lab host is in use). It enumerates every module action in the project.
+For each, run it at least once against the live host with realistic input (including at least one
+CSV-batch run where the module supports one), confirm the result matches what's actually in the
+Vault/PVWA (not just that the tool reported success), and note the PVWA version under test — see
+the caution section above for why version matters for Platforms/SafeMembers field-shape
+differences.
+
+Use a **dedicated test Safe and test accounts** for every write action (Add/Update/Delete/Change/
+Reconcile/etc.) — never point a write action at production data.
+
+### Auth (see the dedicated Self-Hosted Auth section above for the full A01-A18 procedures)
+- [ ] All 8 auth methods: CyberArk, LDAP, RADIUS, Shared, PKI, PKIPN, SAML, OIDC
+- [ ] Token save/load/refresh/keepalive/logoff lifecycle
+
+### Accounts (17 actions)
+- [ ] Add · [ ] CancelCpmTask · [ ] ChangeImmediate · [ ] ChangeInVault (confirm F02 masking) ·
+      [ ] CheckIn · [ ] Delete · [ ] Get · [ ] GetActivity · [ ] GetCredential · [ ] LinkAccount ·
+      [ ] List (incl. By-Safe mode, confirm 20K cap behavior) · [ ] Reconcile ·
+      [ ] ResumeAutoManagement · [ ] UnlinkAccount · [ ] Unlock · [ ] Update (JSON Patch) · [ ] Verify
+
+### Safes (9 actions)
+- [ ] Add · [ ] AddFromTemplate (T01-T24 scenarios) · [ ] AssignCPM (confirm live CPM query) ·
+      [ ] Delete · [ ] Get · [ ] List (confirm F05 ExtendedDetails CSV-boolean fix) ·
+      [ ] UnassignCPM · [ ] Update
+
+### SafeMembers (6 actions)
+- [ ] Add (confirm SearchIn directory picker lists real LDAP directories) ·
+      [ ] AddFromTemplateRole · [ ] List · [ ] Remove · [ ] Update · [ ] UpdateFromTemplateRole
+
+### Platforms (2 actions)
+- [ ] Get · [ ] List (confirm F06 field-fallback fix against this PVWA version's actual response shape)
+
+### Users (2 actions)
+- [ ] Get · [ ] List
+
+### Groups (7 actions)
+- [ ] Add · [ ] AddMember · [ ] Delete · [ ] GetMembers · [ ] List (confirm GroupType filter works
+      correctly on Self-Hosted, unlike ISPSS) · [ ] RemoveMember · [ ] Update
+
+### Applications (SelfHosted only — 7 actions)
+- [ ] Add · [ ] AddAuthMethod · [ ] Delete · [ ] DeleteAuthMethod · [ ] Get ·
+      [ ] List (confirm F01 trailing-slash / PIMServices.svc routing fix) · [ ] ListAuthMethods
+
+### Reports (SelfHosted only — 1 action)
+- [ ] List (confirm F04 sparse-field guards against a real report with missing fields, if any exist)
+
+### Custom (5 actions)
+- [ ] ExportAll · [ ] ExportEntitlements · [ ] ExportGroupMembersLDAP (requires AD line-of-sight) ·
+      [ ] ExportGroupMembersLocal (confirm F07 groupType quirk fix, though Self-Hosted may not
+      exhibit the ISPSS quirk at all — confirm normal local-group export still works) ·
+      [ ] TestApi (manual smoke test — no unit test exists for this module)
+
+### Driver-level (Manage-Privilege.ps1)
+- [ ] D01-D25 (see Manage-Privilege.ps1 manual test procedures above, including new D23-D25)
+- [ ] CSV template generation for every module that accepts CSV input
+- [ ] List drill-down (select a row number from any List result to open its Get/Details view)
+- [ ] WhatIf mode toggled on, confirm every write action across every category is suppressed and logged
+- [ ] Structured logging: confirm no secrets appear in the log file at any level (spot-check F02's fix)
 
 ---
 
@@ -367,3 +634,4 @@ Run these procedures manually against a lab environment.
 | 2026-08-20 | Noted that the new HTTP 504 retry loop in Invoke-CyberArkAPI (CyberArkComms.psm1) is not covered by an automated unit test, for the same reason the 429 retry loop isn't - recommend manual verification |
 | 2026-08-20 | Added Invoke-SafeMembersAddFromTemplateRole.ps1 and Invoke-SafeMembersUpdateFromTemplateRole.ps1 to Component Test Matrix (44 tests: ATR01-ATR23, UTR01-UTR21) |
 | 2026-08-20 | Added A13 (Import-AuthToken Created field) and D19-D22 (logon-phase age refresh, unconditional 401 invalidation including network-error side effect) manual test procedures |
+| 2026-09-02 | Full Self-Hosted-focused review and rewrite: added the Self-Hosted vs. ISPSS scope/caution section; replaced the stale Component Test Matrix with a complete matrix of every module in the project; added the Findings and Fixes section (F01-F11, covering the Join-CyberArkUrl trailing-slash fix, JSON-key secret-masking fix, ApplicationsAdd TryParse validation, ReportsList strict-mode property guards, five CSV-boolean cast fixes, PlatformsList field-fallback fix, ExportGroupMembersLocal ISPSS-groupType fix, two Manage-Privilege.ps1 driver fixes, and the dead Get-AuthToken.ps1 deletion); added the Known Issues / Risk Register (K01-K07, none fixed this pass); replaced the stale Get-AuthToken.ps1-referencing auth test section with a Self-Hosted Auth section covering all 8 auth methods (A01-A18); added D23-D25 driver test cases for the two new driver fixes; added the Self-Hosted Full Functional Checklist enumerating all ~55 module actions plus driver-level checks for the live test pass |
