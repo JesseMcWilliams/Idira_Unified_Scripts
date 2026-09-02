@@ -115,7 +115,7 @@ function Invoke-AccountsResumeAutoManagement {
             -Token       $Token `
             -Method      'GET' `
             -Endpoint    '/API/Accounts' `
-            -QueryParams @{ filter = "safeName eq $targetSafe"; limit = 1000 }
+            -QueryParams @{ filter = (New-CyberArkSearchFilter -Criteria @{ safeName = $targetSafe }); limit = 1000 }
 
         if (-not $lookupResp.IsSuccess) {
             $msg = "Account lookup failed (HTTP $($lookupResp.StatusCode)): $($lookupResp.ErrorMessage)"

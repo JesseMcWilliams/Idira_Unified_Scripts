@@ -60,4 +60,28 @@ Describe 'Invoke-AccountsCancelCpmTask' {
         }
     }
 
+    Context 'Safe name with spaces (AccountName+Safe lookup)' {
+        It 'quotes the safe name in the filter expression, matching psPAS''s ConvertTo-FilterString behavior' {
+            # Regression test: a raw "safeName eq $targetSafe" string interpolation (this
+            # module's original implementation) sends an unquoted value for a multi-word safe
+            # name, which CyberArk's filter grammar requires to be wrapped in double quotes
+            # (URL-encoded to %22) - confirmed against psPAS's own ConvertTo-FilterString.ps1.
+            # Fixed by routing through the shared, already-tested New-CyberArkSearchFilter
+            # helper instead of building the filter string inline.
+            $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $capturedQueryParams = $null
+            Mock Invoke-CyberArkAPI {
+                param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+                if ($Method -eq 'GET') {
+                    Set-Variable -Name capturedQueryParams -Value $QueryParams -Scope Script
+                    [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{ value = @() } }
+                } else {
+                    [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $null }
+                }
+            }
+            Invoke-AccountsCancelCpmTask -Token $token -InputData @{ AccountName = 'svc-account'; Safe = 'My Safe' } | Out-Null
+            $script:capturedQueryParams['filter'] | Should -Be 'safeName eq "My Safe"'
+        }
+    }
+
 }
