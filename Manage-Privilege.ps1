@@ -2052,18 +2052,18 @@ function Invoke-ActionModule {
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {
         Write-Host "  Result: $($result.Successes) succeeded, $($result.Failures) failed." -ForegroundColor Green
         if ($result.Results.Count -gt 0) {
-            $tableData = if ($meta.Action -eq 'List') {
+            $tableData = @(if ($meta.Action -eq 'List') {
                 $n = 1
                 @($result.Results | ForEach-Object {
                     $props = [ordered]@{ '#' = $n++ }
                     foreach ($p in $_.PSObject.Properties) { $props[$p.Name] = $p.Value }
                     [PSCustomObject]$props
                 })
-            } else { @($result.Results) }
-            $displayData = if ($truncateDisplay -and $tableData.Count -gt $displayLimit) {
+            } else { @($result.Results) })
+            $displayData = @(if ($truncateDisplay -and $tableData.Count -gt $displayLimit) {
                 Write-Host "  Showing first $displayLimit of $($result.Results.Count) results. (Change 'Display Limit' in Profile Settings)" -ForegroundColor DarkGray
                 $tableData[0..($displayLimit - 1)]
-            } else { $tableData }
+            } else { $tableData })
             $displayData | Format-Table -AutoSize | Out-String |
                 Where-Object { $_.Trim() } |
                 ForEach-Object { Write-Host "  $_" }

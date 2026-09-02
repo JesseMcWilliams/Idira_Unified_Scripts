@@ -1364,6 +1364,30 @@ a function call, wrap the *entire* right-hand expression in `@(...)` - never jus
 that happens to have content, and never assume a bare `@()` literal is safe just because it
 looks like an array.
 
+**A second manifestation, found later via a live user report: exactly one item collapses to a
+bare scalar, not `$null`, and this happens even with no `[array]` type constraint at all.**
+`Manage-Privilege.ps1`'s `Invoke-ActionModule` built the results table with `$tableData = if
+($meta.Action -eq 'List') { @(...) } else { @($result.Results) }` (no `[array]` cast on the
+left-hand side). When a List action returned exactly one row, `$tableData` did not become a
+one-element array - it became the single `[PSCustomObject]` itself, because PowerShell
+auto-unrolls the `if` block's one-item array output onto the pipeline as a single object, and
+the assignment then captures that lone object as-is. `$tableData.Count` on the next line then
+threw `PropertyNotFoundException` under `Set-StrictMode` - reported directly by the user as
+"List Accounts gives this error when there is 1 result." Confirmed the collapse and the fix in
+real `powershell.exe` (Windows PowerShell 5.1, the project's actual runtime), not `pwsh`
+(PowerShell 7+): PS7 silently masked this exact case, since PS7 added a synthetic `Count`
+property (returning `1`) to every scalar object as a convenience - `.Count` on the collapsed
+scalar returns `1` without error there, hiding the bug entirely in a PS7 test session even
+though the type is still wrong (`-is [array]` is `$false`). The fix was the same as 9.8's:
+wrap the *entire* `if/else` in one outer `@(...)`, e.g. `$tableData = @(if (...) {...} else
+{...})` - no `[array]` cast was needed once the outer wrap was added. A second, identical
+assignment two lines later (`$displayData = if (...) {$tableData[...]} else {$tableData}`) had
+the same latent bug and was fixed the same way, even though it hadn't been reported yet.
+**Rule, extended:** don't reach for `pwsh`/PowerShell 7 to "quickly check" a suspected
+collection-collapse bug in this codebase - it has engine-level behavior differences from the
+Windows PowerShell 5.1 this project actually ships on that can make a real bug look fixed when
+it isn't. Reproduce and verify strict-mode collection bugs with `powershell.exe`.
+
 ---
 
 ### 9.9 Unit tests for individual API modules do not run under `Set-StrictMode` - and that hid the bug above
