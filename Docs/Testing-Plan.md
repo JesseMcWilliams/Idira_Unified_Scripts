@@ -45,16 +45,24 @@ Every API module declares `$ModuleMeta.SupportedSystems` as `@('SelfHosted')`,
 `@('ISPSS')`, or `@('ISPSS', 'SelfHosted')` (dual-use). As of this revision (post Phase 0-2 of
 `aPePAS-Improvement-Plan-2026-09-02.md` — see `Documentation-Tracker.md` for the full history):
 
-- **SelfHosted-only (3 modules):** `Platforms/Invoke-PlatformsRename.ps1` (confirmed via psPAS's
-  explicit version/platform assertion — a PVWA 15.0+ feature) and the entire new `Policies`
-  category (`GetMasterPolicy`, `SetMasterPolicy` — confirmed the same way, PVWA 14.6+). These are
-  hidden from the menu entirely for an ISPSS profile.
-  - **`Applications` (7 modules) and `Reports/Invoke-ReportsList.ps1` are no longer
-    Self-Hosted-only** — a prior revision of this document listed them here, but Phase 1 (this
-    session) confirmed both actually work on ISPSS too and expanded `SupportedSystems`
-    accordingly. They're listed in the dual-use set below now.
-- **Dual-use (the remaining 62 of 65 total modules, across Accounts, Safes, SafeMembers, Platforms
-  (8 of its 9 actions), Applications, Reports, Users, Groups, Custom):** declared to support both
+- **SelfHosted-only (4 modules):** `Platforms/Invoke-PlatformsRename.ps1` (confirmed via psPAS's
+  explicit version/platform assertion — a PVWA 15.0+ feature), the entire new `Policies`
+  category (`GetMasterPolicy`, `SetMasterPolicy` — confirmed the same way, PVWA 14.6+), and
+  `Reports/Invoke-ReportsList.ps1`. These are hidden from the menu entirely for an ISPSS profile.
+  - **`Reports/Invoke-ReportsList.ps1` is Self-Hosted-only again** — Phase 1 (earlier this
+    session) had expanded it to dual-use based on psPAS's own comparison review claiming ISPSS
+    support from v14.6+, but the user tested it live against an ISPSS/Privilege Cloud tenant on
+    2026-09-02 and got an HTTP 404 (`GET /API/Reports` does not exist there). Reverted to
+    `SupportedSystems = @('SelfHosted')`.
+  - **`Applications` (all 7 modules) are confirmed dual-use** — the user tested the ISPSS
+    Applications menu on 2026-09-02: only `Add` was visible (it was the only one already marked
+    dual-use), confirming the other 6 (`AddAuthMethod`, `Delete`, `DeleteAuthMethod`, `Get`,
+    `List`, `ListAuthMethods`) had been Self-Hosted-only in error. All 7 now declare
+    `SupportedSystems = @('ISPSS', 'SelfHosted')`. Only menu visibility has been confirmed on
+    ISPSS for the 6 newly-expanded modules — their actual request/response behavior against a
+    live ISPSS tenant remains unverified (see the checklist below).
+- **Dual-use (the remaining 61 of 65 total modules, across Accounts, Safes, SafeMembers, Platforms
+  (8 of its 9 actions), Applications, Users, Groups, Custom):** declared to support both
   platforms,
   but **ISPSS coverage for most of this set has not been fully tested** — most of the deep,
   iterative bug-fixing history in `Documentation-Tracker.md` was driven by Self-Hosted testing/use.
@@ -193,14 +201,14 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | Platforms / List | Yes | `Unit\Invoke-PlatformsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the alternate-field-name fallback and `SystemType` filter noted here are covered by that confirmation) |
 | Platforms / Remove | Yes | `Unit\Invoke-PlatformsRemove.Tests.ps1` | Yes — destructive; test against a disposable sandbox platform only, same caveat as Copy otherwise |
 | Platforms / SetPSMConfig | Yes | `Unit\Invoke-PlatformsSetPSMConfig.Tests.ps1` | Yes — same caveat as Copy; needs a real PSM server ID from the test tenant |
-| Applications / Add | Yes | `Unit\Invoke-ApplicationsAdd.Tests.ps1` | Yes — confirm the ISPSS path now that `SupportedSystems` includes it (Phase 1, this session — was Self-Hosted-only before) |
-| Applications / AddAuthMethod | Yes | `Unit\Invoke-ApplicationsAddAuthMethod.Tests.ps1` | Yes |
-| Applications / Delete | Yes | `Unit\Invoke-ApplicationsDelete.Tests.ps1` | Yes |
-| Applications / DeleteAuthMethod | Yes | `Unit\Invoke-ApplicationsDeleteAuthMethod.Tests.ps1` | Yes |
-| Applications / Get | Yes | `Unit\Invoke-ApplicationsGet.Tests.ps1` | Yes |
-| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the `Join-CyberArkUrl` trailing-slash/PIMServices.svc routing fix noted here is covered by that confirmation) |
-| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Yes — **not** covered by the "all List actions confirmed" status below, since its `Action` is `ListAuthMethods`, not `List`. The blank-`AppID`-lists-every-application behavior (added this session, per user request) is new and unverified against a real host |
-| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the ISPSS-`SupportedSystems` expansion noted here is Self-Hosted-confirmed only; ISPSS itself remains unverified per the caution section) |
+| Applications / Add | Yes | `Unit\Invoke-ApplicationsAdd.Tests.ps1` | **Confirmed (2026-09-02)** — the only Applications action the user found visible/working on the ISPSS Applications menu, confirming its earlier dual-use `SupportedSystems` |
+| Applications / AddAuthMethod | Yes | `Unit\Invoke-ApplicationsAddAuthMethod.Tests.ps1` | Menu visibility only — user's 2026-09-02 ISPSS test showed this action missing from the menu (it was still Self-Hosted-only); now expanded to dual-use. Actual ISPSS request/response behavior is unverified |
+| Applications / Delete | Yes | `Unit\Invoke-ApplicationsDelete.Tests.ps1` | Menu visibility only — same 2026-09-02 finding and expansion as AddAuthMethod above; ISPSS request/response behavior unverified |
+| Applications / DeleteAuthMethod | Yes | `Unit\Invoke-ApplicationsDeleteAuthMethod.Tests.ps1` | Menu visibility only — same 2026-09-02 finding and expansion as AddAuthMethod above; ISPSS request/response behavior unverified |
+| Applications / Get | Yes | `Unit\Invoke-ApplicationsGet.Tests.ps1` | Menu visibility only — same 2026-09-02 finding and expansion as AddAuthMethod above; ISPSS request/response behavior unverified |
+| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | **Confirmed (2026-09-02) on Self-Hosted** (the `Join-CyberArkUrl` trailing-slash/PIMServices.svc routing fix noted here is covered by that confirmation). On ISPSS, only menu visibility was confirmed the same day — it had been Self-Hosted-only and is now expanded to dual-use; ISPSS request/response behavior is unverified |
+| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Self-Hosted: Yes — **not** covered by the "all List actions confirmed" status below, since its `Action` is `ListAuthMethods`, not `List`. The blank-`AppID`-lists-every-application behavior (added this session, per user request) is new and unverified against a real host. On ISPSS, only menu visibility was confirmed 2026-09-02 — it had been Self-Hosted-only and is now expanded to dual-use; ISPSS request/response behavior is unverified |
+| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | **Confirmed Self-Hosted-only (2026-09-02)** — the user tested this live against an ISPSS/Privilege Cloud tenant and got an HTTP 404 (`GET /API/Reports` doesn't exist there), reversing Phase 1's dual-use expansion. `SupportedSystems` reverted to `@('SelfHosted')`; the module is now hidden from the ISPSS menu entirely |
 | Users / Get | Yes | `Unit\Invoke-UsersGet.Tests.ps1` | Yes |
 | Users / List | Yes | `Unit\Invoke-UsersList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | Groups / Add | Yes | `Unit\Invoke-GroupsAdd.Tests.ps1` | Yes |
@@ -653,8 +661,9 @@ Reconcile/etc.) — never point a write action at production data.
       [x] List (confirm GroupType filter works correctly on Self-Hosted, unlike ISPSS —
       **confirmed 2026-09-02**) · [ ] RemoveMember · [ ] Update
 
-### Applications (7 actions — no longer Self-Hosted-only, see caution section)
-- [ ] Add (confirm `Location` is now enforced as mandatory, Phase 1 this session) ·
+### Applications (7 actions — dual-use, see caution section)
+- [x] Add (confirm `Location` is now enforced as mandatory, Phase 1 this session — **confirmed
+      2026-09-02**, the only Applications action visible on the ISPSS menu before this pass) ·
       [ ] AddAuthMethod · [ ] Delete · [ ] DeleteAuthMethod · [ ] Get ·
       [x] List (confirm F01 trailing-slash / PIMServices.svc routing fix — **confirmed
       2026-09-02**) ·
@@ -662,11 +671,17 @@ Reconcile/etc.) — never point a write action at production data.
       methods for every application instead of failing - **not** covered by the "List confirmed"
       status above, since its `Action` is `ListAuthMethods`; this new blank-App-ID behavior is
       unverified against a real host)
+- AddAuthMethod, Delete, DeleteAuthMethod, Get, List, and ListAuthMethods were expanded from
+  Self-Hosted-only to dual-use on 2026-09-02, after the user found only Add visible on the ISPSS
+  Applications menu — confirming the other 6 had been Self-Hosted-only in error. Only ISPSS menu
+  visibility has been confirmed for these 6; their actual ISPSS request/response behavior is
+  unverified.
 
-### Reports (1 action — no longer Self-Hosted-only, see caution section)
+### Reports (1 action — Self-Hosted only, see caution section)
 - [x] List (confirm F04 sparse-field guards against a real report with missing fields, if any
-      exist — **confirmed 2026-09-02**, Self-Hosted only; ISPSS remains unverified per the
-      caution section)
+      exist — **confirmed 2026-09-02**, Self-Hosted only. Also confirmed 2026-09-02 that this
+      endpoint 404s on ISPSS/Privilege Cloud — `SupportedSystems` reverted to Self-Hosted-only,
+      reversing Phase 1's dual-use expansion)
 
 ### Custom (6 actions)
 - [ ] ExportAll (per user request, this session, now also runs Applications/ListAuthMethods -
@@ -709,3 +724,4 @@ Reconcile/etc.) — never point a write action at production data.
 | 2026-09-02 | Added a note to the Accounts checklist flagging the `filter=safeName eq ...` space-quoting fix (16 files, confirmed against psPAS's `ConvertTo-FilterString.ps1`) as needing live verification against a safe name containing a space - not yet exercised against a real tenant |
 | 2026-09-02 | Per user report, marked every `Action = 'List'` module (Accounts, Safes, SafeMembers, Platforms, Users, Groups, Applications, Reports - 8 modules) as confirmed against a real Self-Hosted host in both the Component Test Matrix and the Full Functional Checklist. `Applications/ListAuthMethods` and `Custom/ExportAll` were explicitly called out as **not** covered by this confirmation - `ListAuthMethods`'s `Action` isn't literally `List`, and both gained new, unverified behavior this same session (see next entry) |
 | 2026-09-02 | Per user request: `Invoke-ApplicationsListAuthMethods.ps1`'s `AppID` is now optional - leaving it blank lists auth methods for every application instead of failing with "AppID is required". `Invoke-CustomExportAll.ps1` was updated to discover and run it alongside every `List` action, so Export All now includes it automatically. Both changes are new this session and unverified against a real host - added to the Applications and Custom checklist sections above |
+| 2026-09-02 | Per user report from live ISPSS testing: `Reports/Invoke-ReportsList.ps1` 404s on ISPSS/Privilege Cloud, reversing Phase 1's dual-use expansion - `SupportedSystems` reverted to `@('SelfHosted')`. Separately, the user found only `Applications/Add` visible on the ISPSS Applications menu, confirming the other 6 Applications modules (`AddAuthMethod`, `Delete`, `DeleteAuthMethod`, `Get`, `List`, `ListAuthMethods`) had been left Self-Hosted-only in error - all 7 Applications modules now declare `SupportedSystems = @('ISPSS', 'SelfHosted')`. Updated the Self-Hosted vs. ISPSS caution section (SelfHosted-only count 3 -> 4, dual-use count 62 -> 61 of 65), the Component Test Matrix rows for Reports/List and all 7 Applications modules, and the Full Functional Checklist's Applications and Reports section headings and notes accordingly. Only ISPSS menu visibility has been confirmed for the 6 newly-expanded Applications modules; their actual ISPSS request/response behavior remains unverified |

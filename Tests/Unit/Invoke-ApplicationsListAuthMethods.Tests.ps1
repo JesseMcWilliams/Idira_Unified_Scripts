@@ -47,6 +47,12 @@ Describe 'ModuleMeta' {
     It 'AM01 - AppID is optional in InputSchema' {
         (($ModuleMeta.InputSchema | Where-Object { $_.Column -eq 'AppID' }).Required) | Should -BeFalse
     }
+
+    It 'AM01a - SupportedSystems includes both SelfHosted and ISPSS' {
+        $ModuleMeta.SupportedSystems | Should -Contain 'SelfHosted'
+        $ModuleMeta.SupportedSystems | Should -Contain 'ISPSS'
+        $ModuleMeta.SupportedSystems.Count | Should -Be 2
+    }
 }
 
 Describe 'Invoke-ApplicationsListAuthMethods - single AppID (unchanged behavior)' {
