@@ -290,6 +290,14 @@ function Invoke-CyberArkAPI {
     if (-not $Uri) {
         if (-not $Endpoint) { throw "Either -Endpoint or -Uri must be supplied." }
         $Uri = Join-CyberArkUrl -Base $Token.BaseURL -Segments @($Endpoint)
+        # Join-CyberArkUrl always trims a trailing slash off the joined result (by design -
+        # see CyberArkComms.Tests.ps1 C12). Some endpoints require the trailing slash to be
+        # preserved (the legacy PIMServices.svc WCF REST service used by every Applications
+        # module rejects/misroutes requests without it - see Lessons-Learned-PowerShell-Pester.md
+        # Section 28/Documentation-Tracker.md 2026-08-16 for the history of this exact endpoint
+        # losing its trailing slash). Restore it here, at the call site, based on the caller's
+        # own explicit -Endpoint string, rather than changing Join-CyberArkUrl's generic contract.
+        if ($Endpoint.EndsWith('/') -and -not $Uri.EndsWith('/')) { $Uri += '/' }
     }
 
     # --- WhatIf blocking ---

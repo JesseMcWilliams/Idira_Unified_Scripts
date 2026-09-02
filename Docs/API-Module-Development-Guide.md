@@ -30,7 +30,9 @@ PowerShell/
 │       ├── Invoke-SafeMembersList.ps1
 │       └── Invoke-SafeMembersAdd.ps1
 ├── Auth/
-│   └── Get-AuthToken.ps1
+│   ├── CyberArk.Auth.Common.psm1
+│   ├── CyberArk.Auth.ISPSS.psm1
+│   └── CyberArk.Auth.SelfHosted.psm1
 └── Docs/
     └── API-Module-Development-Guide.md
 ```

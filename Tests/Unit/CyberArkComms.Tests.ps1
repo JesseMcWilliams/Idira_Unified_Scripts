@@ -273,6 +273,36 @@ Describe 'Invoke-CyberArkAPI - success paths (mocked Invoke-WebRequest)' {
         $parsed[0].path    | Should -Be '/name'
         $parsed[0].value   | Should -Be 'X'
     }
+
+    It 'C25b - a trailing slash on -Endpoint is preserved in the request URI (PIMServices.svc requires it)' {
+        $json = '{"application":[]}'
+        $capturedUri = $null
+        Mock Invoke-WebRequest {
+            param($Uri) ; Set-Variable -Name capturedUri -Value $Uri -Scope Script
+            script:New-MockWebResponse -StatusCode 200 -Body $json
+        } -ModuleName 'CyberArkComms'
+
+        Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' `
+            -Endpoint '/WebServices/PIMServices.svc/Applications/' -PageSize 0 | Out-Null
+
+        # Join-CyberArkUrl itself still trims a bare trailing slash (C12) - Invoke-CyberArkAPI
+        # restores it at the call site when the caller's own -Endpoint string ended with '/'.
+        $script:capturedUri | Should -Match '/Applications/(\?|$)'
+    }
+
+    It 'C25c - no trailing slash added when -Endpoint does not end with one' {
+        $json = '{"value":[],"count":0}'
+        $capturedUri = $null
+        Mock Invoke-WebRequest {
+            param($Uri) ; Set-Variable -Name capturedUri -Value $Uri -Scope Script
+            script:New-MockWebResponse -StatusCode 200 -Body $json
+        } -ModuleName 'CyberArkComms'
+
+        Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes' -PageSize 0 | Out-Null
+
+        $script:capturedUri | Should -Match '/API/Safes(\?|$)'
+        $script:capturedUri | Should -Not -Match '/API/Safes/'
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────

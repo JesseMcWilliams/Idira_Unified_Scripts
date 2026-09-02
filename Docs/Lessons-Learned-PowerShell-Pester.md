@@ -2866,3 +2866,76 @@ one item - not just JSON Patch documents. Caught by a new regression test
 (`Tests\Unit\CyberArkComms.Tests.ps1` C25a) that sends a one-op JSON Patch body through the real
 `Invoke-CyberArkAPI` (with only `Invoke-WebRequest` mocked) and asserts the captured request body
 parses back as a one-element array, not a bare object.
+
+---
+
+## 31. `[bool]"false"` Is `$true` — CSV/String Booleans Must Never Be Cast Directly
+
+### 31.1 Casting a CSV cell straight to `[bool]` treats every non-empty string as true
+
+**Root cause:** In .NET/PowerShell, `[bool]` conversion from `[string]` is not a parse of "true" vs
+"false" - it is a check for an empty string. `[bool]"false"`, `[bool]"0"`, and `[bool]"no"` are all
+`$true`, because the string is non-empty. Since every CSV-sourced value arrives as `[string]`, any
+module that wrote `[bool]$row.SomeFlag` directly was silently treating the literal text `false` (and
+`0`, and `no`) from a CSV cell as `$true`. This is easy to miss in testing because a quick manual
+test tends to use the pipeline/interactive path (which may pass a real `[bool]` or omit the flag
+entirely) rather than a CSV file with an explicit `false` row.
+
+**Symptom:** A CSV batch row that explicitly set a boolean-looking column to `false` (or `0`/`no`)
+was processed as if the column were `true`. Found across five independent modules during the
+2026-09-02 Self-Hosted review, all with the identical root cause: `Invoke-ApplicationsAdd.ps1`
+(`Disabled`), `Invoke-ApplicationsAddAuthMethod.ps1` (`IsFolder`, `AllowInternalScripts`),
+`Invoke-ApplicationsList.ps1` (`IncludeSublocations`), `Invoke-PlatformsList.ps1` (`ActiveOnly`),
+and `Invoke-SafesList.ps1` (`ExtendedDetails`).
+
+**Wrong:**
+```powershell
+$disabled = [bool]$row.Disabled   # "false" (string) -> $true
+```
+
+**Correct:**
+```powershell
+$disabled = $row.Disabled -match '(?i)^(true|yes|y|1)$'
+```
+
+**Rule:** Never cast a CSV-sourced (or otherwise string-typed) field directly to `[bool]`. Always
+match it against an explicit truthy pattern. When writing a **new** module, grep the existing
+codebase for `[bool]$` before shipping a boolean CSV field - this is a recurring bug class, not a
+one-off, and every module that accepts a boolean-shaped CSV column is a candidate. Regression tests
+were added to each affected module's test file asserting that the literal CSV string `"false"` is
+NOT treated as true.
+
+### 31.2 A one-off fix at the call site can regress if the underlying helper's contract changes later
+
+The `Join-CyberArkUrl` trailing-slash issue (Section 28) recurred a second time via a different
+mechanism during this same review: the helper's own trailing-slash-trim behavior (added to fix an
+unrelated test regression, C12) silently undid the Section 28 fix for the `Applications` endpoints
+that need the slash preserved (a separate WCF/PIMServices.svc quirk from the dot-in-segment case
+Section 28 covers). The 2026-08-16 history in `Documentation-Tracker.md` shows the slash was added,
+then reverted the same day, and not re-fixed until this session. **Rule:** when a shared helper
+(`Join-CyberArkUrl`, `Invoke-CyberArkAPI`, etc.) changes its general contract to fix one caller's
+regression, check `Documentation-Tracker.md` for any other caller that depended on the old behavior
+before considering the change complete - a fix at the helper level can silently break a fix already
+made at a call site, and vice versa. The current fix restores the trailing slash at the
+`Invoke-CyberArkAPI` call site (keyed off the caller's own `-Endpoint` string) rather than changing
+`Join-CyberArkUrl`'s generic contract again, specifically to avoid re-triggering this cycle.
+
+### 31.3 Secret-masking regexes keyed to a fixed field-name list miss new secret-shaped fields
+
+**Root cause:** `CyberArkLogging.psm1`'s sensitive-data masking only matched a hardcoded set of
+OAuth field names (`access_token`, `refresh_token`, `id_token`). Any other JSON key that is
+secret-shaped by name but not on that list — e.g. `NewCredentials` (the literal new vault password
+in `Invoke-AccountsChangeInVault.ps1`'s request body) — was logged in cleartext at DEBUG/`-FileOnly`
+level.
+
+**Fix:** Added a generic pattern that masks the value of **any** quoted JSON key containing
+`password`, `secret`, `token`, or `credential` (case-insensitive), rather than maintaining a
+fixed list of known field names:
+```powershell
+'(?i)("[^"]*(?:password|secret|token|credential)[^"]*")\s*:\s*"[^"\\]*(?:\\.[^"\\]*)*"'
+```
+
+**Rule:** Prefer a name-pattern match over a fixed field-name list for secret masking. A new API
+module that introduces a new secret-shaped field name (e.g. `NewPassword`, `ClientSecret`,
+`ApiKey`) is automatically covered without needing a corresponding logging-module change, as long
+as the field name contains one of the masked substrings.

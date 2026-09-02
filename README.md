@@ -86,7 +86,6 @@ IdiraUnifiedScripts/
   - CyberArk.Auth.Common.psm1   # Shared auth utilities: token object, WebView2, profile I/O
   - CyberArk.Auth.ISPSS.psm1    # Privilege Cloud / CyberArk Identity authentication
   - CyberArk.Auth.SelfHosted.psm1 # Self-Hosted PVWA authentication
-  - Get-AuthToken.ps1           # Legacy entry point (kept for compatibility)
 - Modules/
   - CyberArkComms.psm1          # REST communication layer (pagination, rate limiting)
   - CyberArkLogging.psm1        # Structured log writer

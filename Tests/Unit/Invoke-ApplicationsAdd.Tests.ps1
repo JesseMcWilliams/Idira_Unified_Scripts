@@ -54,6 +54,46 @@ Describe 'Invoke-ApplicationsAdd' {
         }
     }
 
+    Context 'AccessPermittedFrom / AccessPermittedTo validation' {
+        It 'returns a non-fatal failure (does not throw) when AccessPermittedFrom is not a valid integer' {
+            Mock Invoke-CyberArkAPI { throw 'Should not be called when validation fails' }
+            $token  = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $result = $null
+            { $result = Invoke-ApplicationsAdd -Token $token -InputData @{ AppID = 'NewApp'; AccessPermittedFrom = 'not-a-number' } } |
+                Should -Not -Throw
+            $result.Failures  | Should -Be 1
+            $result.Successes | Should -Be 0
+            $result.IsFatal   | Should -Be $false
+        }
+
+        It 'returns a non-fatal failure (does not throw) when AccessPermittedTo is not a valid integer' {
+            Mock Invoke-CyberArkAPI { throw 'Should not be called when validation fails' }
+            $token  = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $result = $null
+            { $result = Invoke-ApplicationsAdd -Token $token -InputData @{ AppID = 'NewApp'; AccessPermittedTo = '18:00' } } |
+                Should -Not -Throw
+            $result.Failures  | Should -Be 1
+            $result.IsFatal   | Should -Be $false
+        }
+
+        It 'passes valid numeric AccessPermittedFrom/To through as integers in the request body' {
+            $capturedBody = $null
+            Mock Invoke-CyberArkAPI {
+                param($Token, $Method, $Endpoint, $Body, $WhatIf)
+                Set-Variable -Name capturedBody -Value $Body -Scope Script
+                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 201; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{} }
+            }
+            Mock Add-CyberArkLogSummaryEntry {}
+            $token  = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $result = Invoke-ApplicationsAdd -Token $token -InputData @{
+                AppID = 'NewApp'; AccessPermittedFrom = '32400'; AccessPermittedTo = '61200'
+            }
+            $result.Failures | Should -Be 0
+            $script:capturedBody['application']['AccessPermittedFrom'] | Should -Be 32400
+            $script:capturedBody['application']['AccessPermittedTo']   | Should -Be 61200
+        }
+    }
+
     Context 'WhatIf mode' {
         It 'does not call API when WhatIf is set' {
             $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }

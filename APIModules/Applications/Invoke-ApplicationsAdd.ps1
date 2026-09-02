@@ -146,7 +146,12 @@ function Invoke-ApplicationsAdd {
     $accessFrom   = if ($InputData['AccessPermittedFrom']) { "$($InputData['AccessPermittedFrom'])".Trim() } else { '' }
     $accessTo     = if ($InputData['AccessPermittedTo'])   { "$($InputData['AccessPermittedTo'])".Trim()   } else { '' }
     $expDate      = if ($InputData['ExpirationDate'])      { "$($InputData['ExpirationDate'])".Trim()      } else { '' }
-    $disabled     = [bool]$InputData['Disabled']
+    # [bool]$x on a CSV string casts ANY non-empty string to $true, including the literal text
+    # "false"/"no"/"0" - only a truly empty string casts to $false. A CSV author writing
+    # Disabled,false would therefore create the application with Disabled=$true, the opposite
+    # of intent. Match against known truthy tokens instead (also handles a real interactive-mode
+    # [bool] input, since PowerShell stringifies $true/$false to "True"/"False").
+    $disabled     = "$($InputData['Disabled'])".Trim() -match '(?i)^(true|yes|y|1)$'
     $ownerFName   = if ($InputData['BusinessOwnerFName'])  { "$($InputData['BusinessOwnerFName'])".Trim()  } else { '' }
     $ownerLName   = if ($InputData['BusinessOwnerLName'])  { "$($InputData['BusinessOwnerLName'])".Trim()  } else { '' }
     $ownerEmail   = if ($InputData['BusinessOwnerEmail'])  { "$($InputData['BusinessOwnerEmail'])".Trim()  } else { '' }
@@ -163,11 +168,44 @@ function Invoke-ApplicationsAdd {
         return $result
     }
 
+    # AccessPermittedFrom/To arrive as raw CSV/interactive text - validate with TryParse rather
+    # than casting directly with [int], which throws an uncaught exception on a non-numeric value.
+    # Manage-Privilege.ps1's CSV loop (Invoke-CsvProcessing) has no try/catch around the module
+    # call, so an uncaught exception here would abort the entire CSV file's row loop instead of
+    # failing just this one row - the documented "single item validation failure" contract
+    # (Interfaces.md IsFatal table) requires this to be a non-fatal, per-row failure.
+    $parsedAccessFrom = 0
+    if ($accessFrom -and -not [int]::TryParse($accessFrom, [ref]$parsedAccessFrom)) {
+        $msg = "Invoke-ApplicationsAdd: AccessPermittedFrom '$accessFrom' is not a valid integer (epoch seconds)."
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = "AccessPermittedFrom '$accessFrom' is not a valid integer (epoch seconds)."
+            ErrorDetails = $null
+        })
+        $result.Failures++
+        $result.ItemsProcessed++
+        return $result
+    }
+    $parsedAccessTo = 0
+    if ($accessTo -and -not [int]::TryParse($accessTo, [ref]$parsedAccessTo)) {
+        $msg = "Invoke-ApplicationsAdd: AccessPermittedTo '$accessTo' is not a valid integer (epoch seconds)."
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = "AccessPermittedTo '$accessTo' is not a valid integer (epoch seconds)."
+            ErrorDetails = $null
+        })
+        $result.Failures++
+        $result.ItemsProcessed++
+        return $result
+    }
+
     $appBody = @{ AppID = $appId }
     if ($description) { $appBody['Description']         = $description }
     if ($location)    { $appBody['Location']            = $location    }
-    if ($accessFrom)  { $appBody['AccessPermittedFrom'] = [int]$accessFrom }
-    if ($accessTo)    { $appBody['AccessPermittedTo']   = [int]$accessTo   }
+    if ($accessFrom)  { $appBody['AccessPermittedFrom'] = $parsedAccessFrom }
+    if ($accessTo)    { $appBody['AccessPermittedTo']   = $parsedAccessTo   }
     if ($expDate)     { $appBody['ExpirationDate']      = $expDate     }
     $appBody['Disabled'] = $disabled
     if ($ownerFName)  { $appBody['BusinessOwnerFName']  = $ownerFName  }
