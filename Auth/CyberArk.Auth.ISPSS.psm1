@@ -8,6 +8,13 @@ Import-Module (Join-Path $PSScriptRoot 'CyberArk.Auth.Common.psm1') -Force -Glob
 
 $script:PCLOUD_BASE_TEMPLATE = 'https://{0}.privilegecloud.cyberark.cloud/PasswordVault'
 
+# Fallback only - used when Get-PVWASessionTimeoutMinutes (GET {BaseURL}/api/Settings/Timeout)
+# cannot be reached. Privilege Cloud/ISPSS tenants have been observed returning 404 for this
+# endpoint (it's a self-hosted PVWA setting not exposed the same way there), so this fallback
+# is expected to be used routinely on most ISPSS tenants today - it's kept in case CyberArk
+# exposes the setting for some tenants, and to match the Self-Hosted module's pattern.
+$script:ISPSS_SESSION_EXPIRY_HOURS = 4
+
 # CyberArk's documented platform-discovery service - the same endpoint psPAS's
 # Find-SharedServicesURL.ps1 and New-PASSession's ISPSS-Subdomain-* auth path use to resolve
 # a Privilege Cloud subdomain's Identity tenant URL. See Resolve-IdentityTenantURL.
@@ -349,6 +356,10 @@ function Invoke-ISPSSInteractive {
 
     if (-not $token) { throw "Interactive authentication did not return a token." }
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $BaseURL -Token "Bearer $token"
+    $expiry    = if ($expiryMin) { [DateTime]::UtcNow.AddMinutes($expiryMin) }
+                 else { [DateTime]::UtcNow.AddHours($script:ISPSS_SESSION_EXPIRY_HOURS) }
+
     New-AuthTokenObject `
         -Token        $token `
         -TokenType    'Bearer' `
@@ -357,7 +368,7 @@ function Invoke-ISPSSInteractive {
             'X-IDAP-NATIVE-CLIENT' = 'true'
             'Content-Type'         = 'application/json'
         } `
-        -Expiry       ([DateTime]::UtcNow.AddHours(4)) `
+        -Expiry       $expiry `
         -RefreshToken $null `
         -SystemType   'ISPSS' `
         -AuthMethod   'Interactive' `
@@ -390,6 +401,10 @@ function Invoke-ISPSSSO {
     $captured = Invoke-WebView2Window -NavigateUrl $loginUrl -CookieName 'idToken' `
         -Title 'CyberArk Identity SSO Login'
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $BaseURL -Token "Bearer $($captured.Token)"
+    $expiry    = if ($expiryMin) { [DateTime]::UtcNow.AddMinutes($expiryMin) }
+                 else { [DateTime]::UtcNow.AddHours($script:ISPSS_SESSION_EXPIRY_HOURS) }
+
     New-AuthTokenObject `
         -Token        $captured.Token `
         -TokenType    'Bearer' `
@@ -398,7 +413,7 @@ function Invoke-ISPSSSO {
             'X-IDAP-NATIVE-CLIENT' = 'true'
             'Content-Type'         = 'application/json'
         } `
-        -Expiry       ([DateTime]::UtcNow.AddHours(4)) `
+        -Expiry       $expiry `
         -RefreshToken $null `
         -SystemType   'ISPSS' `
         -AuthMethod   'SSO' `

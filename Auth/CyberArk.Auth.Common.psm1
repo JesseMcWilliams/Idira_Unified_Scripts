@@ -61,6 +61,64 @@ function New-AuthTokenObject {
 
 #endregion
 
+#region Session Timeout Discovery
+
+function Get-PVWASessionTimeoutMinutes {
+    <#
+    .SYNOPSIS
+        Queries the PVWA-configured idle session timeout (minutes) for the just-authenticated session.
+    .DESCRIPTION
+        Calls GET {PVWAUrl}/api/Settings/Timeout using the freshly obtained session token. This
+        endpoint exists on self-hosted PVWA (13.2+); Privilege Cloud/ISPSS tenants have been
+        observed returning 404 for it, since the setting isn't exposed the same way there. Returns
+        $null on any failure (missing endpoint, older PVWA, network error, etc.) so callers can fall
+        back to their own hardcoded default - this is a best-effort replacement for a guess, not a
+        hard requirement, and is shared by both the Self-Hosted and ISPSS auth modules.
+    .PARAMETER PVWAUrl
+        Full PVWA/Privilege Cloud base URL including AppName (e.g. .../PasswordVault).
+    .PARAMETER Token
+        The full Authorization header value obtained from logon (e.g. the raw session token for
+        Self-Hosted, or "Bearer <token>" for ISPSS).
+    .PARAMETER IgnoreSSL
+        Bypass SSL certificate validation, matching the logon call's own setting.
+    .OUTPUTS
+        [int] Timeout in minutes, or $null if it could not be determined.
+    #>
+    param(
+        [string]$PVWAUrl,
+        [string]$Token,
+        [switch]$IgnoreSSL
+    )
+
+    $params = @{
+        Uri         = "$PVWAUrl/api/Settings/Timeout"
+        Method      = 'GET'
+        Headers     = @{ Authorization = $Token; 'Content-Type' = 'application/json' }
+        ErrorAction = 'Stop'
+    }
+    if ($IgnoreSSL) {
+        if ($PSVersionTable.PSVersion.Major -ge 6) {
+            $params.SkipCertificateCheck = $true
+        } else {
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+        }
+    }
+
+    try {
+        $result = Invoke-RestMethod @params
+        if ($null -ne $result -and $result.PSObject.Properties['Timeout'] -and $result.Timeout) {
+            Write-Verbose "PVWA-configured idle timeout: $($result.Timeout) minute(s)."
+            return [int]$result.Timeout
+        }
+    } catch {
+        Write-Verbose "Could not retrieve session timeout from '$PVWAUrl' (falling back to default): $_"
+    }
+
+    return $null
+}
+
+#endregion
+
 #region Certificate Picker
 
 function Get-FilteredClientCertificate {
@@ -578,6 +636,7 @@ function Remove-AuthTokenProfile {
 Export-ModuleMember -Function @(
     'ConvertTo-PlainText',
     'New-AuthTokenObject',
+    'Get-PVWASessionTimeoutMinutes',
     'Get-FilteredClientCertificate',
     'Import-WebView2Assembly',
     'Invoke-WebView2Window',

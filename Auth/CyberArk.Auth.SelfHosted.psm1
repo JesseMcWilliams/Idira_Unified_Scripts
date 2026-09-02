@@ -55,57 +55,6 @@ function Invoke-PVWALogon {
     return $result.ToString().Trim('"')
 }
 
-function Get-PVWASessionTimeoutMinutes {
-    <#
-    .SYNOPSIS
-        Queries the PVWA-configured idle session timeout (minutes) for the just-authenticated session.
-    .DESCRIPTION
-        Calls GET {PVWAUrl}/api/Settings/Timeout (PVWA 13.2+) using the freshly obtained session
-        token. Returns $null on any failure (older PVWA without this endpoint, network error, etc.)
-        so callers can fall back to $script:PVWA_SESSION_EXPIRY_MIN - this is a best-effort
-        replacement for a hardcoded guess, not a hard requirement.
-    .PARAMETER PVWAUrl
-        Full PVWA base URL including AppName.
-    .PARAMETER Token
-        The session token value (as sent in the Authorization header) obtained from logon.
-    .PARAMETER IgnoreSSL
-        Bypass SSL certificate validation, matching the logon call's own setting.
-    .OUTPUTS
-        [int] Timeout in minutes, or $null if it could not be determined.
-    #>
-    param(
-        [string]$PVWAUrl,
-        [string]$Token,
-        [switch]$IgnoreSSL
-    )
-
-    $params = @{
-        Uri         = "$PVWAUrl/api/Settings/Timeout"
-        Method      = 'GET'
-        Headers     = @{ Authorization = $Token; 'Content-Type' = 'application/json' }
-        ErrorAction = 'Stop'
-    }
-    if ($IgnoreSSL) {
-        if ($PSVersionTable.PSVersion.Major -ge 6) {
-            $params.SkipCertificateCheck = $true
-        } else {
-            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-        }
-    }
-
-    try {
-        $result = Invoke-RestMethod @params
-        if ($null -ne $result -and $result.PSObject.Properties['Timeout'] -and $result.Timeout) {
-            Write-Verbose "PVWA-configured idle timeout: $($result.Timeout) minute(s)."
-            return [int]$result.Timeout
-        }
-    } catch {
-        Write-Verbose "Could not retrieve session timeout from PVWA (falling back to default): $_"
-    }
-
-    return $null
-}
-
 function Invoke-SelfHostedPasswordAuth {
     param(
         [string]$PVWAUrl,
