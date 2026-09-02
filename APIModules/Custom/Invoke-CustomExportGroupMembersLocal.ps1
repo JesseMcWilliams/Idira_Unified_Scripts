@@ -11,8 +11,12 @@ $ModuleMeta = @{
     ProducesOutput   = $true
     HasCustomInput   = $false
     InputSchema      = @()
+    # Bulk export tool whose whole purpose is producing a CSV - save automatically with no
+    # "Save to CSV?" prompt or file dialog, straight to the default path. See Get-CsvSavePath
+    # and the ProducesOutput handling in Invoke-ActionModule (Manage-Privilege.ps1).
+    AutoSaveCsv      = $true
     Priority         = 82
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Invoke-CustomExportGroupMembersLocal {

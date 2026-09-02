@@ -172,7 +172,11 @@ function Show-FieldPrompt {
 function Get-CsvSavePath {
     param(
         [string]$DefaultFolder,
-        [string]$ModuleName
+        [string]$ModuleName,
+        # When set, skips the save dialog/prompt entirely and returns the computed default
+        # path directly - used by modules whose CSV should save automatically with no user
+        # interaction (see ModuleMeta.AutoSaveCsv).
+        [switch]$AutoSave
     )
     $safeName    = ($ModuleName -replace '[\\/:*?"<>|]', '_').Trim()
     $defaultName = "$safeName $(Get-Date -Format 'yyyy-MM-dd').csv"
@@ -187,6 +191,8 @@ function Get-CsvSavePath {
         $PSScriptRoot
     }
     $defaultPath = Join-Path $defaultDir $defaultName
+
+    if ($AutoSave.IsPresent) { return $defaultPath }
 
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
@@ -2085,9 +2091,16 @@ function Invoke-ActionModule {
     }
 
     if ($meta.ProducesOutput -and $result.Results.Count -gt 0) {
-        $saveCsv = Read-MenuChoice -Prompt 'Save results to CSV? [y/N]'
-        if ($saveCsv -match '^[Yy]') {
-            $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name
+        # AutoSaveCsv modules (bulk export tools whose whole purpose is producing a CSV) save
+        # straight to the default path with no prompt or dialog - see ModuleMeta.AutoSaveCsv.
+        $autoSave = [bool]$meta.AutoSaveCsv
+        $doSave   = $autoSave
+        if (-not $autoSave) {
+            $saveCsv = Read-MenuChoice -Prompt 'Save results to CSV? [y/N]'
+            $doSave  = ($saveCsv -match '^[Yy]')
+        }
+        if ($doSave) {
+            $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name -AutoSave:$autoSave
             if ($csvPath) {
                 $saved = Invoke-FileWriteWithRetry -Path $csvPath -Action {
                     $result.Results | Export-Csv -Path $csvPath -NoTypeInformation -Force

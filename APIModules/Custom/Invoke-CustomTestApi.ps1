@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $false
     InputSchema      = @()
     Priority         = 95
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Invoke-CustomTestApi {
@@ -49,8 +49,17 @@ function Invoke-CustomTestApi {
         try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } } catch {}
     }
 
+    # Strip the trailing /PasswordVault segment from the token's BaseURL - every other
+    # module needs it (PVWA's PasswordVault-scoped REST API), but Test API is meant to let
+    # an admin poke at any endpoint on the host, and a lot of the host's API surface (e.g.
+    # ISPSS Identity/platform-discovery-adjacent endpoints, PVWA endpoints outside the
+    # PasswordVault app) lives outside that path. -Endpoint below still supplies the full
+    # path from root, so this only widens what's reachable - it doesn't change how any
+    # other module builds its own requests.
+    $baseUrl = $Token.BaseURL.TrimEnd('/') -replace '(?i)/PasswordVault$', ''
+
     Write-Host '  Base URL : ' -ForegroundColor DarkGray -NoNewline
-    Write-Host $Token.BaseURL -ForegroundColor Cyan
+    Write-Host $baseUrl -ForegroundColor Cyan
     Write-Host ''
 
     while ($true) {
@@ -112,7 +121,7 @@ function Invoke-CustomTestApi {
         }
 
         # --- Build full URI ---
-        $fullUri = $Token.BaseURL.TrimEnd('/') + $cleanPath
+        $fullUri = $baseUrl + $cleanPath
         if ($cleanPath.TrimEnd('/').Split('/')[-1] -match '\.') { $fullUri += '/' }
         if ($queryString -and $queryString.Trim()) {
             $sep     = if ($fullUri -match '\?') { '&' } else { '?' }

@@ -21,6 +21,12 @@ Describe 'Invoke-CustomExportEntitlements' {
         $script:ActiveProfile = $null
     }
 
+    Context 'ModuleMeta' {
+        It 'AutoSaveCsv is true (bulk export tool - CSV saves with no prompt)' {
+            $ModuleMeta.AutoSaveCsv | Should -BeTrue
+        }
+    }
+
     Context 'Safe list API failure' {
         It 'returns failure result when safe list API call fails' {
             $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }

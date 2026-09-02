@@ -21,6 +21,12 @@ Describe 'Invoke-CustomExportGroupMembersLocal' {
         $script:ActiveProfile = $null
     }
 
+    Context 'ModuleMeta' {
+        It 'AutoSaveCsv is true (bulk export tool - CSV saves with no prompt)' {
+            $ModuleMeta.AutoSaveCsv | Should -BeTrue
+        }
+    }
+
     Context 'Group list API failure' {
         It 'returns failure when group list API fails' {
             $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
