@@ -5,14 +5,14 @@ $ModuleMeta = @{
     Category         = 'Reports'
     Action           = 'List'
     Description      = 'Retrieve CyberArk PVWA reports.'
-    SupportedSystems = @('SelfHosted')
+    SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $false
     AcceptsInputFile = $false
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @()
     Priority         = 70
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-ReportsListInput {

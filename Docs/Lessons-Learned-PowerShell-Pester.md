@@ -2939,3 +2939,55 @@ fixed list of known field names:
 module that introduces a new secret-shaped field name (e.g. `NewPassword`, `ClientSecret`,
 `ApiKey`) is automatically covered without needing a corresponding logging-module change, as long
 as the field name contains one of the masked substrings.
+
+## 32. `{ $result = Call-Something } | Should -Not -Throw` Never Assigns `$result` in the Outer Scope
+
+**Root cause:** Piping a scriptblock into `Should -Not -Throw` runs that scriptblock in a child
+scope, the same way any scriptblock invoked via the pipeline does in PowerShell. An assignment
+inside it (`$result = Invoke-Something ...`) sets a new variable in that child scope and does not
+write back to the `$result` already declared in the enclosing `It` block - regardless of whether
+`Set-StrictMode` is active. This reproduces with a trivial repro, no Pester test needed:
+```powershell
+function Test-Foo { return [PSCustomObject]@{ Failures = 1 } }
+$result = $null
+{ $result = Test-Foo } | Should -Not -Throw
+$result.Failures   # $null, not 1 - the assignment never left the scriptblock's scope
+```
+
+**Symptom:** Without `Set-StrictMode`, `$result.Failures` on the still-`$null` `$result` silently
+evaluates to `$null`, so a `Should -Be 1` assertion right after it fails with a comparison mismatch
+that looks like a genuine functional bug rather than a scoping mistake. Under `Set-StrictMode
+-Version Latest` (which `Tests\Run-Tests.ps1` sets globally but no individual test file does), the
+same `$null.Failures` throws `PropertyNotFoundException` instead - which is the exact "fails only in
+the full suite, passes in isolation" signature this file already documents in Section 9.9, and three
+separate `Invoke-ApplicationsAdd.Tests.ps1` tests (two pre-existing, one newly added and initially
+written the same way) were misfiled under that signature as unexplained pre-existing failures before
+this was traced to its actual cause here.
+
+**Fix:** Don't rely on the scriptblock-pipe pattern to both check for no-throw and capture a return
+value. Assign directly instead - `$result = Invoke-Something ...` - and let an unexpected exception
+fail the test naturally (Pester reports an uncaught exception as a failure with the exception
+message, which is an equally clear signal as a `Should -Not -Throw` failure would have been):
+```powershell
+# Wrong - $result is $null outside the scriptblock, always, regardless of strict mode:
+$result = $null
+{ $result = Invoke-Something -Param $x } | Should -Not -Throw
+$result.Failures | Should -Be 1
+
+# Correct:
+$result = Invoke-Something -Param $x
+$result.Failures | Should -Be 1
+```
+The `{ ... } | Should -Not -Throw` pattern is still fine on its own when nothing inside it needs to
+be captured for a later assertion (e.g. `{ Invoke-Something -WhatIf } | Should -Not -Throw` with no
+follow-up inspection of a return value) - the bug is specific to combining it with an inner
+assignment the test then reads afterward.
+
+**Rule:** When a test needs both "assert this doesn't throw" and "capture the return value for
+further assertions," do a plain direct assignment and skip the `Should -Not -Throw` wrapper entirely
+- it adds no real protection here (a thrown exception fails the test either way) and silently
+discards the assignment it looks like it's making. Two other full-suite-only failures with the same
+`PropertyNotFoundException`-on-`$null` signature remain open in this codebase as of this writing
+(`Invoke-CustomExportGroupMembersLocal.Tests.ps1`'s ISPSS groupType test and
+`Invoke-ReportsList.Tests.ps1`'s RL08a) and have not yet been checked for this same root cause -
+worth checking before assuming they're a different bug.

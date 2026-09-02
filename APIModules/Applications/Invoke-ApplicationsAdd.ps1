@@ -4,8 +4,8 @@ $ModuleMeta = @{
     Name             = 'Add Application'
     Category         = 'Applications'
     Action           = 'Add'
-    Description      = 'Create a new CyberArk application. Self-Hosted only.'
-    SupportedSystems = @('SelfHosted')
+    Description      = 'Create a new CyberArk application.'
+    SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $true
     AcceptsInputFile = $true
     ProducesOutput   = $false
@@ -13,7 +13,7 @@ $ModuleMeta = @{
     InputSchema      = @(
         @{ Column = 'AppID';               Required = $true;  Description = 'Unique Application ID.' }
         @{ Column = 'Description';         Required = $false; Description = 'Application description.' }
-        @{ Column = 'Location';            Required = $false; Description = 'Location in the vault (e.g. \Applications).' }
+        @{ Column = 'Location';            Required = $true;  Description = 'Location in the vault (e.g. \Applications).' }
         @{ Column = 'AccessPermittedFrom'; Required = $false; Description = 'Start hour for permitted access (0-23).' }
         @{ Column = 'AccessPermittedTo';   Required = $false; Description = 'End hour for permitted access (0-23).' }
         @{ Column = 'ExpirationDate';      Required = $false; Description = 'Expiration date in MM/DD/YYYY format.' }
@@ -24,7 +24,7 @@ $ModuleMeta = @{
         @{ Column = 'BusinessOwnerPhone';  Required = $false; Description = 'Business owner phone.' }
     )
     Priority         = 87
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-ApplicationsAddInput {
@@ -50,7 +50,8 @@ function Get-ApplicationsAddInput {
 
     $location = Show-FieldPrompt -Label 'Location' `
         -Default $(if ($Defaults['Location']) { $Defaults['Location'] } else { '' }) `
-        -Description 'Vault location (e.g. \Applications). Leave blank for root.'
+        -Required $true `
+        -Description 'Vault location (e.g. \Applications).'
 
     $accessFrom = Show-FieldPrompt -Label 'Access Permitted From' `
         -Default $(if ($Defaults['AccessPermittedFrom']) { $Defaults['AccessPermittedFrom'] } else { '' }) `
@@ -143,6 +144,20 @@ function Invoke-ApplicationsAdd {
 
     $description  = if ($InputData['Description'])         { "$($InputData['Description'])".Trim()         } else { '' }
     $location     = if ($InputData['Location'])            { "$($InputData['Location'])".Trim()            } else { '' }
+
+    if (-not $location) {
+        $msg = 'Invoke-ApplicationsAdd: Location is required.'
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{
+            InputData    = $InputData
+            ErrorMessage = 'Location is required.'
+            ErrorDetails = $null
+        })
+        $result.Failures++
+        $result.ItemsProcessed++
+        return $result
+    }
+
     $accessFrom   = if ($InputData['AccessPermittedFrom']) { "$($InputData['AccessPermittedFrom'])".Trim() } else { '' }
     $accessTo     = if ($InputData['AccessPermittedTo'])   { "$($InputData['AccessPermittedTo'])".Trim()   } else { '' }
     $expDate      = if ($InputData['ExpirationDate'])      { "$($InputData['ExpirationDate'])".Trim()      } else { '' }

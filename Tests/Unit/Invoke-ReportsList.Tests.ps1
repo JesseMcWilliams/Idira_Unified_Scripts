@@ -100,9 +100,10 @@ Describe 'ModuleMeta' {
         $ModuleMeta.Category | Should -Be 'Reports'
     }
 
-    It 'RL03 - SupportedSystems is SelfHosted only (ISPSS unconfirmed)' {
+    It 'RL03 - SupportedSystems includes both SelfHosted and ISPSS' {
         $ModuleMeta.SupportedSystems | Should -Contain 'SelfHosted'
-        $ModuleMeta.SupportedSystems.Count | Should -Be 1
+        $ModuleMeta.SupportedSystems | Should -Contain 'ISPSS'
+        $ModuleMeta.SupportedSystems.Count | Should -Be 2
     }
 }
 

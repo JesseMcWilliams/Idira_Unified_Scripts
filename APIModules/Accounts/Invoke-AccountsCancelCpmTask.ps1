@@ -4,7 +4,7 @@ $ModuleMeta = @{
     Name             = 'Cancel CPM Task'
     Category         = 'Accounts'
     Action           = 'CancelCpmTask'
-    Description      = 'Cancel an immediate CPM task (StopImmediateAutoMgmtOperations) for an account.'
+    Description      = 'Cancel an immediate CPM task for an account.'
     SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $true
     AcceptsInputFile = $true
@@ -15,7 +15,7 @@ $ModuleMeta = @{
         @{ Column = 'Safe';        Required = $true;  Description = 'Safe containing the account.' }
     )
     Priority         = 42
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function Get-AccountsCancelCpmTaskInput {
@@ -166,10 +166,10 @@ function Invoke-AccountsCancelCpmTask {
     $encodedId = [Uri]::EscapeDataString($accountId)
 
     Write-CyberArkLog -Level 'INFO'  -Message "Starting cancel cpm task for account ID: $accountId"
-    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Accounts/$accountId/StopImmediateAutoMgmtOperations"
+    Write-CyberArkLog -Level 'DEBUG' -Message "POST /API/Accounts/$accountId/Cancel/"
 
     if ($WhatIf.IsPresent) {
-        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: POST /API/Accounts/$accountId/StopImmediateAutoMgmtOperations would be performed."
+        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: POST /API/Accounts/$accountId/Cancel/ would be performed."
         $result.Successes++
         $result.ItemsProcessed++
         Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
@@ -179,7 +179,7 @@ function Invoke-AccountsCancelCpmTask {
     $response = Invoke-CyberArkAPI `
         -Token    $Token `
         -Method   'POST' `
-        -Endpoint "/API/Accounts/$encodedId/StopImmediateAutoMgmtOperations" `
+        -Endpoint "/API/Accounts/$encodedId/Cancel/" `
         -WhatIf:  $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
