@@ -128,7 +128,7 @@ the phased rollout in Section 6.
 
 ## 7. Progress Tracker
 
-All 64 current module actions, grouped by category. **Automation Status** starts at "Not started"
+All 65 current module actions, grouped by category. **Automation Status** starts at "Not started"
 for everything except the interactive-only Custom/TestApi tool, which is out of scope by design
 (it's itself a manual testing tool, not something with a fixed expected result to assert against).
 Update this table as work happens — this is the living record this document exists to provide.
@@ -240,7 +240,7 @@ High = destructive and/or tenant-wide — Phase 3, disposable-tenant-only (see S
 |---|---|---|---|
 | List | RO | Not started | |
 
-### Custom (5 actions)
+### Custom (6 actions)
 
 | Action | Risk | Automation Status | Notes |
 |---|---|---|---|
@@ -249,6 +249,7 @@ High = destructive and/or tenant-wide — Phase 3, disposable-tenant-only (see S
 | ExportGroupMembersLDAP | RO | Not started | Requires AD line-of-sight from wherever the harness runs, not just the CyberArk API |
 | ExportGroupMembersLocal | RO | Not started | |
 | TestApi | N/A | Out of scope by design | This is itself an ad-hoc manual testing tool with no fixed expected result — not a candidate for automated assertions |
+| TestConnectivity | Low | Not started | Needs a real Windows target (for the SMB admin-share auth test) and a real Linux target with a known account (for the SSH auth test) as fixtures; the SSH path additionally depends on PS7 or plink.exe being present on the machine running the harness — see the module's own code comments on the PS7-SSH-transport password-auth limitation |
 
 ### Auth (11 methods — see Section 4 for the human/no-human breakdown)
 
@@ -289,3 +290,4 @@ High = destructive and/or tenant-wide — Phase 3, disposable-tenant-only (see S
 | Date | Change |
 |---|---|
 | 2026-09-02 | Initial version — captures the design discussion, level-of-effort estimate, and per-action progress tracker for the E2E automation layer |
+| 2026-09-02 | Added `Custom/TestConnectivity` (new this session) to the Progress Tracker; total module count updated from 64 to 65 |

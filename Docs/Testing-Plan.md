@@ -53,7 +53,7 @@ Every API module declares `$ModuleMeta.SupportedSystems` as `@('SelfHosted')`,
     Self-Hosted-only** — a prior revision of this document listed them here, but Phase 1 (this
     session) confirmed both actually work on ISPSS too and expanded `SupportedSystems`
     accordingly. They're listed in the dual-use set below now.
-- **Dual-use (the remaining 61 of 64 total modules, across Accounts, Safes, SafeMembers, Platforms
+- **Dual-use (the remaining 62 of 65 total modules, across Accounts, Safes, SafeMembers, Platforms
   (8 of its 9 actions), Applications, Reports, Users, Groups, Custom):** declared to support both
   platforms,
   but **ISPSS coverage for most of this set has not been fully tested** — most of the deep,
@@ -215,6 +215,7 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | Custom / ExportGroupMembersLDAP | Yes | `Unit\Invoke-CustomExportGroupMembersLDAP.Tests.ps1` | Yes — requires line-of-sight from wherever the script runs to the actual Active Directory (ADSI-based, not a CyberArk API call) |
 | Custom / ExportGroupMembersLocal | Yes (incl. new ISPSS-groupType-quirk regression test this session) | `Unit\Invoke-CustomExportGroupMembersLocal.Tests.ps1` | Yes |
 | Custom / TestApi | **No unit test file exists** (interactive raw API tester — same exemption class as other `Read-Host`-driven helpers) | — | Yes (manual smoke test only) |
+| Custom / TestConnectivity | Yes (orchestration mocked; DNS/TCP helpers exercised against real loopback/localhost - no CyberArk connection needed for those) | `Unit\Invoke-CustomTestConnectivity.Tests.ps1` | Yes — the actual SMB (`New-SmbMapping`) and SSH (PS7 `-SSHTransport` / plink) auth attempts are not exercised by any automated test; confirm against a real Windows and Linux target. See the module's own code comments for the PS7-SSH-transport password-auth limitation (native OpenSSH does not support non-interactive password auth - only the plink.exe fallback reliably does) |
 
 ---
 
@@ -649,7 +650,7 @@ Reconcile/etc.) — never point a write action at production data.
 ### Reports (1 action — no longer Self-Hosted-only, see caution section)
 - [ ] List (confirm F04 sparse-field guards against a real report with missing fields, if any exist)
 
-### Custom (5 actions)
+### Custom (6 actions)
 - [ ] ExportAll ·
       [ ] ExportEntitlements (confirm the CSV now saves automatically with no `[y/N]` prompt) ·
       [ ] ExportGroupMembersLDAP (requires AD line-of-sight; confirm auto-save CSV) ·
@@ -657,7 +658,11 @@ Reconcile/etc.) — never point a write action at production data.
       exhibit the ISPSS quirk at all — confirm normal local-group export still works; confirm
       auto-save CSV) ·
       [ ] TestApi (manual smoke test — no unit test exists for this module; confirm the base URL
-      shown/used no longer includes `/PasswordVault`, widening what paths it can reach)
+      shown/used no longer includes `/PasswordVault`, widening what paths it can reach) ·
+      [ ] TestConnectivity (new this session — confirm against a real Windows target: SMB admin-
+      share auth on port 445; and a real Linux target: SSH auth via PS7 `-SSHTransport` and/or
+      plink.exe if installed, and the "Plink or PS7 needed" message if neither is; confirm the
+      vault password fallback resolves Address+Account correctly; confirm auto-save CSV)
 
 ### Driver-level (Manage-Privilege.ps1)
 - [ ] D01-D25 (see Manage-Privilege.ps1 manual test procedures above, including new D23-D25)
@@ -681,3 +686,4 @@ Reconcile/etc.) — never point a write action at production data.
 | 2026-08-20 | Added A13 (Import-AuthToken Created field) and D19-D22 (logon-phase age refresh, unconditional 401 invalidation including network-error side effect) manual test procedures |
 | 2026-09-02 | Full Self-Hosted-focused review and rewrite: added the Self-Hosted vs. ISPSS scope/caution section; replaced the stale Component Test Matrix with a complete matrix of every module in the project; added the Findings and Fixes section (F01-F11, covering the Join-CyberArkUrl trailing-slash fix, JSON-key secret-masking fix, ApplicationsAdd TryParse validation, ReportsList strict-mode property guards, five CSV-boolean cast fixes, PlatformsList field-fallback fix, ExportGroupMembersLocal ISPSS-groupType fix, two Manage-Privilege.ps1 driver fixes, and the dead Get-AuthToken.ps1 deletion); added the Known Issues / Risk Register (K01-K07, none fixed this pass); replaced the stale Get-AuthToken.ps1-referencing auth test section with a Self-Hosted Auth section covering all 8 auth methods (A01-A18); added D23-D25 driver test cases for the two new driver fixes; added the Self-Hosted Full Functional Checklist enumerating all ~55 module actions plus driver-level checks for the live test pass |
 | 2026-09-02 | Updated for Phase 0-2 of `aPePAS-Improvement-Plan-2026-09-02.md` (same day, later revision): corrected the Self-Hosted vs. ISPSS caution section's now-stale claim that `Applications`/`Reports` are Self-Hosted-only (Phase 1 confirmed both work on ISPSS and expanded `SupportedSystems`); added the new Self-Hosted-only entries (`Platforms/Rename`, the new `Policies` category) to the Component Test Matrix; added all 7 new Phase 2 Platforms modules (`Copy`/`Disable`/`Enable`/`Import`/`Remove`/`Rename`/`SetPSMConfig`) and both new Policies modules to the matrix and the Full Functional Checklist; updated the Accounts/Groups/Custom checklist entries for Phase 1's confirmed endpoint/field changes (Cancel CPM Task, Resume Auto Management, Group Member `MemberType`/`IncludeMembers`, Applications `Location`, the three Custom export tools' new auto-save-CSV behavior, and Test API's widened base URL); added a cross-reference at the top to the new `E2E-Automation-Design.md`, which tracks progress toward automating this document's manual checklist |
+| 2026-09-02 | Added the new `Custom/Invoke-CustomTestConnectivity.ps1` module (DNS resolution, port checks, and Windows SMB / Linux SSH authentication testing, with a vault password fallback) to the Component Test Matrix and the Full Functional Checklist (Custom now 6 actions); updated the dual-use module count to 62 of 65 total |

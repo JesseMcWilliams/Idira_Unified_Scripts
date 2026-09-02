@@ -1,0 +1,510 @@
+﻿#Requires -Version 5.1
+
+$ModuleMeta = @{
+    Name             = 'Test Connectivity'
+    Category         = 'Custom'
+    Action           = 'TestConnectivity'
+    Description      = 'Test DNS resolution, port connectivity, and authentication to a Windows or Linux server. Retrieves the account credential from the vault if not supplied.'
+    SupportedSystems = @('ISPSS', 'SelfHosted')
+    SupportsWhatIf   = $false
+    AcceptsInputFile = $true
+    ProducesOutput   = $true
+    HasCustomInput   = $true
+    # Bulk export tool whose whole purpose is producing a results CSV - save automatically with
+    # no "Save to CSV?" prompt or file dialog, matching the three Custom export tools. See
+    # Get-CsvSavePath and the ProducesOutput handling in Invoke-ActionModule (Manage-Privilege.ps1).
+    # Only applies to the interactive single-item path - CSV-batch mode already writes its own
+    # output file automatically via Invoke-CsvProcessing, independent of this flag.
+    AutoSaveCsv      = $true
+    InputSchema      = @(
+        @{ Column = 'Address';    Required = $true;  Description = 'IP address, short hostname, or FQDN of the target server.' }
+        @{ Column = 'ServerType'; Required = $true;  Description = 'Windows or Linux.' }
+        @{ Column = 'Account';    Required = $true;  Description = 'Username to authenticate as (e.g. DOMAIN\username or .\username for a local account).' }
+        @{ Column = 'Password';   Required = $false; Description = 'Password to authenticate with. Leave blank to look up this Address+Account in the vault.' }
+    )
+    Priority         = 96
+    Version          = '1.0.0'
+}
+
+#region Private helpers - each isolated so Pester can mock it independently of the others
+
+function script:Resolve-ConnectivityTarget {
+    <#
+        Resolves $Address (an IP, short hostname, or FQDN) to both a hostname and an IP address
+        in one call - .NET's GetHostEntry performs a reverse lookup when given an IP and a
+        forward lookup when given a name, so no separate IP-vs-name branch is needed here.
+        Returns @{ Success; FQDN; IPAddress; ErrorMessage }.
+    #>
+    param([string]$Address)
+
+    try {
+        $entry = [System.Net.Dns]::GetHostEntry($Address)
+
+        $resolvedIp = $null
+        $ipObj      = $null
+        if ([System.Net.IPAddress]::TryParse($Address, [ref]$ipObj)) {
+            # Address was already an IP literal - echo it back rather than re-deriving it from
+            # AddressList, which could legitimately differ on a multi-homed host.
+            $resolvedIp = $Address
+        } else {
+            $ipv4 = $entry.AddressList | Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } | Select-Object -First 1
+            $resolvedIp = if ($ipv4) { $ipv4.IPAddressToString } elseif ($entry.AddressList.Count -gt 0) { $entry.AddressList[0].IPAddressToString } else { '' }
+        }
+
+        return @{
+            Success      = $true
+            FQDN         = $entry.HostName
+            IPAddress    = $resolvedIp
+            ErrorMessage = ''
+        }
+    } catch {
+        return @{
+            Success      = $false
+            FQDN         = ''
+            IPAddress    = ''
+            ErrorMessage = "DNS resolution failed for '$Address': $_"
+        }
+    }
+}
+
+function script:Test-TcpPortOpen {
+    <#
+        Lightweight TCP connect test with a short timeout - used instead of the
+        Test-NetConnection cmdlet, which also performs an ICMP ping and DNS resolution by
+        default and is noticeably slower across many ports/servers in a bulk CSV run.
+    #>
+    param(
+        [string]$ComputerName,
+        [int]$Port,
+        [int]$TimeoutMs = 3000
+    )
+
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $asyncResult = $client.BeginConnect($ComputerName, $Port, $null, $null)
+        $completed   = $asyncResult.AsyncWaitHandle.WaitOne($TimeoutMs)
+        if ($completed -and $client.Connected) {
+            $client.EndConnect($asyncResult)
+            return $true
+        }
+        return $false
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+function script:Test-WindowsSmbAuth {
+    <#
+        Authentication test for Windows targets: maps \\<Address>\IPC$ with the supplied
+        credential via New-SmbMapping, then immediately removes the mapping. This validates the
+        credential over SMB (port 445) - a classic RPC endpoint-mapper test (port 135) would not
+        actually exercise credential validation the way this admin-share mapping does.
+        Returns @{ Success; ErrorMessage }.
+    #>
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password', Justification = 'New-SmbMapping only accepts -Password as a plain string, not SecureString/PSCredential - converting and back would not reduce exposure.')]
+    param(
+        [string]$Address,
+        [string]$Account,
+        [string]$Password
+    )
+
+    $remotePath = "\\$Address\IPC$"
+
+    try {
+        New-SmbMapping -RemotePath $remotePath -UserName $Account -Password $Password -ErrorAction Stop | Out-Null
+        Remove-SmbMapping -RemotePath $remotePath -Force -ErrorAction SilentlyContinue
+        return @{ Success = $true; ErrorMessage = '' }
+    } catch {
+        return @{ Success = $false; ErrorMessage = "$_" }
+    }
+}
+
+function script:Invoke-ExternalProcessWithTimeout {
+    <#
+        Runs an external executable, capturing stdout/stderr, without ever hanging past
+        $TimeoutSec. Shared by both branches of Test-LinuxSshAuth below.
+        Returns @{ TimedOut; ExitCode; StdOut; StdErr }.
+    #>
+    param(
+        [string]$FilePath,
+        [string[]]$ArgumentList,
+        [int]$TimeoutSec
+    )
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $FilePath
+    # Quote every argument individually rather than joining with spaces first - avoids
+    # mis-splitting an argument that itself contains a space (e.g. a password with a space in it).
+    foreach ($a in $ArgumentList) { $psi.ArgumentList.Add($a) }
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+
+    $proc = [System.Diagnostics.Process]::new()
+    $proc.StartInfo = $psi
+    [void]$proc.Start()
+    $stdout = $proc.StandardOutput.ReadToEndAsync()
+    $stderr = $proc.StandardError.ReadToEndAsync()
+    $exited = $proc.WaitForExit($TimeoutSec * 1000)
+
+    if (-not $exited) {
+        try { $proc.Kill() } catch {}
+        return @{ TimedOut = $true; ExitCode = -1; StdOut = ''; StdErr = '' }
+    }
+
+    return @{ TimedOut = $false; ExitCode = $proc.ExitCode; StdOut = $stdout.Result; StdErr = $stderr.Result }
+}
+
+function script:Test-LinuxSshAuth {
+    <#
+        Authentication test for Linux targets over SSH (port 22). PowerShell 5.1 has no built-in
+        SSH client, so this cascades: try PowerShell 7's SSH transport if pwsh is available,
+        then plink.exe (PuTTY) if not, then report neither is available.
+
+        IMPORTANT CAVEAT: native OpenSSH (which PS7's -SSHTransport relies on) deliberately does
+        not support non-interactive password authentication - it requires either a TTY for an
+        interactive password prompt or key-based auth, by design (this is why tools like sshpass
+        exist as a separate pty-emulation wrapper on Linux, with no equivalent bundled on
+        Windows). The PS7 path below can confirm the SSH handshake/host reachability and will
+        succeed for key-based auth, but is not a reliable way to validate a *password* - only
+        plink.exe (which has its own, more permissive -pw flag) reliably does that. This path is
+        implemented as directed, with this limitation surfaced via ErrorMessage rather than
+        silently treated as equivalent to plink.
+
+        SECURITY NOTE on the plink path: -pw passes the plaintext password as a process command-
+        line argument, which is briefly visible to anything else on the machine that can enumerate
+        process command lines (e.g. Get-Process, Process Explorer) while plink is running. This is
+        an inherent characteristic of plink's own -pw flag, not something this wrapper can avoid
+        while still using it for scripted password auth.
+
+        Returns @{ Success; ErrorMessage }.
+    #>
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password', Justification = 'Both plink -pw and the embedded pwsh command string need a plain string - converting to SecureString and back would not reduce exposure, and plink specifically has no SecureString-accepting alternative.')]
+    param(
+        [string]$Address,
+        [string]$Account,
+        [string]$Password,
+        [int]$TimeoutSec = 15
+    )
+
+    $pwshCmd  = Get-Command -Name 'pwsh' -ErrorAction SilentlyContinue
+    $plinkCmd = Get-Command -Name 'plink.exe' -ErrorAction SilentlyContinue
+
+    if ($pwshCmd) {
+        # See the CAVEAT above - this validates SSH reachability/handshake reliably, but password
+        # auth specifically is not guaranteed to be exercised non-interactively.
+        $innerScript = "try { `$s = New-PSSession -HostName '$Address' -UserName '$Account' -SSHTransport -ErrorAction Stop; Remove-PSSession -Session `$s -ErrorAction SilentlyContinue; Write-Output 'SUCCESS' } catch { Write-Output ('FAIL:' + `$_.Exception.Message) }"
+
+        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $pwshCmd.Source `
+            -ArgumentList @('-NoProfile', '-NoLogo', '-Command', $innerScript) -TimeoutSec $TimeoutSec
+
+        if ($procResult.TimedOut) {
+            return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' timed out after $TimeoutSec second(s) (PowerShell 7 SSH transport)." }
+        }
+
+        $resultLine = @($procResult.StdOut -split "`r?`n") | Where-Object { $_ -match '^(SUCCESS|FAIL:)' } | Select-Object -Last 1
+        if ($resultLine -eq 'SUCCESS') {
+            return @{ Success = $true; ErrorMessage = '' }
+        }
+        $detail = if ($resultLine) { $resultLine -replace '^FAIL:', '' } elseif ($procResult.StdErr) { $procResult.StdErr.Trim() } else { 'no result returned' }
+        return @{ Success = $false; ErrorMessage = "PowerShell 7 SSH transport failed: $detail (note: password auth is not reliably testable via this path - see module source comments; plink.exe is the more reliable option for password validation)" }
+    }
+
+    if ($plinkCmd) {
+        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkCmd.Source `
+            -ArgumentList @('-ssh', '-batch', '-pw', $Password, "$Account@$Address", 'exit') -TimeoutSec $TimeoutSec
+
+        if ($procResult.TimedOut) {
+            return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' via plink timed out after $TimeoutSec second(s)." }
+        }
+        if ($procResult.ExitCode -eq 0) {
+            return @{ Success = $true; ErrorMessage = '' }
+        }
+        $errText = if ($procResult.StdErr) { $procResult.StdErr.Trim() } elseif ($procResult.StdOut) { $procResult.StdOut.Trim() } else { "plink exited with code $($procResult.ExitCode)" }
+        return @{ Success = $false; ErrorMessage = $errText }
+    }
+
+    return @{ Success = $false; ErrorMessage = 'Plink or PS7 needed for auth test' }
+}
+
+function script:Resolve-VaultPassword {
+    <#
+        Looks up an account in the vault by exact Address + Account (userName) match when no
+        password was supplied in the input row, and retrieves its current credential value.
+        Searches across all safes the caller can see (no Safe column exists in this module's
+        input) via a free-text /API/Accounts search narrowed to $Address, then filters
+        client-side for an exact match - the same defensive "search broadly, match exactly
+        client-side" pattern already used by Invoke-AccountsCancelCpmTask.ps1 and
+        Invoke-AccountsGetCredential.ps1, rather than relying on an unconfirmed server-side
+        filter field name for address/userName.
+        Returns @{ Success; Password; ErrorMessage }.
+    #>
+    param(
+        [PSCustomObject]$Token,
+        [string]$Address,
+        [string]$Account
+    )
+
+    $searchResp = Invoke-CyberArkAPI `
+        -Token       $Token `
+        -Method      'GET' `
+        -Endpoint    '/API/Accounts' `
+        -QueryParams @{ search = $Address; limit = 1000 }
+
+    if (-not $searchResp.IsSuccess) {
+        Write-CyberArkLog -Level 'ERROR' -Message "Test Connectivity: vault account search failed for '$Address' (HTTP $($searchResp.StatusCode)): $($searchResp.ErrorMessage)"
+        return @{ Success = $false; Password = ''; ErrorMessage = 'Password Not Found' }
+    }
+
+    [array]$candidates = if ($searchResp.Data -and $searchResp.Data.PSObject.Properties['value'] -and $null -ne $searchResp.Data.value) {
+        @($searchResp.Data.value)
+    } else { @() }
+
+    $match = $candidates | Where-Object {
+        $_ -and $_.PSObject.Properties['address'] -and $_.PSObject.Properties['userName'] -and
+        $_.address -eq $Address -and $_.userName -eq $Account
+    }
+    [array]$matches = @($match)
+
+    if ($matches.Count -eq 0) {
+        Write-CyberArkLog -Level 'WARN' -Message "Test Connectivity: no vault account found for Address='$Address' Account='$Account'."
+        return @{ Success = $false; Password = ''; ErrorMessage = 'Password Not Found' }
+    }
+    if ($matches.Count -gt 1) {
+        Write-CyberArkLog -Level 'WARN' -Message "Test Connectivity: multiple vault accounts matched Address='$Address' Account='$Account' - using first match."
+    }
+
+    $accountId = if ($matches[0].PSObject.Properties['id']) { $matches[0].id } else { '' }
+    if (-not $accountId) {
+        return @{ Success = $false; Password = ''; ErrorMessage = 'Password Not Found' }
+    }
+
+    $body = @{
+        reason              = 'aPePAS Test Connectivity module'
+        TicketingSystemName = $null
+        TicketId            = $null
+        Version             = 0
+        actionType          = $null
+        isUse               = $false
+        Machine             = ''
+    }
+
+    $retrieveResp = Invoke-CyberArkAPI `
+        -Token    $Token `
+        -Method   'POST' `
+        -Endpoint "/API/Accounts/$([Uri]::EscapeDataString($accountId))/Password/Retrieve" `
+        -Body     $body
+
+    if (-not $retrieveResp.IsSuccess) {
+        Write-CyberArkLog -Level 'ERROR' -Message "Test Connectivity: credential retrieval failed for AccountID=$accountId (HTTP $($retrieveResp.StatusCode)): $($retrieveResp.ErrorMessage)"
+        return @{ Success = $false; Password = ''; ErrorMessage = 'Password Not Found' }
+    }
+
+    # CRITICAL: the response is a raw string (the password), not JSON - never log this value.
+    $password = if ($retrieveResp.Data) { "$($retrieveResp.Data)" } else { $retrieveResp.RawResponse }
+    return @{ Success = $true; Password = $password; ErrorMessage = '' }
+}
+
+#endregion
+
+function Get-CustomTestConnectivityInput {
+    <#
+        Called by the driver when HasCustomInput = $true.
+        Show-FieldPrompt is available because this module is dot-sourced into the driver scope.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]  [PSCustomObject]$Token,
+        [Parameter(Mandatory = $false)] [hashtable]$Defaults
+    )
+
+    if (-not $Defaults) { $Defaults = @{} }
+
+    Write-Host '  Test Connectivity' -ForegroundColor DarkGray
+    Write-Host ''
+
+    $address = Show-FieldPrompt -Label 'Address' `
+        -Default $(if ($Defaults['Address']) { $Defaults['Address'] } else { '' }) `
+        -Required $true `
+        -Description 'IP address, short hostname, or FQDN of the target server.'
+
+    $serverTypeInput = Show-FieldPrompt -Label 'Server Type' `
+        -Default $(if ($Defaults['ServerType']) { $Defaults['ServerType'] } else { 'Windows' }) `
+        -Description '[1] Windows  [2] Linux (or type the name).'
+    $serverType = switch ($serverTypeInput.Trim()) {
+        '1'       { 'Windows' }
+        '2'       { 'Linux'   }
+        'Linux'   { 'Linux'   }
+        'linux'   { 'Linux'   }
+        default   { 'Windows' }
+    }
+
+    $account = Show-FieldPrompt -Label 'Account' `
+        -Default $(if ($Defaults['Account']) { $Defaults['Account'] } else { '' }) `
+        -Required $true `
+        -Description 'Username to authenticate as (e.g. DOMAIN\username or .\username for a local account).'
+
+    $password = Show-FieldPrompt -Label 'Password' `
+        -IsSecret `
+        -Description 'Leave blank to look this account up in the vault by Address and Account.'
+
+    return @{
+        Address    = $address
+        ServerType = $serverType
+        Account    = $account
+        Password   = $password
+    }
+}
+
+function Invoke-CustomTestConnectivity {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Token,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$InputData,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$WhatIf
+    )
+
+    $result = [PSCustomObject]@{
+        ModuleName     = $ModuleMeta.Name
+        Category       = $ModuleMeta.Category
+        Action         = $ModuleMeta.Action
+        ItemsProcessed = 0
+        Successes      = 0
+        Failures       = 0
+        IsFatal        = $false
+        Results        = [System.Collections.Generic.List[PSCustomObject]]::new()
+        Errors         = [System.Collections.Generic.List[PSCustomObject]]::new()
+    }
+
+    if (-not $InputData) { $InputData = @{} }
+
+    $address    = if ($InputData['Address'])    { "$($InputData['Address'])".Trim()    } else { '' }
+    $serverType = if ($InputData['ServerType']) { "$($InputData['ServerType'])".Trim() } else { '' }
+    $account    = if ($InputData['Account'])    { "$($InputData['Account'])".Trim()    } else { '' }
+    $password   = if ($InputData['Password'])   { "$($InputData['Password'])".Trim()   } else { '' }
+
+    if (-not $address) {
+        $msg = 'Address is required and must not be empty.'
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+        $result.Failures++
+        $result.ItemsProcessed++
+        return $result
+    }
+
+    if ($serverType -notin @('Windows', 'Linux')) {
+        $msg = "ServerType '$serverType' is invalid. Must be Windows or Linux."
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+        $result.Failures++
+        $result.ItemsProcessed++
+        return $result
+    }
+
+    if (-not $account) {
+        $msg = 'Account is required and must not be empty.'
+        Write-CyberArkLog -Level 'ERROR' -Message $msg
+        $result.Errors.Add([PSCustomObject]@{ InputData = $InputData; ErrorMessage = $msg; ErrorDetails = $null })
+        $result.Failures++
+        $result.ItemsProcessed++
+        return $result
+    }
+
+    $result.ItemsProcessed++
+    Write-CyberArkLog -Level 'INFO' -Message "Starting connectivity test for Address='$address' ServerType='$serverType' Account='$account'."
+
+    # --- DNS resolution ---
+    $dns = Resolve-ConnectivityTarget -Address $address
+
+    if (-not $dns.Success) {
+        $result.Results.Add([PSCustomObject]@{
+            FQDN         = ''
+            IPAddress    = ''
+            DNSMatch     = $false
+            PortCheck    = ''
+            Protocol     = ''
+            AuthStatus   = 'Fail'
+            ErrorMessage = $dns.ErrorMessage
+        })
+        $result.Failures++
+        Write-CyberArkLog -Level 'ERROR' -Message "Test Connectivity: $($dns.ErrorMessage)"
+        Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
+        return $result
+    }
+
+    # --- Password resolution (CSV/interactive value, or vault lookup) ---
+    $passwordError = ''
+    if (-not $password) {
+        $lookup = Resolve-VaultPassword -Token $Token -Address $address -Account $account
+        if ($lookup.Success) {
+            $password = $lookup.Password
+        } else {
+            $passwordError = $lookup.ErrorMessage
+        }
+    }
+
+    # --- Port check + auth attempt ---
+    $protocol      = if ($serverType -eq 'Windows') { 'RPC' } else { 'SSH' }
+    $portCheckParts = [System.Collections.Generic.List[string]]::new()
+    $authStatus    = 'Fail'
+    $authError     = ''
+    $primaryPortOpen = $false
+
+    if ($serverType -eq 'Windows') {
+        foreach ($port in 135, 139, 445, 3389) {
+            $open = Test-TcpPortOpen -ComputerName $address -Port $port
+            $portCheckParts.Add("$port($open)")
+            if ($port -eq 445) { $primaryPortOpen = $open }
+        }
+    } else {
+        $open = Test-TcpPortOpen -ComputerName $address -Port 22
+        $portCheckParts.Add("22($open)")
+        $primaryPortOpen = $open
+    }
+    $portCheck = $portCheckParts -join ','
+
+    if (-not $primaryPortOpen) {
+        $authStatus = 'Fail'
+        $authError  = if ($serverType -eq 'Windows') { 'Port 445 not reachable.' } else { 'Port 22 not reachable.' }
+    } elseif ($passwordError) {
+        $authStatus = 'Fail'
+        $authError  = $passwordError
+    } else {
+        $authResult = if ($serverType -eq 'Windows') {
+            Test-WindowsSmbAuth -Address $address -Account $account -Password $password
+        } else {
+            Test-LinuxSshAuth -Address $address -Account $account -Password $password
+        }
+        $authStatus = if ($authResult.Success) { 'Success' } else { 'Fail' }
+        $authError  = $authResult.ErrorMessage
+    }
+
+    $result.Results.Add([PSCustomObject]@{
+        FQDN         = $dns.FQDN
+        IPAddress    = $dns.IPAddress
+        DNSMatch     = $dns.Success
+        PortCheck    = $portCheck
+        Protocol     = $protocol
+        AuthStatus   = $authStatus
+        ErrorMessage = $authError
+    })
+
+    if ($authStatus -eq 'Success') {
+        $result.Successes++
+    } else {
+        $result.Failures++
+    }
+
+    Write-CyberArkLog -Level 'INFO' -Message "Test Connectivity complete for '$address'. AuthStatus=$authStatus."
+    Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
+
+    return $result
+}

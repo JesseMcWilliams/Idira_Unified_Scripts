@@ -99,7 +99,7 @@ IdiraUnifiedScripts/
   - Groups/                     # Add, Get, List, Update, Delete groups; Add/Remove members
   - Applications/               # List, Add, Add auth methods
   - Reports/                    # List reports
-  - Custom/                     # Export All, Export Entitlements, Export Group Members (Local/LDAP), Test API
+  - Custom/                     # Export All, Export Entitlements, Export Group Members (Local/LDAP), Test API, Test Connectivity
 - Tests/
   - Unit/                       # Pester v6 unit tests
 - Docs/
