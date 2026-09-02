@@ -14,6 +14,11 @@ below before relying on this document for ISPSS/Privilege Cloud testing — the 
 **not** been fully tested, and several modules that declare support for both platforms have
 only ever been exercised against Self-Hosted.
 
+**See also:** `E2E-Automation-Design.md` — a proposed (not yet built) automated layer that would
+exercise this document's manual checklist items against a real tenant with only credential entry
+requiring a human. This document remains the source of truth for what the current, entirely-manual
+process covers; the other tracks progress toward automating it.
+
 ---
 
 ## Test Environments
@@ -37,19 +42,29 @@ production environments, and prefer a dedicated test Safe/test accounts for any 
 ## Self-Hosted vs. Privilege Cloud (SaaS) Scope and Caution
 
 Every API module declares `$ModuleMeta.SupportedSystems` as `@('SelfHosted')`,
-`@('ISPSS')`, or `@('ISPSS', 'SelfHosted')` (dual-use). As of this revision:
+`@('ISPSS')`, or `@('ISPSS', 'SelfHosted')` (dual-use). As of this revision (post Phase 0-2 of
+`aPePAS-Improvement-Plan-2026-09-02.md` — see `Documentation-Tracker.md` for the full history):
 
-- **SelfHosted-only (8 modules, no ambiguity):** the entire `Applications` category (7 modules -
-  `Add`, `AddAuthMethod`, `Delete`, `DeleteAuthMethod`, `Get`, `List`, `ListAuthMethods`) and
-  `Reports/Invoke-ReportsList.ps1`. Both use legacy Self-Hosted-only endpoints
-  (`/WebServices/PIMServices.svc/Applications` and `/API/Reports`) that do not exist on Privilege
-  Cloud. These modules are hidden from the menu entirely for an ISPSS profile.
-- **Dual-use (all remaining ~47 modules across Accounts, Safes, SafeMembers, Platforms, Users,
-  Groups, Custom):** declared to support both platforms, but **ISPSS coverage for this whole set
-  has not been fully tested** — most of the deep, iterative bug-fixing history in
-  `Documentation-Tracker.md` was driven by Self-Hosted testing/use. Treat a dual-use module's
-  ISPSS behavior as unverified until someone actually exercises it against a Privilege Cloud
-  tenant, even though the code path is shared.
+- **SelfHosted-only (3 modules):** `Platforms/Invoke-PlatformsRename.ps1` (confirmed via psPAS's
+  explicit version/platform assertion — a PVWA 15.0+ feature) and the entire new `Policies`
+  category (`GetMasterPolicy`, `SetMasterPolicy` — confirmed the same way, PVWA 14.6+). These are
+  hidden from the menu entirely for an ISPSS profile.
+  - **`Applications` (7 modules) and `Reports/Invoke-ReportsList.ps1` are no longer
+    Self-Hosted-only** — a prior revision of this document listed them here, but Phase 1 (this
+    session) confirmed both actually work on ISPSS too and expanded `SupportedSystems`
+    accordingly. They're listed in the dual-use set below now.
+- **Dual-use (the remaining 61 of 64 total modules, across Accounts, Safes, SafeMembers, Platforms
+  (8 of its 9 actions), Applications, Reports, Users, Groups, Custom):** declared to support both
+  platforms,
+  but **ISPSS coverage for most of this set has not been fully tested** — most of the deep,
+  iterative bug-fixing history in `Documentation-Tracker.md` was driven by Self-Hosted testing/use.
+  Treat a dual-use module's ISPSS behavior as unverified until someone actually exercises it
+  against a Privilege Cloud tenant, even though the code path is shared. Two specific items *were*
+  confirmed live on ISPSS during Phase 0/1 (this session): `Get-PVWASessionTimeoutMinutes`
+  (`/api/Settings/Timeout`) 404s on Privilege Cloud and correctly falls back to a default; and
+  `Invoke-AccountsResumeAutoManagement.ps1`'s ISPSS path was deliberately left unchanged
+  (unconfirmed) when its Self-Hosted endpoint was corrected, specifically to avoid guessing at
+  ISPSS behavior that hadn't been verified.
 - **Known, already-confirmed platform-specific traps inside dual-use modules** (background for
   anyone testing or extending these — not new findings from this pass, see
   `Lessons-Learned-PowerShell-Pester.md` Section 16 for the originals):
@@ -131,14 +146,9 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 
 | Module | Unit Tests | Test File | Live Self-Hosted Verification Needed |
 |---|---|---|---|
-| Applications / Add | Yes | `Unit\Invoke-ApplicationsAdd.Tests.ps1` | Yes |
-| Applications / AddAuthMethod | Yes | `Unit\Invoke-ApplicationsAddAuthMethod.Tests.ps1` | Yes |
-| Applications / Delete | Yes | `Unit\Invoke-ApplicationsDelete.Tests.ps1` | Yes |
-| Applications / DeleteAuthMethod | Yes | `Unit\Invoke-ApplicationsDeleteAuthMethod.Tests.ps1` | Yes |
-| Applications / Get | Yes | `Unit\Invoke-ApplicationsGet.Tests.ps1` | Yes |
-| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | Yes — also confirm the `Join-CyberArkUrl` trailing-slash fix (this session) actually resolves the PIMServices.svc routing against a real PVWA, not just in the mocked unit test |
-| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Yes |
-| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | Yes |
+| Platforms / Rename | Yes | `Unit\Invoke-PlatformsRename.Tests.ps1` | Yes — PVWA 15.0+ required, confirm against this lab host's actual version |
+| Policies / GetMasterPolicy | Yes | `Unit\Invoke-PoliciesGetMasterPolicy.Tests.ps1` | Yes — PVWA 14.6+ required |
+| Policies / SetMasterPolicy | Yes | `Unit\Invoke-PoliciesSetMasterPolicy.Tests.ps1` | Yes — PVWA 14.6+ required. Mutates tenant-wide config, not a scoped object — test against a dedicated lab host only, never a shared/production one |
 
 ### APIModules — dual-use (Both; ISPSS coverage unverified — see caution section)
 
@@ -175,8 +185,22 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | SafeMembers / Remove | Yes | `Unit\Invoke-SafeMembersRemove.Tests.ps1` | Yes |
 | SafeMembers / Update | Yes | `Unit\Invoke-SafeMembersUpdate.Tests.ps1` | Yes |
 | SafeMembers / UpdateFromTemplateRole | Yes | `Unit\Invoke-SafeMembersUpdateFromTemplateRole.Tests.ps1` | Yes |
+| Platforms / Copy | Yes | `Unit\Invoke-PlatformsCopy.Tests.ps1` | Yes — Target platforms only this pass (see `E2E-Automation-Design.md`); confirmed against psPAS source + the 14.6 Swagger spec, never against a live tenant |
+| Platforms / Disable | Yes | `Unit\Invoke-PlatformsDisable.Tests.ps1` | Yes — same caveat as Copy |
+| Platforms / Enable | Yes | `Unit\Invoke-PlatformsEnable.Tests.ps1` | Yes — same caveat as Copy |
 | Platforms / Get | Yes | `Unit\Invoke-PlatformsGet.Tests.ps1` | Yes |
-| Platforms / List | Yes | `Unit\Invoke-PlatformsList.Tests.ps1` | Yes — confirm the alternate-field-name fallback fix (this session) against whatever shape the live PVWA version actually returns |
+| Platforms / Import | Yes | `Unit\Invoke-PlatformsImport.Tests.ps1` | Yes — the ZIP-as-byte-array request shape is unverified against a live tenant (see its own code comment and `E2E-Automation-Design.md`) |
+| Platforms / List | Yes | `Unit\Invoke-PlatformsList.Tests.ps1` | Yes — confirm the alternate-field-name fallback fix (this session) against whatever shape the live PVWA version actually returns; also confirm the new `SystemType` filter |
+| Platforms / Remove | Yes | `Unit\Invoke-PlatformsRemove.Tests.ps1` | Yes — destructive; test against a disposable sandbox platform only, same caveat as Copy otherwise |
+| Platforms / SetPSMConfig | Yes | `Unit\Invoke-PlatformsSetPSMConfig.Tests.ps1` | Yes — same caveat as Copy; needs a real PSM server ID from the test tenant |
+| Applications / Add | Yes | `Unit\Invoke-ApplicationsAdd.Tests.ps1` | Yes — confirm the ISPSS path now that `SupportedSystems` includes it (Phase 1, this session — was Self-Hosted-only before) |
+| Applications / AddAuthMethod | Yes | `Unit\Invoke-ApplicationsAddAuthMethod.Tests.ps1` | Yes |
+| Applications / Delete | Yes | `Unit\Invoke-ApplicationsDelete.Tests.ps1` | Yes |
+| Applications / DeleteAuthMethod | Yes | `Unit\Invoke-ApplicationsDeleteAuthMethod.Tests.ps1` | Yes |
+| Applications / Get | Yes | `Unit\Invoke-ApplicationsGet.Tests.ps1` | Yes |
+| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | Yes — also confirm the `Join-CyberArkUrl` trailing-slash fix actually resolves the PIMServices.svc routing against a real PVWA, not just in the mocked unit test |
+| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Yes |
+| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | Yes — confirm the ISPSS path now that `SupportedSystems` includes it (Phase 1, this session — was Self-Hosted-only before) |
 | Users / Get | Yes | `Unit\Invoke-UsersGet.Tests.ps1` | Yes |
 | Users / List | Yes | `Unit\Invoke-UsersList.Tests.ps1` | Yes |
 | Groups / Add | Yes | `Unit\Invoke-GroupsAdd.Tests.ps1` | Yes |
@@ -577,12 +601,16 @@ Reconcile/etc.) — never point a write action at production data.
 - [ ] Token save/load/refresh/keepalive/logoff lifecycle
 
 ### Accounts (17 actions)
-- [ ] Add · [ ] CancelCpmTask · [ ] ChangeImmediate · [ ] ChangeInVault (confirm F02 masking) ·
-      [ ] CheckIn · [ ] Delete · [ ] Get · [ ] GetActivity · [ ] GetCredential · [ ] LinkAccount ·
+- [ ] Add · [ ] CancelCpmTask (confirm the `/Cancel/` endpoint, Phase 1 this session — was
+      `/StopImmediateAutoMgmtOperations` before) · [ ] ChangeImmediate ·
+      [ ] ChangeInVault (confirm F02 masking) · [ ] CheckIn · [ ] Delete · [ ] Get ·
+      [ ] GetActivity · [ ] GetCredential · [ ] LinkAccount ·
       [ ] List (incl. By-Safe mode, confirm 20K cap behavior) · [ ] Reconcile ·
-      [ ] ResumeAutoManagement · [ ] UnlinkAccount · [ ] Unlock · [ ] Update (JSON Patch) · [ ] Verify
+      [ ] ResumeAutoManagement (confirm `POST .../Resume/` on Self-Hosted, Phase 1 this session —
+      was `PATCH .../` before; ISPSS was deliberately left unchanged/unconfirmed) ·
+      [ ] UnlinkAccount · [ ] Unlock · [ ] Update (JSON Patch) · [ ] Verify
 
-### Safes (9 actions)
+### Safes (8 actions)
 - [ ] Add · [ ] AddFromTemplate (T01-T24 scenarios) · [ ] AssignCPM (confirm live CPM query) ·
       [ ] Delete · [ ] Get · [ ] List (confirm F05 ExtendedDetails CSV-boolean fix) ·
       [ ] UnassignCPM · [ ] Update
@@ -591,28 +619,45 @@ Reconcile/etc.) — never point a write action at production data.
 - [ ] Add (confirm SearchIn directory picker lists real LDAP directories) ·
       [ ] AddFromTemplateRole · [ ] List · [ ] Remove · [ ] Update · [ ] UpdateFromTemplateRole
 
-### Platforms (2 actions)
-- [ ] Get · [ ] List (confirm F06 field-fallback fix against this PVWA version's actual response shape)
+### Platforms (9 actions)
+- [ ] Get · [ ] List (confirm F06 field-fallback fix and the new `SystemType` filter, against this
+      PVWA version's actual response shape) · [ ] Copy (Target platforms only — see
+      `E2E-Automation-Design.md`) · [ ] Disable · [ ] Enable ·
+      [ ] Import (confirm the ZIP-as-byte-array request shape actually works) ·
+      [ ] Remove (destructive — use a disposable sandbox platform) ·
+      [ ] Rename (Self-Hosted only, PVWA 15.0+) · [ ] SetPSMConfig
+
+### Policies (2 actions — Self-Hosted only, PVWA 14.6+)
+- [ ] GetMasterPolicy · [ ] SetMasterPolicy (mutates tenant-wide config — use a dedicated lab host,
+      never a shared/production one; confirm every field's validation range: `ConfirmersNumber`
+      1-64, `PasswordChangeDays`/`PasswordVerificationDays` 1-3650, `RetentionPeriod` 0-3650)
 
 ### Users (2 actions)
 - [ ] Get · [ ] List
 
 ### Groups (7 actions)
-- [ ] Add · [ ] AddMember · [ ] Delete · [ ] GetMembers · [ ] List (confirm GroupType filter works
-      correctly on Self-Hosted, unlike ISPSS) · [ ] RemoveMember · [ ] Update
+- [ ] Add · [ ] AddMember (confirm `MemberType` platform split: `Domain`/`Vault` on Self-Hosted) ·
+      [ ] Delete · [ ] GetMembers (confirm the new `IncludeMembers` opt-in field) ·
+      [ ] List (confirm GroupType filter works correctly on Self-Hosted, unlike ISPSS) ·
+      [ ] RemoveMember · [ ] Update
 
-### Applications (SelfHosted only — 7 actions)
-- [ ] Add · [ ] AddAuthMethod · [ ] Delete · [ ] DeleteAuthMethod · [ ] Get ·
+### Applications (7 actions — no longer Self-Hosted-only, see caution section)
+- [ ] Add (confirm `Location` is now enforced as mandatory, Phase 1 this session) ·
+      [ ] AddAuthMethod · [ ] Delete · [ ] DeleteAuthMethod · [ ] Get ·
       [ ] List (confirm F01 trailing-slash / PIMServices.svc routing fix) · [ ] ListAuthMethods
 
-### Reports (SelfHosted only — 1 action)
+### Reports (1 action — no longer Self-Hosted-only, see caution section)
 - [ ] List (confirm F04 sparse-field guards against a real report with missing fields, if any exist)
 
 ### Custom (5 actions)
-- [ ] ExportAll · [ ] ExportEntitlements · [ ] ExportGroupMembersLDAP (requires AD line-of-sight) ·
+- [ ] ExportAll ·
+      [ ] ExportEntitlements (confirm the CSV now saves automatically with no `[y/N]` prompt) ·
+      [ ] ExportGroupMembersLDAP (requires AD line-of-sight; confirm auto-save CSV) ·
       [ ] ExportGroupMembersLocal (confirm F07 groupType quirk fix, though Self-Hosted may not
-      exhibit the ISPSS quirk at all — confirm normal local-group export still works) ·
-      [ ] TestApi (manual smoke test — no unit test exists for this module)
+      exhibit the ISPSS quirk at all — confirm normal local-group export still works; confirm
+      auto-save CSV) ·
+      [ ] TestApi (manual smoke test — no unit test exists for this module; confirm the base URL
+      shown/used no longer includes `/PasswordVault`, widening what paths it can reach)
 
 ### Driver-level (Manage-Privilege.ps1)
 - [ ] D01-D25 (see Manage-Privilege.ps1 manual test procedures above, including new D23-D25)
@@ -635,3 +680,4 @@ Reconcile/etc.) — never point a write action at production data.
 | 2026-08-20 | Added Invoke-SafeMembersAddFromTemplateRole.ps1 and Invoke-SafeMembersUpdateFromTemplateRole.ps1 to Component Test Matrix (44 tests: ATR01-ATR23, UTR01-UTR21) |
 | 2026-08-20 | Added A13 (Import-AuthToken Created field) and D19-D22 (logon-phase age refresh, unconditional 401 invalidation including network-error side effect) manual test procedures |
 | 2026-09-02 | Full Self-Hosted-focused review and rewrite: added the Self-Hosted vs. ISPSS scope/caution section; replaced the stale Component Test Matrix with a complete matrix of every module in the project; added the Findings and Fixes section (F01-F11, covering the Join-CyberArkUrl trailing-slash fix, JSON-key secret-masking fix, ApplicationsAdd TryParse validation, ReportsList strict-mode property guards, five CSV-boolean cast fixes, PlatformsList field-fallback fix, ExportGroupMembersLocal ISPSS-groupType fix, two Manage-Privilege.ps1 driver fixes, and the dead Get-AuthToken.ps1 deletion); added the Known Issues / Risk Register (K01-K07, none fixed this pass); replaced the stale Get-AuthToken.ps1-referencing auth test section with a Self-Hosted Auth section covering all 8 auth methods (A01-A18); added D23-D25 driver test cases for the two new driver fixes; added the Self-Hosted Full Functional Checklist enumerating all ~55 module actions plus driver-level checks for the live test pass |
+| 2026-09-02 | Updated for Phase 0-2 of `aPePAS-Improvement-Plan-2026-09-02.md` (same day, later revision): corrected the Self-Hosted vs. ISPSS caution section's now-stale claim that `Applications`/`Reports` are Self-Hosted-only (Phase 1 confirmed both work on ISPSS and expanded `SupportedSystems`); added the new Self-Hosted-only entries (`Platforms/Rename`, the new `Policies` category) to the Component Test Matrix; added all 7 new Phase 2 Platforms modules (`Copy`/`Disable`/`Enable`/`Import`/`Remove`/`Rename`/`SetPSMConfig`) and both new Policies modules to the matrix and the Full Functional Checklist; updated the Accounts/Groups/Custom checklist entries for Phase 1's confirmed endpoint/field changes (Cancel CPM Task, Resume Auto Management, Group Member `MemberType`/`IncludeMembers`, Applications `Location`, the three Custom export tools' new auto-save-CSV behavior, and Test API's widened base URL); added a cross-reference at the top to the new `E2E-Automation-Design.md`, which tracks progress toward automating this document's manual checklist |
