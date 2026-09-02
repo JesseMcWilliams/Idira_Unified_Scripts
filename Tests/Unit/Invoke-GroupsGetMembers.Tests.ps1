@@ -210,3 +210,47 @@ Describe 'Invoke-GroupsGetMembers - URL encoding' {
         $script:capturedEndpoint | Should -Match '42%20Admins'
     }
 }
+
+# ─────────────────────────────────────────────────────────────────
+# includeMembers is optional and defaults to false server-side (confirmed against a live
+# tenant) - omitting it is the pre-existing default behavior, not the silent-empty-results
+# risk originally suspected. Exposed as an opt-in field matching psPAS's own parameter.
+Describe 'Invoke-GroupsGetMembers - IncludeMembers' {
+
+    BeforeEach {
+        Mock Write-CyberArkLog { }
+    }
+
+    It 'GM14 - IncludeMembers not provided - no includeMembers query param sent' {
+        $capturedQueryParams = $null
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+            Set-Variable -Name capturedQueryParams -Value $PSBoundParameters.QueryParams -Scope Script
+            script:New-MembersApiResponse -Members @()
+        }
+        Invoke-GroupsGetMembers -Token $script:MockToken -InputData $script:ValidInput
+        $script:capturedQueryParams.ContainsKey('includeMembers') | Should -Be $false
+    }
+
+    It 'GM15 - IncludeMembers=true - includeMembers=true query param sent' {
+        $capturedQueryParams = $null
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+            Set-Variable -Name capturedQueryParams -Value $PSBoundParameters.QueryParams -Scope Script
+            script:New-MembersApiResponse -Members @()
+        }
+        Invoke-GroupsGetMembers -Token $script:MockToken -InputData @{ GroupID = '42'; IncludeMembers = 'true' }
+        $script:capturedQueryParams['includeMembers'] | Should -Be 'true'
+    }
+
+    It 'GM16 - IncludeMembers=false (explicit CSV string) - no includeMembers query param sent' {
+        $capturedQueryParams = $null
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+            Set-Variable -Name capturedQueryParams -Value $PSBoundParameters.QueryParams -Scope Script
+            script:New-MembersApiResponse -Members @()
+        }
+        Invoke-GroupsGetMembers -Token $script:MockToken -InputData @{ GroupID = '42'; IncludeMembers = 'false' }
+        $script:capturedQueryParams.ContainsKey('includeMembers') | Should -Be $false
+    }
+}

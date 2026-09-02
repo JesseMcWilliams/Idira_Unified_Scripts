@@ -78,7 +78,7 @@ function Get-GroupsAddMemberInput {
         if (-not $memberId) { return $null }
     }
 
-    $isSelfHosted      = ($Token.SystemType -eq 'SelfHosted')
+    $isSelfHosted      = ($Token.PSObject.Properties['SystemType'] -and $Token.SystemType -eq 'SelfHosted')
     $defaultMemberType = if ($isSelfHosted) { 'Vault' } else { 'EPVUser' }
     $memberTypeHint    = if ($isSelfHosted) { "Domain or Vault (default $defaultMemberType)." } else { "EPVUser or Group (default $defaultMemberType)." }
 
@@ -159,13 +159,14 @@ function Invoke-GroupsAddMember {
 
     # MemberType's valid values differ by platform: ISPSS uses EPVUser/Group, Self-Hosted uses
     # Domain/Vault, for the identical POST /API/UserGroups/{id}/Members endpoint.
-    $isSelfHosted      = ($Token.SystemType -eq 'SelfHosted')
+    $tokenSystemType   = if ($Token.PSObject.Properties['SystemType']) { $Token.SystemType } else { '' }
+    $isSelfHosted      = ($tokenSystemType -eq 'SelfHosted')
     $validMemberTypes  = if ($isSelfHosted) { @('Domain', 'Vault') } else { @('EPVUser', 'Group') }
     $defaultMemberType = if ($isSelfHosted) { 'Vault' } else { 'EPVUser' }
 
     $memberType = if ($InputData['MemberType']) { "$($InputData['MemberType'])".Trim() } else { $defaultMemberType }
     if ($memberType -notin $validMemberTypes) {
-        $msg = "MemberType '$memberType' is not valid for $($Token.SystemType). Valid values: $($validMemberTypes -join ', ')."
+        $msg = "MemberType '$memberType' is not valid for $tokenSystemType. Valid values: $($validMemberTypes -join ', ')."
         Write-CyberArkLog -Level 'ERROR' -Message $msg
         $result.Errors.Add([PSCustomObject]@{
             InputData    = $InputData

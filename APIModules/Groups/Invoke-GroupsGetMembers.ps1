@@ -11,10 +11,11 @@ $ModuleMeta = @{
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @(
-        @{ Column = 'GroupID'; Required = $true; Description = 'Numeric ID of the group.' }
+        @{ Column = 'GroupID';         Required = $true;  Description = 'Numeric ID of the group.' }
+        @{ Column = 'IncludeMembers';  Required = $false; Description = 'Include full member details in the response (optional, default false).' }
     )
     Priority         = 64
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 function Get-GroupsGetMembersInput {
@@ -54,8 +55,13 @@ function Get-GroupsGetMembersInput {
         if (-not $groupId) { return $null }
     }
 
+    $includeMembersStr = Show-FieldPrompt -Label 'Include Members' `
+        -Default $(if ($Defaults['IncludeMembers']) { 'Y' } else { 'N' }) `
+        -Description 'Include full member details in the response? (Y/N, default N).'
+
     return @{
-        GroupID = $groupId
+        GroupID        = $groupId
+        IncludeMembers = ($includeMembersStr -match '^[Yy]$')
     }
 }
 
@@ -115,15 +121,25 @@ function Invoke-GroupsGetMembers {
 
     $encodedId = [Uri]::EscapeDataString($groupId)
 
+    # includeMembers is optional and defaults to false server-side, so omitting it (the
+    # pre-existing behavior) is not the silent-empty-results risk originally suspected -
+    # confirmed against a live tenant. Exposed as an opt-in field matching psPAS's own
+    # parameter, same CSV-string-to-bool matching used elsewhere (see Lessons-Learned 31.1 -
+    # never cast a CSV-sourced string directly to [bool]).
+    $includeMembers = "$($InputData['IncludeMembers'])".Trim() -match '(?i)^(true|yes|y|1)$'
+    $queryParams    = @{}
+    if ($includeMembers) { $queryParams['includeMembers'] = 'true' }
+
     Write-CyberArkLog -Level 'INFO'  -Message "Starting group members retrieval for group ID: $groupId"
-    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/UserGroups/$encodedId"
+    Write-CyberArkLog -Level 'DEBUG' -Message "GET /API/UserGroups/$encodedId | IncludeMembers=$includeMembers"
 
     $response = Invoke-CyberArkAPI `
-        -Token    $Token `
-        -Method   'GET' `
-        -Endpoint "/API/UserGroups/$encodedId" `
-        -PageSize 0 `
-        -WhatIf:  $WhatIf.IsPresent
+        -Token       $Token `
+        -Method      'GET' `
+        -Endpoint    "/API/UserGroups/$encodedId" `
+        -QueryParams $queryParams `
+        -PageSize    0 `
+        -WhatIf:     $WhatIf.IsPresent
 
     if (-not $response.IsSuccess) {
         $msg = "Get group members failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"

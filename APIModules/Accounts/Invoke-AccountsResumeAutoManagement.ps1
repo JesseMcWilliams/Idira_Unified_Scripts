@@ -15,7 +15,7 @@ $ModuleMeta = @{
         @{ Column = 'Safe';        Required = $true;  Description = 'Safe containing the account.' }
     )
     Priority         = 41
-    Version          = '1.3.0'
+    Version          = '1.4.0'
 }
 
 function Get-AccountsResumeAutoManagementInput {
@@ -168,31 +168,46 @@ function Invoke-AccountsResumeAutoManagement {
 
     $encodedId = [Uri]::EscapeDataString($accountId)
 
-    # JSON Patch (RFC 6902) body: re-enable automatic management and clear the manual
-    # management reason. Array order matters for JSON Patch semantics, so this is built
+    # Endpoint differs by platform for this action. Self-Hosted confirmed against a live
+    # tenant: POST /API/Accounts/{id}/Resume/, matching psPAS's Resume-PASCPMAutoManagement.ps1,
+    # no body needed. ISPSS is unconfirmed and keeps the pre-existing JSON Patch (RFC 6902)
+    # PATCH call until verified - array order matters for JSON Patch semantics, so it's built
     # as an ordered array of hashtables, not a hashtable/object.
-    $body = @(
-        @{ op = 'replace'; path = '/secretManagement/automaticManagementEnabled'; value = 'true' },
-        @{ op = 'replace'; path = '/secretManagement/manualManagementReason';     value = ''     }
-    )
+    $isSelfHosted = ($Token.PSObject.Properties['SystemType'] -and $Token.SystemType -eq 'SelfHosted')
+
+    if ($isSelfHosted) {
+        $method   = 'POST'
+        $endpoint = "/API/Accounts/$encodedId/Resume/"
+        $body     = $null
+    } else {
+        $method   = 'PATCH'
+        $endpoint = "/API/Accounts/$encodedId/"
+        $body     = @(
+            @{ op = 'replace'; path = '/secretManagement/automaticManagementEnabled'; value = 'true' },
+            @{ op = 'replace'; path = '/secretManagement/manualManagementReason';     value = ''     }
+        )
+    }
 
     Write-CyberArkLog -Level 'INFO'  -Message "Starting resume auto management for account ID: $accountId"
-    Write-CyberArkLog -Level 'DEBUG' -Message "PATCH /API/Accounts/$accountId/"
+    Write-CyberArkLog -Level 'DEBUG' -Message "$method $endpoint"
 
     if ($WhatIf.IsPresent) {
-        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: PATCH /API/Accounts/$accountId/ would be performed."
+        Write-CyberArkLog -Level 'INFO' -Message "WhatIf: $method $endpoint would be performed."
         $result.Successes++
         $result.ItemsProcessed++
         Add-CyberArkLogSummaryEntry -ModuleName $ModuleMeta.Name -ItemsProcessed $result.ItemsProcessed -Successes $result.Successes -Failures $result.Failures
         return $result
     }
 
-    $response = Invoke-CyberArkAPI `
-        -Token    $Token `
-        -Method   'PATCH' `
-        -Endpoint "/API/Accounts/$encodedId/" `
-        -Body     $body `
-        -WhatIf:  $WhatIf.IsPresent
+    $apiParams = @{
+        Token    = $Token
+        Method   = $method
+        Endpoint = $endpoint
+        WhatIf   = $WhatIf.IsPresent
+    }
+    if ($body) { $apiParams['Body'] = $body }
+
+    $response = Invoke-CyberArkAPI @apiParams
 
     if (-not $response.IsSuccess) {
         $msg = "Resume Auto Management failed (HTTP $($response.StatusCode)): $($response.ErrorMessage)"
