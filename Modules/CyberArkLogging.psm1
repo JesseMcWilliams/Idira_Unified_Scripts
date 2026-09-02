@@ -53,15 +53,16 @@ $script:SensitivePatterns = @(
     '(?i)(Authorization:\s*Bearer\s+)\S+'
     '(?i)(Authorization:\s+)\S+'
     # Password / secret keyword assignments (key=value or key: value) - bare/non-JSON form
-    '(?i)(password|secret|token|clientsecret|refreshtoken|credential|credentials|newcredentials|newpassword)\s*[:=]\s*\S+'
+    '(?i)(password|secret|token|clientsecret|refreshtoken|credential|credentials|newcredentials|newpassword|authvalue)\s*[:=]\s*\S+'
     # OAuth access_token or refresh_token JSON values
     '(?i)"(access_token|refresh_token|id_token)"\s*:\s*"[^"]+"'
-    # Any JSON-quoted key containing password/secret/token/credential, case-insensitive
-    # (covers request-body fields like "NewCredentials", "ClientSecret", "secret" that the
-    # plain key=value pattern above misses because the value is quoted, not bare - CyberArkComms
-    # logs full POST/PUT/PATCH request bodies at DEBUG/-FileOnly, so an unmatched JSON key here
-    # means a real vault password/secret/token is written to the log file in clear text).
-    '(?i)("[^"]*(?:password|secret|token|credential)[^"]*")\s*:\s*"[^"\\]*(?:\\.[^"\\]*)*"'
+    # Any JSON-quoted key containing password/secret/token/credential/authvalue, case-insensitive
+    # (covers request-body fields like "NewCredentials", "ClientSecret", "AuthValue" (Applications
+    # auth-method value - a hash/path/cert-serial credential) that the plain key=value pattern
+    # above misses because the value is quoted, not bare - CyberArkComms logs full POST/PUT/PATCH
+    # request bodies at DEBUG/-FileOnly, so an unmatched JSON key here means a real vault
+    # password/secret/token/auth value is written to the log file in clear text).
+    '(?i)("[^"]*(?:password|secret|token|credential|authvalue)[^"]*")\s*:\s*"[^"\\]*(?:\\.[^"\\]*)*"'
 )
 
 #endregion

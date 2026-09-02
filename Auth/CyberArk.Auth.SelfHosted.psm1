@@ -6,6 +6,9 @@ Import-Module (Join-Path $PSScriptRoot 'CyberArk.Auth.Common.psm1') -Force -Glob
 
 #region Constants
 
+# Fallback only - used when the server's actual configured idle timeout cannot be
+# retrieved (older PVWA without /api/Settings/Timeout, or the request fails for any
+# reason). See Get-PVWASessionTimeoutMinutes, which queries the real value.
 $script:PVWA_SESSION_EXPIRY_MIN = 20
 
 $script:PVWA_LOGON_PATHS = @{
@@ -32,7 +35,12 @@ function Invoke-PVWALogon {
         Uri         = $Url
         Method      = 'POST'
         Headers     = @{ 'Content-Type' = 'application/json' }
-        Body        = $Body
+        # Encode as raw UTF8 bytes rather than a String so PowerShell's own ParameterBinding/
+        # module logging (e.g. GPO-enabled Module Logging / Script Block Logging) records a
+        # non-revealing System.Byte[] type name instead of the literal request content - which
+        # for every one of these logon methods includes the plaintext vault password. Mirrors
+        # psPAS's New-PASSession.ps1 / Invoke-PASRestMethod.ps1.
+        Body        = [System.Text.Encoding]::UTF8.GetBytes($Body)
         ErrorAction = 'Stop'
     }
     if ($Certificate) { $params.Certificate = $Certificate }
@@ -45,6 +53,57 @@ function Invoke-PVWALogon {
     }
     $result = Invoke-RestMethod @params
     return $result.ToString().Trim('"')
+}
+
+function Get-PVWASessionTimeoutMinutes {
+    <#
+    .SYNOPSIS
+        Queries the PVWA-configured idle session timeout (minutes) for the just-authenticated session.
+    .DESCRIPTION
+        Calls GET {PVWAUrl}/api/Settings/Timeout (PVWA 13.2+) using the freshly obtained session
+        token. Returns $null on any failure (older PVWA without this endpoint, network error, etc.)
+        so callers can fall back to $script:PVWA_SESSION_EXPIRY_MIN - this is a best-effort
+        replacement for a hardcoded guess, not a hard requirement.
+    .PARAMETER PVWAUrl
+        Full PVWA base URL including AppName.
+    .PARAMETER Token
+        The session token value (as sent in the Authorization header) obtained from logon.
+    .PARAMETER IgnoreSSL
+        Bypass SSL certificate validation, matching the logon call's own setting.
+    .OUTPUTS
+        [int] Timeout in minutes, or $null if it could not be determined.
+    #>
+    param(
+        [string]$PVWAUrl,
+        [string]$Token,
+        [switch]$IgnoreSSL
+    )
+
+    $params = @{
+        Uri         = "$PVWAUrl/api/Settings/Timeout"
+        Method      = 'GET'
+        Headers     = @{ Authorization = $Token; 'Content-Type' = 'application/json' }
+        ErrorAction = 'Stop'
+    }
+    if ($IgnoreSSL) {
+        if ($PSVersionTable.PSVersion.Major -ge 6) {
+            $params.SkipCertificateCheck = $true
+        } else {
+            [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+        }
+    }
+
+    try {
+        $result = Invoke-RestMethod @params
+        if ($null -ne $result -and $result.PSObject.Properties['Timeout'] -and $result.Timeout) {
+            Write-Verbose "PVWA-configured idle timeout: $($result.Timeout) minute(s)."
+            return [int]$result.Timeout
+        }
+    } catch {
+        Write-Verbose "Could not retrieve session timeout from PVWA (falling back to default): $_"
+    }
+
+    return $null
 }
 
 function Invoke-SelfHostedPasswordAuth {
@@ -77,11 +136,14 @@ function Invoke-SelfHostedPasswordAuth {
         throw "$AuthMethod authentication failed at '$logonUrl': $_"
     }
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $PVWAUrl -Token $token -IgnoreSSL:$IgnoreSSL
+    if (-not $expiryMin) { $expiryMin = $script:PVWA_SESSION_EXPIRY_MIN }
+
     New-AuthTokenObject `
         -Token        $token `
         -TokenType    'CyberArkSession' `
         -Headers      @{ Authorization = $token; 'Content-Type' = 'application/json' } `
-        -Expiry       ([DateTime]::UtcNow.AddMinutes($script:PVWA_SESSION_EXPIRY_MIN)) `
+        -Expiry       ([DateTime]::UtcNow.AddMinutes($expiryMin)) `
         -RefreshToken $null `
         -SystemType   'SelfHosted' `
         -AuthMethod   $AuthMethod `
@@ -113,11 +175,14 @@ function Invoke-SelfHostedShared {
         throw "Shared authentication failed at '$logonUrl': $_"
     }
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $PVWAUrl -Token $token -IgnoreSSL:$IgnoreSSL
+    if (-not $expiryMin) { $expiryMin = $script:PVWA_SESSION_EXPIRY_MIN }
+
     New-AuthTokenObject `
         -Token        $token `
         -TokenType    'CyberArkSession' `
         -Headers      @{ Authorization = $token; 'Content-Type' = 'application/json' } `
-        -Expiry       ([DateTime]::UtcNow.AddMinutes($script:PVWA_SESSION_EXPIRY_MIN)) `
+        -Expiry       ([DateTime]::UtcNow.AddMinutes($expiryMin)) `
         -RefreshToken $null `
         -SystemType   'SelfHosted' `
         -AuthMethod   'Shared' `
@@ -150,11 +215,14 @@ function Invoke-SelfHostedPKI {
         throw "$AuthMethod authentication failed at '$logonUrl': $_"
     }
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $PVWAUrl -Token $token -IgnoreSSL:$IgnoreSSL
+    if (-not $expiryMin) { $expiryMin = $script:PVWA_SESSION_EXPIRY_MIN }
+
     New-AuthTokenObject `
         -Token        $token `
         -TokenType    'CyberArkSession' `
         -Headers      @{ Authorization = $token; 'Content-Type' = 'application/json' } `
-        -Expiry       ([DateTime]::UtcNow.AddMinutes($script:PVWA_SESSION_EXPIRY_MIN)) `
+        -Expiry       ([DateTime]::UtcNow.AddMinutes($expiryMin)) `
         -RefreshToken $null `
         -SystemType   'SelfHosted' `
         -AuthMethod   $AuthMethod `
@@ -186,11 +254,14 @@ function Invoke-SelfHostedSAML {
     $captured = Invoke-WebView2Window -NavigateUrl $samlUrl -TargetHost $pvwaHost `
         -Title 'CyberArk PVWA SAML Login'
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $PVWAUrl -Token $captured.Token -IgnoreSSL:$IgnoreSSL
+    if (-not $expiryMin) { $expiryMin = $script:PVWA_SESSION_EXPIRY_MIN }
+
     New-AuthTokenObject `
         -Token        $captured.Token `
         -TokenType    'CyberArkSession' `
         -Headers      @{ Authorization = $captured.Token; 'Content-Type' = 'application/json' } `
-        -Expiry       ([DateTime]::UtcNow.AddMinutes($script:PVWA_SESSION_EXPIRY_MIN)) `
+        -Expiry       ([DateTime]::UtcNow.AddMinutes($expiryMin)) `
         -RefreshToken $null `
         -SystemType   'SelfHosted' `
         -AuthMethod   'SAML' `
@@ -221,11 +292,14 @@ function Invoke-SelfHostedOIDC {
     $captured = Invoke-WebView2Window -NavigateUrl $oidcUrl -TargetHost $pvwaHost `
         -Title 'CyberArk PVWA OIDC Login'
 
+    $expiryMin = Get-PVWASessionTimeoutMinutes -PVWAUrl $PVWAUrl -Token $captured.Token -IgnoreSSL:$IgnoreSSL
+    if (-not $expiryMin) { $expiryMin = $script:PVWA_SESSION_EXPIRY_MIN }
+
     New-AuthTokenObject `
         -Token        $captured.Token `
         -TokenType    'CyberArkSession' `
         -Headers      @{ Authorization = $captured.Token; 'Content-Type' = 'application/json' } `
-        -Expiry       ([DateTime]::UtcNow.AddMinutes($script:PVWA_SESSION_EXPIRY_MIN)) `
+        -Expiry       ([DateTime]::UtcNow.AddMinutes($expiryMin)) `
         -RefreshToken $null `
         -SystemType   'SelfHosted' `
         -AuthMethod   'OIDC' `

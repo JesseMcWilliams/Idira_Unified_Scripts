@@ -371,7 +371,13 @@ function Invoke-CyberArkAPI {
                 ErrorAction     = 'Stop'
             }
             if ($bodyString) {
-                $iwrParams['Body']        = $bodyString
+                # Encode as raw UTF8 bytes rather than a String so PowerShell's own
+                # ParameterBinding/module logging (e.g. GPO-enabled Module Logging / Script
+                # Block Logging) records a non-revealing System.Byte[] type name instead of the
+                # literal JSON content - which for many callers includes plaintext account
+                # passwords, CPM NewCredentials, or safe-member permission bodies. Mirrors
+                # psPAS's Invoke-PASRestMethod.ps1.
+                $iwrParams['Body']        = [System.Text.Encoding]::UTF8.GetBytes($bodyString)
                 $iwrParams['ContentType'] = 'application/json'
             }
 

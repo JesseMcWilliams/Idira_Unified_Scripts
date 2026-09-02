@@ -228,6 +228,13 @@ Describe 'Write-CyberArkLog' {
         $content | Should -Match '\*\*\*'
     }
 
+    It 'L22d - masks a quoted JSON AuthValue value (Applications auth-method credential)' {
+        Write-CyberArkLog -Message 'Request body: {"AuthType":"hash","AuthValue":"a1b2c3d4e5f6"}' -Level 'INFO'
+        $content = Get-LatestLogContent
+        $content | Should -Not -Match 'a1b2c3d4e5f6'
+        $content | Should -Match '\*\*\*'
+    }
+
     It 'L23 - non-sensitive message is unchanged' {
         Write-CyberArkLog -Message 'SafeName is MySafe location is root' -Level 'INFO'
         Get-LatestLogContent | Should -Match 'SafeName is MySafe location is root'
