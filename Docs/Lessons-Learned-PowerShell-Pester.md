@@ -3021,3 +3021,44 @@ and `$null.Successes` throwing the identical `PropertyNotFoundException` text ca
 completely different bugs (a collapsed pipeline result vs. a scriptblock-scope assignment that
 never happened vs., in this case, a wholly unrelated stale test having nothing to do with strict
 mode at all). Read each failure's own code before assuming a shared fix applies.
+
+## 33. A Correct Shared Helper Existed and Was Ignored by 16 Call Sites - Hand-Rolled String Interpolation Instead
+
+**Root cause:** `CyberArkComms.psm1` already exported `New-CyberArkSearchFilter`, a small, already
+Pester-tested (C13-C16) function that builds a `field eq value` filter expression and - critically -
+wraps `value` in literal double quotes whenever it contains whitespace, matching CyberArk's own
+filter grammar (confirmed against psPAS's `Private/ConvertTo-FilterString.ps1`, which does the
+identical auto-quote-on-whitespace for API 14.6+). Despite this helper already existing and already
+being correct, 16 call sites across the Accounts category built the identical `safeName eq X`
+filter by hand via raw string interpolation instead of calling it:
+```powershell
+# Wrong - reimplements New-CyberArkSearchFilter's job, badly (no quoting):
+-QueryParams @{ filter = "safeName eq $targetSafe"; limit = 1000 }
+```
+None of these 16 independent reimplementations quoted the value, so any safe name containing a
+space (e.g. `"Prod Web Servers"`) silently broke the `AccountName`+`Safe` account-resolution path
+that every one of these modules uses - the API most likely returned zero matches or misparsed the
+filter, surfacing as a normal-looking "account not found" error rather than an obvious crash.
+
+**Symptom:** An account lookup by `AccountName`+`Safe` fails for any safe whose name contains a
+space, but succeeds for single-word safe names - easy to miss in testing if test safes happen to
+be named without spaces (a very plausible testing blind spot, since single-word safe names are
+common in ad hoc test setups but multi-word names are common in real environments).
+
+**Fix:** Route every one of these 16 call sites through the existing helper instead of hand-writing
+the string:
+```powershell
+# Correct:
+-QueryParams @{ filter = (New-CyberArkSearchFilter -Criteria @{ safeName = $targetSafe }); limit = 1000 }
+```
+
+**Rule:** Before building any CyberArk filter/query expression by hand, check whether
+`CyberArkComms.psm1` already exports a helper for it (`New-CyberArkQuery`, `New-CyberArkSearchFilter`,
+`Join-CyberArkUrl`) - a shared helper existing and being correct does not guarantee every call site
+actually uses it; grep for the literal pattern being hand-built (e.g. `"eq \$`") across the whole
+`APIModules\` tree before assuming a single call site's fix is complete, the same lesson Section
+31.2 already draws for shared-helper *contract changes* - this is the mirror case, where the
+contract was already right and simply wasn't adopted everywhere it should have been. Also add
+`New-CyberArkSearchFilter` (and any other under-documented shared helper) to
+`API-Module-Development-Guide.md`'s example code - its absence from that guide's own filter-building
+example is a plausible reason none of these 16 sites reached for it in the first place.

@@ -611,6 +611,14 @@ Reconcile/etc.) — never point a write action at production data.
       was `PATCH .../` before; ISPSS was deliberately left unchanged/unconfirmed) ·
       [ ] UnlinkAccount · [ ] Unlock · [ ] Update (JSON Patch) · [ ] Verify
 
+  **For every `AccountName`+`Safe`-resolving action above:** confirm the `filter=safeName eq ...`
+  lookup now works against a **safe name containing a space** (e.g. `"Prod Web Servers"`), not just
+  a single-word safe name - this session fixed all 16 call sites of this bug (raw string
+  interpolation never quoted the value; now routed through `New-CyberArkSearchFilter`, confirmed
+  against psPAS's `ConvertTo-FilterString.ps1`), but none of the 16 fixes have been exercised
+  against a real PVWA/ISPSS tenant yet. `List`'s By-Safe iteration mode needs the same check with
+  at least one accessible safe whose name contains a space.
+
 ### Safes (8 actions)
 - [ ] Add · [ ] AddFromTemplate (T01-T24 scenarios) · [ ] AssignCPM (confirm live CPM query) ·
       [ ] Delete · [ ] Get · [ ] List (confirm F05 ExtendedDetails CSV-boolean fix) ·
@@ -687,3 +695,4 @@ Reconcile/etc.) — never point a write action at production data.
 | 2026-09-02 | Full Self-Hosted-focused review and rewrite: added the Self-Hosted vs. ISPSS scope/caution section; replaced the stale Component Test Matrix with a complete matrix of every module in the project; added the Findings and Fixes section (F01-F11, covering the Join-CyberArkUrl trailing-slash fix, JSON-key secret-masking fix, ApplicationsAdd TryParse validation, ReportsList strict-mode property guards, five CSV-boolean cast fixes, PlatformsList field-fallback fix, ExportGroupMembersLocal ISPSS-groupType fix, two Manage-Privilege.ps1 driver fixes, and the dead Get-AuthToken.ps1 deletion); added the Known Issues / Risk Register (K01-K07, none fixed this pass); replaced the stale Get-AuthToken.ps1-referencing auth test section with a Self-Hosted Auth section covering all 8 auth methods (A01-A18); added D23-D25 driver test cases for the two new driver fixes; added the Self-Hosted Full Functional Checklist enumerating all ~55 module actions plus driver-level checks for the live test pass |
 | 2026-09-02 | Updated for Phase 0-2 of `aPePAS-Improvement-Plan-2026-09-02.md` (same day, later revision): corrected the Self-Hosted vs. ISPSS caution section's now-stale claim that `Applications`/`Reports` are Self-Hosted-only (Phase 1 confirmed both work on ISPSS and expanded `SupportedSystems`); added the new Self-Hosted-only entries (`Platforms/Rename`, the new `Policies` category) to the Component Test Matrix; added all 7 new Phase 2 Platforms modules (`Copy`/`Disable`/`Enable`/`Import`/`Remove`/`Rename`/`SetPSMConfig`) and both new Policies modules to the matrix and the Full Functional Checklist; updated the Accounts/Groups/Custom checklist entries for Phase 1's confirmed endpoint/field changes (Cancel CPM Task, Resume Auto Management, Group Member `MemberType`/`IncludeMembers`, Applications `Location`, the three Custom export tools' new auto-save-CSV behavior, and Test API's widened base URL); added a cross-reference at the top to the new `E2E-Automation-Design.md`, which tracks progress toward automating this document's manual checklist |
 | 2026-09-02 | Added the new `Custom/Invoke-CustomTestConnectivity.ps1` module (DNS resolution, port checks, and Windows SMB / Linux SSH authentication testing, with a vault password fallback) to the Component Test Matrix and the Full Functional Checklist (Custom now 6 actions); updated the dual-use module count to 62 of 65 total |
+| 2026-09-02 | Added a note to the Accounts checklist flagging the `filter=safeName eq ...` space-quoting fix (16 files, confirmed against psPAS's `ConvertTo-FilterString.ps1`) as needing live verification against a safe name containing a space - not yet exercised against a real tenant |
