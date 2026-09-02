@@ -368,6 +368,16 @@ $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } e
 Bracket notation (`['Key']`) returns `$null` safely when the key is absent. Apply this to
 **every** `$InputData` access — required fields, optional fields, and body-building expressions.
 
+**This rule applies equally to `$ModuleMeta`/`$meta` hashtables, not just `$InputData`.** This
+exact bug recurred in `Manage-Privilege.ps1` (reported live by the user as a `[FATAL]
+PropertyNotFoundException` on `AutoSaveCsv` at `Invoke-ActionModule`, hit via *any* module lacking
+that key - i.e. every module except the 4 that declare it) when a new optional `ModuleMeta` field
+(`AutoSaveCsv`) was added and read as `$meta.AutoSaveCsv` instead of `$meta['AutoSaveCsv']`. Every
+other `$meta.<Field>` access in that file was already safe only because it happens to read a field
+every module's `$ModuleMeta` always defines (`Name`, `Category`, `Action`, etc.) - this was the
+first *optional* field ever read that way. Before adding a new optional `ModuleMeta` field, check
+this section (and 4.7 below) first, and use bracket notation from the start.
+
 ---
 
 ### 4.2 PSCustomObject optional property access throws `PropertyNotFoundException`
