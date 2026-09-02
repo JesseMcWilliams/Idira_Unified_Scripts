@@ -154,8 +154,11 @@ Describe 'Invoke-ReportsList - success' {
         try {
             $sparseReport = [PSCustomObject]@{ reportId = 3; reportName = 'Sparse Report' }
             Mock Invoke-CyberArkAPI { script:New-ReportsApiResponse -Reports @($sparseReport) }
-            $r = $null
-            { $r = Invoke-ReportsList -Token $script:MockToken } | Should -Not -Throw
+            # Direct assignment, not { $r = ... } | Should -Not -Throw - that scriptblock-pipe
+            # pattern runs in a child scope and never assigns $r in this scope at all (see
+            # Lessons-Learned-PowerShell-Pester.md Section 32). An uncaught exception here fails
+            # the test just as clearly as a Should -Not -Throw failure would.
+            $r = Invoke-ReportsList -Token $script:MockToken
             $r.Successes           | Should -Be 1
             $r.Failures            | Should -Be 0
             $r.Results[0].ReportID | Should -Be 3

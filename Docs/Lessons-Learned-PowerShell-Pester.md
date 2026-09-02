@@ -2986,8 +2986,28 @@ assignment the test then reads afterward.
 **Rule:** When a test needs both "assert this doesn't throw" and "capture the return value for
 further assertions," do a plain direct assignment and skip the `Should -Not -Throw` wrapper entirely
 - it adds no real protection here (a thrown exception fails the test either way) and silently
-discards the assignment it looks like it's making. Two other full-suite-only failures with the same
-`PropertyNotFoundException`-on-`$null` signature remain open in this codebase as of this writing
-(`Invoke-CustomExportGroupMembersLocal.Tests.ps1`'s ISPSS groupType test and
-`Invoke-ReportsList.Tests.ps1`'s RL08a) and have not yet been checked for this same root cause -
-worth checking before assuming they're a different bug.
+discards the assignment it looks like it's making.
+
+**Follow-up:** the two other full-suite-only failures flagged above with the same
+`PropertyNotFoundException`-on-`$null` signature were checked and turned out to be two different
+bugs, not this one - a good illustration of why the shared exception signature alone doesn't tell
+you the cause:
+- `Invoke-ReportsList.Tests.ps1`'s RL08a *was* this exact Section 32 bug (`{ $r = ... } | Should
+  -Not -Throw`) - fixed the same way, direct assignment.
+- `Invoke-CustomExportGroupMembersLocal.Tests.ps1`'s ISPSS groupType test was actually the
+  Section 9.8/9.9 array-collapse bug instead: `($result.Results | Where-Object {...}).Count` with
+  zero matches collapses to `$null`, not an empty array, so `.Count` throws under strict mode -
+  fixed by wrapping in `@(...)`, same as the `Invoke-SafesAddFromTemplate.Tests.ps1` T31 case
+  Section 9.8 already documents.
+- `ModuleMeta.AG06` in `Invoke-AccountsGet.Tests.ps1` (a third pre-existing failure, different
+  signature - `Should -Not -BeNullOrEmpty` failing outright, not an exception) turned out to be
+  neither: a genuinely stale assertion checking for an `AccountID` column in `InputSchema` that
+  hadn't existed since the module was refactored to the `AccountName`+`Safe` resolution pattern
+  (`AccountID` remained supported as an optional direct-lookup override, just no longer a required
+  CSV column) - fixed by updating the test to check for the columns the module actually declares.
+
+**Rule:** don't assume every failure sharing a signature has the same root cause - `$null.Count`
+and `$null.Successes` throwing the identical `PropertyNotFoundException` text can come from
+completely different bugs (a collapsed pipeline result vs. a scriptblock-scope assignment that
+never happened vs., in this case, a wholly unrelated stale test having nothing to do with strict
+mode at all). Read each failure's own code before assuming a shared fix applies.

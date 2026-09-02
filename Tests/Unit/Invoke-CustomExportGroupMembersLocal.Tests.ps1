@@ -108,7 +108,11 @@ Describe 'Invoke-CustomExportGroupMembersLocal' {
             # (incorrectly) treated as local too, its members endpoint (unmocked here) would have
             # been called, which Should -Invoke below confirms did not happen.
             Should -Invoke Invoke-CyberArkAPI -ParameterFilter { $Endpoint -like '*/API/UserGroups/1*' } -Times 0
-            ($result.Results | Where-Object { $_.RootGroupName -eq 'DirGroup@corp.example.com' }).Count | Should -Be 0
+            # @(...) wrap required - a zero-match Where-Object collapses to $null, not an empty
+            # array, and $null.Count throws under Set-StrictMode. See Lessons-Learned-PowerShell
+            # -Pester.md Section 9.8/9.9 (this exact pattern already caused one prior false
+            # failure in this codebase's own tests, Invoke-SafesAddFromTemplate.Tests.ps1 T31).
+            @($result.Results | Where-Object { $_.RootGroupName -eq 'DirGroup@corp.example.com' }).Count | Should -Be 0
         }
     }
 
