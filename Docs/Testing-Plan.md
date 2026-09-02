@@ -164,7 +164,7 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | Accounts / GetActivity | Yes | `Unit\Invoke-AccountsGetActivity.Tests.ps1` | Yes |
 | Accounts / GetCredential | Yes | `Unit\Invoke-AccountsGetCredential.Tests.ps1` | Yes |
 | Accounts / LinkAccount | Yes | `Unit\Invoke-AccountsLinkAccount.Tests.ps1` | Yes |
-| Accounts / List (incl. By-Safe mode) | Yes | `Unit\Invoke-AccountsList.Tests.ps1` | Yes — confirm the ~20K-result cap and the By-Safe workaround against the live host's actual account count |
+| Accounts / List (incl. By-Safe mode) | Yes | `Unit\Invoke-AccountsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | Accounts / Reconcile | Yes | `Unit\Invoke-AccountsReconcile.Tests.ps1` | Yes |
 | Accounts / ResumeAutoManagement | Yes | `Unit\Invoke-AccountsResumeAutoManagement.Tests.ps1` | Yes |
 | Accounts / UnlinkAccount | Yes | `Unit\Invoke-AccountsUnlinkAccount.Tests.ps1` | Yes |
@@ -176,12 +176,12 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | Safes / AssignCPM | Yes | `Unit\Invoke-SafesAssignCPM.Tests.ps1` | Yes — confirm the live CPM query against the real host |
 | Safes / Delete | Yes | `Unit\Invoke-SafesDelete.Tests.ps1` | Yes |
 | Safes / Get | Yes | `Unit\Invoke-SafesGet.Tests.ps1` | Yes |
-| Safes / List | Yes | `Unit\Invoke-SafesList.Tests.ps1` | Yes — confirm the `ExtendedDetails` CSV-boolean fix (this session) with a real CSV bulk run |
+| Safes / List | Yes | `Unit\Invoke-SafesList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | Safes / UnassignCPM | Yes | `Unit\Invoke-SafesUnassignCPM.Tests.ps1` | Yes |
 | Safes / Update | Yes | `Unit\Invoke-SafesUpdate.Tests.ps1` | Yes |
 | SafeMembers / Add | Yes | `Unit\Invoke-SafeMembersAdd.Tests.ps1` | Yes — confirm the SearchIn directory picker lists real LDAP directories |
 | SafeMembers / AddFromTemplateRole | Yes | `Unit\Invoke-SafeMembersAddFromTemplateRole.Tests.ps1` | Yes |
-| SafeMembers / List | Yes | `Unit\Invoke-SafeMembersList.Tests.ps1` | Yes |
+| SafeMembers / List | Yes | `Unit\Invoke-SafeMembersList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | SafeMembers / Remove | Yes | `Unit\Invoke-SafeMembersRemove.Tests.ps1` | Yes |
 | SafeMembers / Update | Yes | `Unit\Invoke-SafeMembersUpdate.Tests.ps1` | Yes |
 | SafeMembers / UpdateFromTemplateRole | Yes | `Unit\Invoke-SafeMembersUpdateFromTemplateRole.Tests.ps1` | Yes |
@@ -190,7 +190,7 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | Platforms / Enable | Yes | `Unit\Invoke-PlatformsEnable.Tests.ps1` | Yes — same caveat as Copy |
 | Platforms / Get | Yes | `Unit\Invoke-PlatformsGet.Tests.ps1` | Yes |
 | Platforms / Import | Yes | `Unit\Invoke-PlatformsImport.Tests.ps1` | Yes — the ZIP-as-byte-array request shape is unverified against a live tenant (see its own code comment and `E2E-Automation-Design.md`) |
-| Platforms / List | Yes | `Unit\Invoke-PlatformsList.Tests.ps1` | Yes — confirm the alternate-field-name fallback fix (this session) against whatever shape the live PVWA version actually returns; also confirm the new `SystemType` filter |
+| Platforms / List | Yes | `Unit\Invoke-PlatformsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the alternate-field-name fallback and `SystemType` filter noted here are covered by that confirmation) |
 | Platforms / Remove | Yes | `Unit\Invoke-PlatformsRemove.Tests.ps1` | Yes — destructive; test against a disposable sandbox platform only, same caveat as Copy otherwise |
 | Platforms / SetPSMConfig | Yes | `Unit\Invoke-PlatformsSetPSMConfig.Tests.ps1` | Yes — same caveat as Copy; needs a real PSM server ID from the test tenant |
 | Applications / Add | Yes | `Unit\Invoke-ApplicationsAdd.Tests.ps1` | Yes — confirm the ISPSS path now that `SupportedSystems` includes it (Phase 1, this session — was Self-Hosted-only before) |
@@ -198,19 +198,19 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | Applications / Delete | Yes | `Unit\Invoke-ApplicationsDelete.Tests.ps1` | Yes |
 | Applications / DeleteAuthMethod | Yes | `Unit\Invoke-ApplicationsDeleteAuthMethod.Tests.ps1` | Yes |
 | Applications / Get | Yes | `Unit\Invoke-ApplicationsGet.Tests.ps1` | Yes |
-| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | Yes — also confirm the `Join-CyberArkUrl` trailing-slash fix actually resolves the PIMServices.svc routing against a real PVWA, not just in the mocked unit test |
-| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Yes |
-| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | Yes — confirm the ISPSS path now that `SupportedSystems` includes it (Phase 1, this session — was Self-Hosted-only before) |
+| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the `Join-CyberArkUrl` trailing-slash/PIMServices.svc routing fix noted here is covered by that confirmation) |
+| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Yes — **not** covered by the "all List actions confirmed" status below, since its `Action` is `ListAuthMethods`, not `List`. The blank-`AppID`-lists-every-application behavior (added this session, per user request) is new and unverified against a real host |
+| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the ISPSS-`SupportedSystems` expansion noted here is Self-Hosted-confirmed only; ISPSS itself remains unverified per the caution section) |
 | Users / Get | Yes | `Unit\Invoke-UsersGet.Tests.ps1` | Yes |
-| Users / List | Yes | `Unit\Invoke-UsersList.Tests.ps1` | Yes |
+| Users / List | Yes | `Unit\Invoke-UsersList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | Groups / Add | Yes | `Unit\Invoke-GroupsAdd.Tests.ps1` | Yes |
 | Groups / AddMember | Yes | `Unit\Invoke-GroupsAddMember.Tests.ps1` | Yes |
 | Groups / Delete | Yes | `Unit\Invoke-GroupsDelete.Tests.ps1` | Yes |
 | Groups / GetMembers | Yes | `Unit\Invoke-GroupsGetMembers.Tests.ps1` | Yes |
-| Groups / List | Yes | `Unit\Invoke-GroupsList.Tests.ps1` | Yes — the `GroupType` filter should work meaningfully on Self-Hosted (unlike ISPSS, see caution section) |
+| Groups / List | Yes | `Unit\Invoke-GroupsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the `GroupType` filter noted here is covered by that confirmation) |
 | Groups / RemoveMember | Yes | `Unit\Invoke-GroupsRemoveMember.Tests.ps1` | Yes |
 | Groups / Update | Yes | `Unit\Invoke-GroupsUpdate.Tests.ps1` | Yes |
-| Custom / ExportAll | Yes | `Unit\Invoke-CustomExportAll.Tests.ps1` | Yes |
+| Custom / ExportAll | Yes | `Unit\Invoke-CustomExportAll.Tests.ps1` | Yes — now also discovers and runs Applications/ListAuthMethods (added this session, per user request), not previously part of Export All. That specific addition is unverified against a real host |
 | Custom / ExportEntitlements | Yes | `Unit\Invoke-CustomExportEntitlements.Tests.ps1` | Yes |
 | Custom / ExportGroupMembersLDAP | Yes | `Unit\Invoke-CustomExportGroupMembersLDAP.Tests.ps1` | Yes — requires line-of-sight from wherever the script runs to the actual Active Directory (ADSI-based, not a CyberArk API call) |
 | Custom / ExportGroupMembersLocal | Yes (incl. new ISPSS-groupType-quirk regression test this session) | `Unit\Invoke-CustomExportGroupMembersLocal.Tests.ps1` | Yes |
@@ -606,7 +606,7 @@ Reconcile/etc.) — never point a write action at production data.
       `/StopImmediateAutoMgmtOperations` before) · [ ] ChangeImmediate ·
       [ ] ChangeInVault (confirm F02 masking) · [ ] CheckIn · [ ] Delete · [ ] Get ·
       [ ] GetActivity · [ ] GetCredential · [ ] LinkAccount ·
-      [ ] List (incl. By-Safe mode, confirm 20K cap behavior) · [ ] Reconcile ·
+      [x] List (incl. By-Safe mode, confirm 20K cap behavior — **confirmed 2026-09-02**) · [ ] Reconcile ·
       [ ] ResumeAutoManagement (confirm `POST .../Resume/` on Self-Hosted, Phase 1 this session —
       was `PATCH .../` before; ISPSS was deliberately left unchanged/unconfirmed) ·
       [ ] UnlinkAccount · [ ] Unlock · [ ] Update (JSON Patch) · [ ] Verify
@@ -621,17 +621,20 @@ Reconcile/etc.) — never point a write action at production data.
 
 ### Safes (8 actions)
 - [ ] Add · [ ] AddFromTemplate (T01-T24 scenarios) · [ ] AssignCPM (confirm live CPM query) ·
-      [ ] Delete · [ ] Get · [ ] List (confirm F05 ExtendedDetails CSV-boolean fix) ·
+      [ ] Delete · [ ] Get ·
+      [x] List (confirm F05 ExtendedDetails CSV-boolean fix — **confirmed 2026-09-02**) ·
       [ ] UnassignCPM · [ ] Update
 
 ### SafeMembers (6 actions)
 - [ ] Add (confirm SearchIn directory picker lists real LDAP directories) ·
-      [ ] AddFromTemplateRole · [ ] List · [ ] Remove · [ ] Update · [ ] UpdateFromTemplateRole
+      [ ] AddFromTemplateRole · [x] List (**confirmed 2026-09-02**) · [ ] Remove · [ ] Update ·
+      [ ] UpdateFromTemplateRole
 
 ### Platforms (9 actions)
-- [ ] Get · [ ] List (confirm F06 field-fallback fix and the new `SystemType` filter, against this
-      PVWA version's actual response shape) · [ ] Copy (Target platforms only — see
-      `E2E-Automation-Design.md`) · [ ] Disable · [ ] Enable ·
+- [ ] Get ·
+      [x] List (confirm F06 field-fallback fix and the new `SystemType` filter — **confirmed
+      2026-09-02**) · [ ] Copy (Target platforms only — see `E2E-Automation-Design.md`) ·
+      [ ] Disable · [ ] Enable ·
       [ ] Import (confirm the ZIP-as-byte-array request shape actually works) ·
       [ ] Remove (destructive — use a disposable sandbox platform) ·
       [ ] Rename (Self-Hosted only, PVWA 15.0+) · [ ] SetPSMConfig
@@ -642,24 +645,32 @@ Reconcile/etc.) — never point a write action at production data.
       1-64, `PasswordChangeDays`/`PasswordVerificationDays` 1-3650, `RetentionPeriod` 0-3650)
 
 ### Users (2 actions)
-- [ ] Get · [ ] List
+- [ ] Get · [x] List (**confirmed 2026-09-02**)
 
 ### Groups (7 actions)
 - [ ] Add · [ ] AddMember (confirm `MemberType` platform split: `Domain`/`Vault` on Self-Hosted) ·
       [ ] Delete · [ ] GetMembers (confirm the new `IncludeMembers` opt-in field) ·
-      [ ] List (confirm GroupType filter works correctly on Self-Hosted, unlike ISPSS) ·
-      [ ] RemoveMember · [ ] Update
+      [x] List (confirm GroupType filter works correctly on Self-Hosted, unlike ISPSS —
+      **confirmed 2026-09-02**) · [ ] RemoveMember · [ ] Update
 
 ### Applications (7 actions — no longer Self-Hosted-only, see caution section)
 - [ ] Add (confirm `Location` is now enforced as mandatory, Phase 1 this session) ·
       [ ] AddAuthMethod · [ ] Delete · [ ] DeleteAuthMethod · [ ] Get ·
-      [ ] List (confirm F01 trailing-slash / PIMServices.svc routing fix) · [ ] ListAuthMethods
+      [x] List (confirm F01 trailing-slash / PIMServices.svc routing fix — **confirmed
+      2026-09-02**) ·
+      [ ] ListAuthMethods (per user request, this session: leaving App ID blank now lists auth
+      methods for every application instead of failing - **not** covered by the "List confirmed"
+      status above, since its `Action` is `ListAuthMethods`; this new blank-App-ID behavior is
+      unverified against a real host)
 
 ### Reports (1 action — no longer Self-Hosted-only, see caution section)
-- [ ] List (confirm F04 sparse-field guards against a real report with missing fields, if any exist)
+- [x] List (confirm F04 sparse-field guards against a real report with missing fields, if any
+      exist — **confirmed 2026-09-02**, Self-Hosted only; ISPSS remains unverified per the
+      caution section)
 
 ### Custom (6 actions)
-- [ ] ExportAll ·
+- [ ] ExportAll (per user request, this session, now also runs Applications/ListAuthMethods -
+      that specific addition is unverified against a real host) ·
       [ ] ExportEntitlements (confirm the CSV now saves automatically with no `[y/N]` prompt) ·
       [ ] ExportGroupMembersLDAP (requires AD line-of-sight; confirm auto-save CSV) ·
       [ ] ExportGroupMembersLocal (confirm F07 groupType quirk fix, though Self-Hosted may not
@@ -696,3 +707,5 @@ Reconcile/etc.) — never point a write action at production data.
 | 2026-09-02 | Updated for Phase 0-2 of `aPePAS-Improvement-Plan-2026-09-02.md` (same day, later revision): corrected the Self-Hosted vs. ISPSS caution section's now-stale claim that `Applications`/`Reports` are Self-Hosted-only (Phase 1 confirmed both work on ISPSS and expanded `SupportedSystems`); added the new Self-Hosted-only entries (`Platforms/Rename`, the new `Policies` category) to the Component Test Matrix; added all 7 new Phase 2 Platforms modules (`Copy`/`Disable`/`Enable`/`Import`/`Remove`/`Rename`/`SetPSMConfig`) and both new Policies modules to the matrix and the Full Functional Checklist; updated the Accounts/Groups/Custom checklist entries for Phase 1's confirmed endpoint/field changes (Cancel CPM Task, Resume Auto Management, Group Member `MemberType`/`IncludeMembers`, Applications `Location`, the three Custom export tools' new auto-save-CSV behavior, and Test API's widened base URL); added a cross-reference at the top to the new `E2E-Automation-Design.md`, which tracks progress toward automating this document's manual checklist |
 | 2026-09-02 | Added the new `Custom/Invoke-CustomTestConnectivity.ps1` module (DNS resolution, port checks, and Windows SMB / Linux SSH authentication testing, with a vault password fallback) to the Component Test Matrix and the Full Functional Checklist (Custom now 6 actions); updated the dual-use module count to 62 of 65 total |
 | 2026-09-02 | Added a note to the Accounts checklist flagging the `filter=safeName eq ...` space-quoting fix (16 files, confirmed against psPAS's `ConvertTo-FilterString.ps1`) as needing live verification against a safe name containing a space - not yet exercised against a real tenant |
+| 2026-09-02 | Per user report, marked every `Action = 'List'` module (Accounts, Safes, SafeMembers, Platforms, Users, Groups, Applications, Reports - 8 modules) as confirmed against a real Self-Hosted host in both the Component Test Matrix and the Full Functional Checklist. `Applications/ListAuthMethods` and `Custom/ExportAll` were explicitly called out as **not** covered by this confirmation - `ListAuthMethods`'s `Action` isn't literally `List`, and both gained new, unverified behavior this same session (see next entry) |
+| 2026-09-02 | Per user request: `Invoke-ApplicationsListAuthMethods.ps1`'s `AppID` is now optional - leaving it blank lists auth methods for every application instead of failing with "AppID is required". `Invoke-CustomExportAll.ps1` was updated to discover and run it alongside every `List` action, so Export All now includes it automatically. Both changes are new this session and unverified against a real host - added to the Applications and Custom checklist sections above |

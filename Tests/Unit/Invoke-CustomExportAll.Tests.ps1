@@ -165,6 +165,34 @@ Describe 'Invoke-CustomExportAll' {
         }
     }
 
+    Context 'ListAuthMethods discovery' {
+        It 'discovers and runs Applications ListAuthMethods modules alongside List modules' {
+            # Confirms the Action filter includes 'ListAuthMethods', not just 'List' - added
+            # so Export All picks up Invoke-ApplicationsListAuthMethods.ps1 (whose "list every
+            # application" behavior with no AppID supplied makes it a natural fit here).
+            function Invoke-ApplicationsListAuthMethods {
+                param($Token, $InputData, [switch]$WhatIf)
+                $r = [System.Collections.Generic.List[PSCustomObject]]::new()
+                $r.Add([PSCustomObject]@{ AppID = 'App1'; AuthType = 'path' })
+                return [PSCustomObject]@{
+                    Results   = $r
+                    Errors    = [System.Collections.Generic.List[PSCustomObject]]::new()
+                    Successes = 1; Failures = 0
+                }
+            }
+
+            $script:LoadedModules = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $script:LoadedModules.Add([PSCustomObject]@{
+                Meta = @{ Name = 'List Application Authentication Methods'; Category = 'Applications'; Action = 'ListAuthMethods'; ProducesOutput = $true; Priority = 89 }
+            })
+
+            $token  = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $result = Invoke-CustomExportAll -Token $token -InputData @{}
+            $result.ItemsProcessed              | Should -Be 1
+            $result.Results[0].Module           | Should -Be 'List Application Authentication Methods'
+        }
+    }
+
     Context 'Relative OutputFolder resolution' {
         BeforeEach {
             # $PSScriptRoot inside Invoke-CustomExportAll.ps1 is this file's own directory
