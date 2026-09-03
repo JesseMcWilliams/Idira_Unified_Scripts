@@ -79,6 +79,25 @@ Describe 'New-CyberArkQuery' {
         # Ampersand should be encoded
         $result | Should -Match '%26'
     }
+
+    It 'C34 - a period in a "search" value is percent-encoded as %2E, per user report' {
+        # [Uri]::EscapeDataString treats '.' as unreserved (RFC 3986) and leaves it literal,
+        # but CyberArk's ?search= endpoints fail to match on a literal period - confirmed live.
+        $result = New-CyberArkQuery -Params @{ search = 'jdoe.admin' }
+        $result | Should -Be '?search=jdoe%2Eadmin'
+    }
+
+    It 'C35 - a period in a "Search" value (capitalized key) is also percent-encoded' {
+        # Invoke-EntitySearch's interactive picker uses -SearchParam 'Search' in several
+        # Platforms modules, so the key match must be case-insensitive.
+        $result = New-CyberArkQuery -Params @{ Search = '192.168.1.5' }
+        $result | Should -Be '?Search=192%2E168%2E1%2E5'
+    }
+
+    It 'C36 - a period in a non-search value is left alone' {
+        $result = New-CyberArkQuery -Params @{ filter = 'safeName eq My.Vault' }
+        $result | Should -Match 'My\.Vault'
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────
@@ -380,5 +399,64 @@ Describe 'Invoke-CyberArkAPI - pagination (mocked Invoke-WebRequest)' {
         Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes' `
             -PageSize 0 | Out-Null
         Should -Invoke Invoke-WebRequest -Times 1 -ModuleName 'CyberArkComms'
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Non-2xx responses returned directly by a mocked Invoke-WebRequest (no exception thrown) still
+# reach the same $isSuccess/error-parsing logic real HTTP errors do - $isSuccess is derived
+# purely from $statusCode, so this covers the ErrorCode-prefixing fix below without needing a
+# real System.Net.HttpWebResponse (a WebException's Response, which is documented at the top of
+# this file as impractical to construct in pure PowerShell for the thrown-exception path).
+Describe 'Invoke-CyberArkAPI - error responses (mocked Invoke-WebRequest, no exception)' {
+
+    It 'C29 - a 4xx body with ErrorCode and ErrorMessage produces "CODE: message" in ErrorMessage' {
+        $json = '{"ErrorCode":"PASWS001W","ErrorMessage":"The account is locked by: [ca_jesse]."}'
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = $json } } `
+            -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'POST' -Endpoint '/API/Accounts/60_5/Password/Update' `
+            -Body @{ NewCredentials = 'x' }
+        $r.IsSuccess          | Should -BeFalse
+        $r.StatusCode         | Should -Be 400
+        $r.ErrorMessage       | Should -Be 'PASWS001W: The account is locked by: [ca_jesse].'
+        $r.ErrorDetails.ErrorCode    | Should -Be 'PASWS001W'
+        $r.ErrorDetails.ErrorMessage | Should -Be 'The account is locked by: [ca_jesse].'
+    }
+
+    It 'C30 - a 5xx body with ErrorCode and ErrorMessage also gets the "CODE: message" prefix' {
+        $json = '{"ErrorCode":"CAWS00001E","ErrorMessage":"Internal error."}'
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 500; Content = $json } } `
+            -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes'
+        $r.ErrorMessage | Should -Be 'CAWS00001E: Internal error.'
+    }
+
+    It 'C31 - a 4xx body with no ErrorCode field falls back to the bare ErrorMessage (no leading colon)' {
+        $json = '{"ErrorMessage":"Not Found"}'
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 404; Content = $json } } `
+            -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Accounts/nope'
+        $r.ErrorMessage | Should -Be 'Not Found'
+    }
+
+    It 'C32 - a non-JSON 4xx body with content is included in ErrorMessage, per user request' {
+        # Direct assignment, not `{ $r = ... } | Should -Not -Throw` - that form runs the
+        # scriptblock in a child scope, so $r never reaches this scope (Lessons-Learned 32).
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = '<html>Bad Request</html>' } } `
+            -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes'
+        $r.ErrorMessage | Should -Be 'HTTP 400 - <html>Bad Request</html>'
+    }
+
+    It 'C33 - a genuinely blank 4xx body falls back to a bare HTTP-status message' {
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = '' } } `
+            -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes'
+        $r.ErrorMessage | Should -Be 'HTTP 400'
     }
 }

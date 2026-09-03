@@ -368,6 +368,16 @@ $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } e
 Bracket notation (`['Key']`) returns `$null` safely when the key is absent. Apply this to
 **every** `$InputData` access — required fields, optional fields, and body-building expressions.
 
+**This rule applies equally to `$ModuleMeta`/`$meta` hashtables, not just `$InputData`.** This
+exact bug recurred in `Manage-Privilege.ps1` (reported live by the user as a `[FATAL]
+PropertyNotFoundException` on `AutoSaveCsv` at `Invoke-ActionModule`, hit via *any* module lacking
+that key - i.e. every module except the 4 that declare it) when a new optional `ModuleMeta` field
+(`AutoSaveCsv`) was added and read as `$meta.AutoSaveCsv` instead of `$meta['AutoSaveCsv']`. Every
+other `$meta.<Field>` access in that file was already safe only because it happens to read a field
+every module's `$ModuleMeta` always defines (`Name`, `Category`, `Action`, etc.) - this was the
+first *optional* field ever read that way. Before adding a new optional `ModuleMeta` field, check
+this section (and 4.7 below) first, and use bracket notation from the start.
+
 ---
 
 ### 4.2 PSCustomObject optional property access throws `PropertyNotFoundException`
@@ -1354,6 +1364,30 @@ a function call, wrap the *entire* right-hand expression in `@(...)` - never jus
 that happens to have content, and never assume a bare `@()` literal is safe just because it
 looks like an array.
 
+**A second manifestation, found later via a live user report: exactly one item collapses to a
+bare scalar, not `$null`, and this happens even with no `[array]` type constraint at all.**
+`Manage-Privilege.ps1`'s `Invoke-ActionModule` built the results table with `$tableData = if
+($meta.Action -eq 'List') { @(...) } else { @($result.Results) }` (no `[array]` cast on the
+left-hand side). When a List action returned exactly one row, `$tableData` did not become a
+one-element array - it became the single `[PSCustomObject]` itself, because PowerShell
+auto-unrolls the `if` block's one-item array output onto the pipeline as a single object, and
+the assignment then captures that lone object as-is. `$tableData.Count` on the next line then
+threw `PropertyNotFoundException` under `Set-StrictMode` - reported directly by the user as
+"List Accounts gives this error when there is 1 result." Confirmed the collapse and the fix in
+real `powershell.exe` (Windows PowerShell 5.1, the project's actual runtime), not `pwsh`
+(PowerShell 7+): PS7 silently masked this exact case, since PS7 added a synthetic `Count`
+property (returning `1`) to every scalar object as a convenience - `.Count` on the collapsed
+scalar returns `1` without error there, hiding the bug entirely in a PS7 test session even
+though the type is still wrong (`-is [array]` is `$false`). The fix was the same as 9.8's:
+wrap the *entire* `if/else` in one outer `@(...)`, e.g. `$tableData = @(if (...) {...} else
+{...})` - no `[array]` cast was needed once the outer wrap was added. A second, identical
+assignment two lines later (`$displayData = if (...) {$tableData[...]} else {$tableData}`) had
+the same latent bug and was fixed the same way, even though it hadn't been reported yet.
+**Rule, extended:** don't reach for `pwsh`/PowerShell 7 to "quickly check" a suspected
+collection-collapse bug in this codebase - it has engine-level behavior differences from the
+Windows PowerShell 5.1 this project actually ships on that can make a real bug look fixed when
+it isn't. Reproduce and verify strict-mode collection bugs with `powershell.exe`.
+
 ---
 
 ### 9.9 Unit tests for individual API modules do not run under `Set-StrictMode` - and that hid the bug above
@@ -2101,6 +2135,62 @@ try {
     if ($webResp) { try { $webResp.Close() } catch { } }
 }
 ```
+
+---
+
+### 14.3 Re-reading `WebException.Response.GetResponseStream()` in a `catch` block returns empty — the stream is already consumed
+
+**Root cause:** Windows PowerShell 5.1's `Invoke-WebRequest` already reads the error response
+stream once internally, to populate `$_.ErrorDetails.Message` on the `ErrorRecord` it throws.
+Response streams are forward-only and single-read. By the time a `catch [System.Net.WebException]`
+block runs its own `[System.IO.StreamReader]::new($webResp.GetResponseStream()).ReadToEnd()`, that
+stream has already been consumed and returns an empty string — even though the server genuinely
+sent a body (a real CyberArk 400 response with `Content-Length: 80` and
+`Content-Type: application/json` came back this way).
+
+**Symptom:** No exception is thrown — this fails silently. The response status code and headers
+come through fine (they're read from the response object, not the stream), but the captured body
+is always an empty string, which then round-trips through `ConvertFrom-Json` as `$null` rather than
+throwing. This makes the bug easy to miss: everything downstream *looks* like it worked, it just
+never has the one piece of information — the server's actual error detail — that the code exists
+to capture. Found live in `Invoke-CustomTestApi.ps1`, whose entire purpose is displaying that exact
+detail to a user debugging some other API failure.
+
+**Wrong — re-reads an already-consumed stream:**
+```powershell
+} catch [System.Net.WebException] {
+    $webResp = $_.Exception.Response -as [System.Net.HttpWebResponse]
+    $rawBody = ''
+    if ($webResp) {
+        $reader  = [System.IO.StreamReader]::new($webResp.GetResponseStream())
+        $rawBody = $reader.ReadToEnd()   # always '' - the stream is already spent
+        $reader.Dispose()
+    }
+}
+```
+
+**Correct — use `$_.ErrorDetails.Message`, which PowerShell already populated from that same read:**
+```powershell
+} catch [System.Net.WebException] {
+    $caughtErr = $_
+    $webResp   = $caughtErr.Exception.Response -as [System.Net.HttpWebResponse]
+    $rawBody   = ''
+    if ($caughtErr.ErrorDetails -and $caughtErr.ErrorDetails.Message) {
+        $rawBody = $caughtErr.ErrorDetails.Message
+    } elseif ($webResp) {
+        # Fallback only - by this point the stream is normally already empty
+        try {
+            $reader  = [System.IO.StreamReader]::new($webResp.GetResponseStream())
+            $rawBody = $reader.ReadToEnd()
+            $reader.Dispose()
+        } catch { }
+    }
+}
+```
+
+**Rule:** Never try to manually re-read a `WebException`'s response stream for the body text.
+`$_.ErrorDetails.Message` already holds it, populated by PowerShell itself during the original
+call — read from there first, and treat a manual stream read as a last-resort fallback only.
 
 ---
 
@@ -2986,8 +3076,107 @@ assignment the test then reads afterward.
 **Rule:** When a test needs both "assert this doesn't throw" and "capture the return value for
 further assertions," do a plain direct assignment and skip the `Should -Not -Throw` wrapper entirely
 - it adds no real protection here (a thrown exception fails the test either way) and silently
-discards the assignment it looks like it's making. Two other full-suite-only failures with the same
-`PropertyNotFoundException`-on-`$null` signature remain open in this codebase as of this writing
-(`Invoke-CustomExportGroupMembersLocal.Tests.ps1`'s ISPSS groupType test and
-`Invoke-ReportsList.Tests.ps1`'s RL08a) and have not yet been checked for this same root cause -
-worth checking before assuming they're a different bug.
+discards the assignment it looks like it's making.
+
+**Follow-up:** the two other full-suite-only failures flagged above with the same
+`PropertyNotFoundException`-on-`$null` signature were checked and turned out to be two different
+bugs, not this one - a good illustration of why the shared exception signature alone doesn't tell
+you the cause:
+- `Invoke-ReportsList.Tests.ps1`'s RL08a *was* this exact Section 32 bug (`{ $r = ... } | Should
+  -Not -Throw`) - fixed the same way, direct assignment.
+- `Invoke-CustomExportGroupMembersLocal.Tests.ps1`'s ISPSS groupType test was actually the
+  Section 9.8/9.9 array-collapse bug instead: `($result.Results | Where-Object {...}).Count` with
+  zero matches collapses to `$null`, not an empty array, so `.Count` throws under strict mode -
+  fixed by wrapping in `@(...)`, same as the `Invoke-SafesAddFromTemplate.Tests.ps1` T31 case
+  Section 9.8 already documents.
+- `ModuleMeta.AG06` in `Invoke-AccountsGet.Tests.ps1` (a third pre-existing failure, different
+  signature - `Should -Not -BeNullOrEmpty` failing outright, not an exception) turned out to be
+  neither: a genuinely stale assertion checking for an `AccountID` column in `InputSchema` that
+  hadn't existed since the module was refactored to the `AccountName`+`Safe` resolution pattern
+  (`AccountID` remained supported as an optional direct-lookup override, just no longer a required
+  CSV column) - fixed by updating the test to check for the columns the module actually declares.
+
+**Rule:** don't assume every failure sharing a signature has the same root cause - `$null.Count`
+and `$null.Successes` throwing the identical `PropertyNotFoundException` text can come from
+completely different bugs (a collapsed pipeline result vs. a scriptblock-scope assignment that
+never happened vs., in this case, a wholly unrelated stale test having nothing to do with strict
+mode at all). Read each failure's own code before assuming a shared fix applies.
+
+## 33. A Correct Shared Helper Existed and Was Ignored by 16 Call Sites - Hand-Rolled String Interpolation Instead
+
+**Root cause:** `CyberArkComms.psm1` already exported `New-CyberArkSearchFilter`, a small, already
+Pester-tested (C13-C16) function that builds a `field eq value` filter expression and - critically -
+wraps `value` in literal double quotes whenever it contains whitespace, matching CyberArk's own
+filter grammar (confirmed against psPAS's `Private/ConvertTo-FilterString.ps1`, which does the
+identical auto-quote-on-whitespace for API 14.6+). Despite this helper already existing and already
+being correct, 16 call sites across the Accounts category built the identical `safeName eq X`
+filter by hand via raw string interpolation instead of calling it:
+```powershell
+# Wrong - reimplements New-CyberArkSearchFilter's job, badly (no quoting):
+-QueryParams @{ filter = "safeName eq $targetSafe"; limit = 1000 }
+```
+None of these 16 independent reimplementations quoted the value, so any safe name containing a
+space (e.g. `"Prod Web Servers"`) silently broke the `AccountName`+`Safe` account-resolution path
+that every one of these modules uses - the API most likely returned zero matches or misparsed the
+filter, surfacing as a normal-looking "account not found" error rather than an obvious crash.
+
+**Symptom:** An account lookup by `AccountName`+`Safe` fails for any safe whose name contains a
+space, but succeeds for single-word safe names - easy to miss in testing if test safes happen to
+be named without spaces (a very plausible testing blind spot, since single-word safe names are
+common in ad hoc test setups but multi-word names are common in real environments).
+
+**Fix:** Route every one of these 16 call sites through the existing helper instead of hand-writing
+the string:
+```powershell
+# Correct:
+-QueryParams @{ filter = (New-CyberArkSearchFilter -Criteria @{ safeName = $targetSafe }); limit = 1000 }
+```
+
+**Rule:** Before building any CyberArk filter/query expression by hand, check whether
+`CyberArkComms.psm1` already exports a helper for it (`New-CyberArkQuery`, `New-CyberArkSearchFilter`,
+`Join-CyberArkUrl`) - a shared helper existing and being correct does not guarantee every call site
+actually uses it; grep for the literal pattern being hand-built (e.g. `"eq \$`") across the whole
+`APIModules\` tree before assuming a single call site's fix is complete, the same lesson Section
+31.2 already draws for shared-helper *contract changes* - this is the mirror case, where the
+contract was already right and simply wasn't adopted everywhere it should have been. Also add
+`New-CyberArkSearchFilter` (and any other under-documented shared helper) to
+`API-Module-Development-Guide.md`'s example code - its absence from that guide's own filter-building
+example is a plausible reason none of these 16 sites reached for it in the first place.
+
+---
+
+## 34. CyberArk `?search=` Endpoints Require a Literal Period to Be Percent-Encoded as `%2E`
+
+**Observation, confirmed live by the user:** A `search` query parameter value containing a
+period (e.g. a UPN-style username like `jdoe.admin`, an email address, or a dotted IP address)
+fails to match on CyberArk's `?search=` endpoints unless that period is percent-encoded as
+`%2E`. A literal, unencoded period in the value causes the search to find nothing.
+
+**Root cause:** `[Uri]::EscapeDataString` - the standard .NET URL-encoding call this project
+uses everywhere (`New-CyberArkQuery`) - treats `.` as an *unreserved* character per RFC 3986 and
+deliberately leaves it as a literal period rather than encoding it. That's correct, standards-
+compliant URL-encoding in general, but CyberArk's own `search` parameter parsing does not accept
+a literal period the way RFC 3986 says a compliant server should - it needs the percent-encoded
+form specifically.
+
+**Wrong - standard encoding leaves the period as-is, and the search fails silently (no error, just no results):**
+```powershell
+New-CyberArkQuery -Params @{ search = 'jdoe.admin' }
+# ?search=jdoe.admin - the period is not encoded, and the API finds nothing
+```
+
+**Correct - percent-encode any period in a `search` value's already-encoded form:**
+```powershell
+$encodedVal = [Uri]::EscapeDataString($val)
+if ($key -ieq 'search') { $encodedVal = $encodedVal.Replace('.', '%2E') }
+# ?search=jdoe%2Eadmin
+```
+
+**Rule:** Fixed once, centrally, in `New-CyberArkQuery` (`CyberArkComms.psm1`) - every module
+already routes its `-QueryParams` through `Invoke-CyberArkAPI`, which calls this function, so no
+per-module changes were needed. The key match is case-insensitive: most direct callers use
+lowercase `search`, but `Invoke-EntitySearch`'s Platforms callers pass `-SearchParam 'Search'`
+(capitalized). This encoding is applied *only* to the `search` key - other query/filter values
+(e.g. `filter=safeName eq My.Vault`) are left alone, since there is no evidence CyberArk's other
+query mechanisms share this same quirk, and blanket-encoding periods everywhere would be an
+unproven, unrequested change.

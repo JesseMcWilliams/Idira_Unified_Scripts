@@ -14,6 +14,11 @@ below before relying on this document for ISPSS/Privilege Cloud testing — the 
 **not** been fully tested, and several modules that declare support for both platforms have
 only ever been exercised against Self-Hosted.
 
+**See also:** `E2E-Automation-Design.md` — a proposed (not yet built) automated layer that would
+exercise this document's manual checklist items against a real tenant with only credential entry
+requiring a human. This document remains the source of truth for what the current, entirely-manual
+process covers; the other tracks progress toward automating it.
+
 ---
 
 ## Test Environments
@@ -37,19 +42,37 @@ production environments, and prefer a dedicated test Safe/test accounts for any 
 ## Self-Hosted vs. Privilege Cloud (SaaS) Scope and Caution
 
 Every API module declares `$ModuleMeta.SupportedSystems` as `@('SelfHosted')`,
-`@('ISPSS')`, or `@('ISPSS', 'SelfHosted')` (dual-use). As of this revision:
+`@('ISPSS')`, or `@('ISPSS', 'SelfHosted')` (dual-use). As of this revision (post Phase 0-2 of
+`aPePAS-Improvement-Plan-2026-09-02.md` — see `Documentation-Tracker.md` for the full history):
 
-- **SelfHosted-only (8 modules, no ambiguity):** the entire `Applications` category (7 modules -
-  `Add`, `AddAuthMethod`, `Delete`, `DeleteAuthMethod`, `Get`, `List`, `ListAuthMethods`) and
-  `Reports/Invoke-ReportsList.ps1`. Both use legacy Self-Hosted-only endpoints
-  (`/WebServices/PIMServices.svc/Applications` and `/API/Reports`) that do not exist on Privilege
-  Cloud. These modules are hidden from the menu entirely for an ISPSS profile.
-- **Dual-use (all remaining ~47 modules across Accounts, Safes, SafeMembers, Platforms, Users,
-  Groups, Custom):** declared to support both platforms, but **ISPSS coverage for this whole set
-  has not been fully tested** — most of the deep, iterative bug-fixing history in
-  `Documentation-Tracker.md` was driven by Self-Hosted testing/use. Treat a dual-use module's
-  ISPSS behavior as unverified until someone actually exercises it against a Privilege Cloud
-  tenant, even though the code path is shared.
+- **SelfHosted-only (4 modules):** `Platforms/Invoke-PlatformsRename.ps1` (confirmed via psPAS's
+  explicit version/platform assertion — a PVWA 15.0+ feature), the entire new `Policies`
+  category (`GetMasterPolicy`, `SetMasterPolicy` — confirmed the same way, PVWA 14.6+), and
+  `Reports/Invoke-ReportsList.ps1`. These are hidden from the menu entirely for an ISPSS profile.
+  - **`Reports/Invoke-ReportsList.ps1` is Self-Hosted-only again** — Phase 1 (earlier this
+    session) had expanded it to dual-use based on psPAS's own comparison review claiming ISPSS
+    support from v14.6+, but the user tested it live against an ISPSS/Privilege Cloud tenant on
+    2026-09-02 and got an HTTP 404 (`GET /API/Reports` does not exist there). Reverted to
+    `SupportedSystems = @('SelfHosted')`.
+  - **`Applications` (all 7 modules) are confirmed dual-use** — the user tested the ISPSS
+    Applications menu on 2026-09-02: only `Add` was visible (it was the only one already marked
+    dual-use), confirming the other 6 (`AddAuthMethod`, `Delete`, `DeleteAuthMethod`, `Get`,
+    `List`, `ListAuthMethods`) had been Self-Hosted-only in error. All 7 now declare
+    `SupportedSystems = @('ISPSS', 'SelfHosted')`. Only menu visibility has been confirmed on
+    ISPSS for the 6 newly-expanded modules — their actual request/response behavior against a
+    live ISPSS tenant remains unverified (see the checklist below).
+- **Dual-use (the remaining 61 of 65 total modules, across Accounts, Safes, SafeMembers, Platforms
+  (8 of its 9 actions), Applications, Users, Groups, Custom):** declared to support both
+  platforms,
+  but **ISPSS coverage for most of this set has not been fully tested** — most of the deep,
+  iterative bug-fixing history in `Documentation-Tracker.md` was driven by Self-Hosted testing/use.
+  Treat a dual-use module's ISPSS behavior as unverified until someone actually exercises it
+  against a Privilege Cloud tenant, even though the code path is shared. Two specific items *were*
+  confirmed live on ISPSS during Phase 0/1 (this session): `Get-PVWASessionTimeoutMinutes`
+  (`/api/Settings/Timeout`) 404s on Privilege Cloud and correctly falls back to a default; and
+  `Invoke-AccountsResumeAutoManagement.ps1`'s ISPSS path was deliberately left unchanged
+  (unconfirmed) when its Self-Hosted endpoint was corrected, specifically to avoid guessing at
+  ISPSS behavior that hadn't been verified.
 - **Known, already-confirmed platform-specific traps inside dual-use modules** (background for
   anyone testing or extending these — not new findings from this pass, see
   `Lessons-Learned-PowerShell-Pester.md` Section 16 for the originals):
@@ -131,14 +154,9 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 
 | Module | Unit Tests | Test File | Live Self-Hosted Verification Needed |
 |---|---|---|---|
-| Applications / Add | Yes | `Unit\Invoke-ApplicationsAdd.Tests.ps1` | Yes |
-| Applications / AddAuthMethod | Yes | `Unit\Invoke-ApplicationsAddAuthMethod.Tests.ps1` | Yes |
-| Applications / Delete | Yes | `Unit\Invoke-ApplicationsDelete.Tests.ps1` | Yes |
-| Applications / DeleteAuthMethod | Yes | `Unit\Invoke-ApplicationsDeleteAuthMethod.Tests.ps1` | Yes |
-| Applications / Get | Yes | `Unit\Invoke-ApplicationsGet.Tests.ps1` | Yes |
-| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | Yes — also confirm the `Join-CyberArkUrl` trailing-slash fix (this session) actually resolves the PIMServices.svc routing against a real PVWA, not just in the mocked unit test |
-| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Yes |
-| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | Yes |
+| Platforms / Rename | Yes | `Unit\Invoke-PlatformsRename.Tests.ps1` | Yes — PVWA 15.0+ required, confirm against this lab host's actual version |
+| Policies / GetMasterPolicy | Yes | `Unit\Invoke-PoliciesGetMasterPolicy.Tests.ps1` | Yes — PVWA 14.6+ required |
+| Policies / SetMasterPolicy | Yes | `Unit\Invoke-PoliciesSetMasterPolicy.Tests.ps1` | Yes — PVWA 14.6+ required. Mutates tenant-wide config, not a scoped object — test against a dedicated lab host only, never a shared/production one |
 
 ### APIModules — dual-use (Both; ISPSS coverage unverified — see caution section)
 
@@ -147,14 +165,14 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | Accounts / Add | Yes | `Unit\Invoke-AccountsAdd.Tests.ps1` | Yes |
 | Accounts / CancelCpmTask | Yes | `Unit\Invoke-AccountsCancelCpmTask.Tests.ps1` | Yes |
 | Accounts / ChangeImmediate | Yes | `Unit\Invoke-AccountsChangeImmediate.Tests.ps1` | Yes |
-| Accounts / ChangeInVault | Yes | `Unit\Invoke-AccountsChangeInVault.Tests.ps1` | Yes — also confirm the new JSON-key log-masking pattern (this session) actually keeps the new vault password out of the log file at DEBUG level against a real call |
+| Accounts / ChangeInVault | Yes | `Unit\Invoke-AccountsChangeInVault.Tests.ps1` | Yes — confirm the corrected `Password/Update` endpoint (F12, this session — was `SetNextPassword` before) actually changes the vault password immediately; also confirm the JSON-key log-masking pattern keeps the new vault password out of the log file at DEBUG level against a real call |
 | Accounts / CheckIn | Yes | `Unit\Invoke-AccountsCheckIn.Tests.ps1` | Yes |
 | Accounts / Delete | Yes | `Unit\Invoke-AccountsDelete.Tests.ps1` | Yes |
 | Accounts / Get | Yes | `Unit\Invoke-AccountsGet.Tests.ps1` | Yes |
 | Accounts / GetActivity | Yes | `Unit\Invoke-AccountsGetActivity.Tests.ps1` | Yes |
 | Accounts / GetCredential | Yes | `Unit\Invoke-AccountsGetCredential.Tests.ps1` | Yes |
 | Accounts / LinkAccount | Yes | `Unit\Invoke-AccountsLinkAccount.Tests.ps1` | Yes |
-| Accounts / List (incl. By-Safe mode) | Yes | `Unit\Invoke-AccountsList.Tests.ps1` | Yes — confirm the ~20K-result cap and the By-Safe workaround against the live host's actual account count |
+| Accounts / List (incl. By-Safe mode) | Yes | `Unit\Invoke-AccountsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | Accounts / Reconcile | Yes | `Unit\Invoke-AccountsReconcile.Tests.ps1` | Yes |
 | Accounts / ResumeAutoManagement | Yes | `Unit\Invoke-AccountsResumeAutoManagement.Tests.ps1` | Yes |
 | Accounts / UnlinkAccount | Yes | `Unit\Invoke-AccountsUnlinkAccount.Tests.ps1` | Yes |
@@ -166,31 +184,46 @@ includes SelfHosted; "Both" = SelfHosted + ISPSS declared (see the caution secti
 | Safes / AssignCPM | Yes | `Unit\Invoke-SafesAssignCPM.Tests.ps1` | Yes — confirm the live CPM query against the real host |
 | Safes / Delete | Yes | `Unit\Invoke-SafesDelete.Tests.ps1` | Yes |
 | Safes / Get | Yes | `Unit\Invoke-SafesGet.Tests.ps1` | Yes |
-| Safes / List | Yes | `Unit\Invoke-SafesList.Tests.ps1` | Yes — confirm the `ExtendedDetails` CSV-boolean fix (this session) with a real CSV bulk run |
+| Safes / List | Yes | `Unit\Invoke-SafesList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | Safes / UnassignCPM | Yes | `Unit\Invoke-SafesUnassignCPM.Tests.ps1` | Yes |
 | Safes / Update | Yes | `Unit\Invoke-SafesUpdate.Tests.ps1` | Yes |
 | SafeMembers / Add | Yes | `Unit\Invoke-SafeMembersAdd.Tests.ps1` | Yes — confirm the SearchIn directory picker lists real LDAP directories |
 | SafeMembers / AddFromTemplateRole | Yes | `Unit\Invoke-SafeMembersAddFromTemplateRole.Tests.ps1` | Yes |
-| SafeMembers / List | Yes | `Unit\Invoke-SafeMembersList.Tests.ps1` | Yes |
+| SafeMembers / List | Yes | `Unit\Invoke-SafeMembersList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | SafeMembers / Remove | Yes | `Unit\Invoke-SafeMembersRemove.Tests.ps1` | Yes |
 | SafeMembers / Update | Yes | `Unit\Invoke-SafeMembersUpdate.Tests.ps1` | Yes |
 | SafeMembers / UpdateFromTemplateRole | Yes | `Unit\Invoke-SafeMembersUpdateFromTemplateRole.Tests.ps1` | Yes |
+| Platforms / Copy | Yes | `Unit\Invoke-PlatformsCopy.Tests.ps1` | Yes — Target platforms only this pass (see `E2E-Automation-Design.md`); confirmed against psPAS source + the 14.6 Swagger spec, never against a live tenant |
+| Platforms / Disable | Yes | `Unit\Invoke-PlatformsDisable.Tests.ps1` | Yes — same caveat as Copy |
+| Platforms / Enable | Yes | `Unit\Invoke-PlatformsEnable.Tests.ps1` | Yes — same caveat as Copy |
 | Platforms / Get | Yes | `Unit\Invoke-PlatformsGet.Tests.ps1` | Yes |
-| Platforms / List | Yes | `Unit\Invoke-PlatformsList.Tests.ps1` | Yes — confirm the alternate-field-name fallback fix (this session) against whatever shape the live PVWA version actually returns |
+| Platforms / Import | Yes | `Unit\Invoke-PlatformsImport.Tests.ps1` | Yes — the ZIP-as-byte-array request shape is unverified against a live tenant (see its own code comment and `E2E-Automation-Design.md`) |
+| Platforms / List | Yes | `Unit\Invoke-PlatformsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the alternate-field-name fallback and `SystemType` filter noted here are covered by that confirmation) |
+| Platforms / Remove | Yes | `Unit\Invoke-PlatformsRemove.Tests.ps1` | Yes — destructive; test against a disposable sandbox platform only, same caveat as Copy otherwise |
+| Platforms / SetPSMConfig | Yes | `Unit\Invoke-PlatformsSetPSMConfig.Tests.ps1` | Yes — same caveat as Copy; needs a real PSM server ID from the test tenant |
+| Applications / Add | Yes | `Unit\Invoke-ApplicationsAdd.Tests.ps1` | **Confirmed (2026-09-02)** — the only Applications action the user found visible/working on the ISPSS Applications menu, confirming its earlier dual-use `SupportedSystems` |
+| Applications / AddAuthMethod | Yes | `Unit\Invoke-ApplicationsAddAuthMethod.Tests.ps1` | Menu visibility only — user's 2026-09-02 ISPSS test showed this action missing from the menu (it was still Self-Hosted-only); now expanded to dual-use. Actual ISPSS request/response behavior is unverified |
+| Applications / Delete | Yes | `Unit\Invoke-ApplicationsDelete.Tests.ps1` | Menu visibility only — same 2026-09-02 finding and expansion as AddAuthMethod above; ISPSS request/response behavior unverified |
+| Applications / DeleteAuthMethod | Yes | `Unit\Invoke-ApplicationsDeleteAuthMethod.Tests.ps1` | Menu visibility only — same 2026-09-02 finding and expansion as AddAuthMethod above; ISPSS request/response behavior unverified |
+| Applications / Get | Yes | `Unit\Invoke-ApplicationsGet.Tests.ps1` | Menu visibility only — same 2026-09-02 finding and expansion as AddAuthMethod above; ISPSS request/response behavior unverified |
+| Applications / List | Yes | `Unit\Invoke-ApplicationsList.Tests.ps1` | **Confirmed (2026-09-02) on Self-Hosted** (the `Join-CyberArkUrl` trailing-slash/PIMServices.svc routing fix noted here is covered by that confirmation). On ISPSS, only menu visibility was confirmed the same day — it had been Self-Hosted-only and is now expanded to dual-use; ISPSS request/response behavior is unverified |
+| Applications / ListAuthMethods | Yes | `Unit\Invoke-ApplicationsListAuthMethods.Tests.ps1` | Self-Hosted: Yes — **not** covered by the "all List actions confirmed" status below, since its `Action` is `ListAuthMethods`, not `List`. The blank-`AppID`-lists-every-application behavior (added this session, per user request) is new and unverified against a real host. On ISPSS, only menu visibility was confirmed 2026-09-02 — it had been Self-Hosted-only and is now expanded to dual-use; ISPSS request/response behavior is unverified |
+| Reports / List | Yes | `Unit\Invoke-ReportsList.Tests.ps1` | **Confirmed Self-Hosted-only (2026-09-02)** — the user tested this live against an ISPSS/Privilege Cloud tenant and got an HTTP 404 (`GET /API/Reports` doesn't exist there), reversing Phase 1's dual-use expansion. `SupportedSystems` reverted to `@('SelfHosted')`; the module is now hidden from the ISPSS menu entirely |
 | Users / Get | Yes | `Unit\Invoke-UsersGet.Tests.ps1` | Yes |
-| Users / List | Yes | `Unit\Invoke-UsersList.Tests.ps1` | Yes |
+| Users / List | Yes | `Unit\Invoke-UsersList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted |
 | Groups / Add | Yes | `Unit\Invoke-GroupsAdd.Tests.ps1` | Yes |
 | Groups / AddMember | Yes | `Unit\Invoke-GroupsAddMember.Tests.ps1` | Yes |
 | Groups / Delete | Yes | `Unit\Invoke-GroupsDelete.Tests.ps1` | Yes |
 | Groups / GetMembers | Yes | `Unit\Invoke-GroupsGetMembers.Tests.ps1` | Yes |
-| Groups / List | Yes | `Unit\Invoke-GroupsList.Tests.ps1` | Yes — the `GroupType` filter should work meaningfully on Self-Hosted (unlike ISPSS, see caution section) |
+| Groups / List | Yes | `Unit\Invoke-GroupsList.Tests.ps1` | **Confirmed (2026-09-02)** — user reports all List actions tested against Self-Hosted (the `GroupType` filter noted here is covered by that confirmation) |
 | Groups / RemoveMember | Yes | `Unit\Invoke-GroupsRemoveMember.Tests.ps1` | Yes |
 | Groups / Update | Yes | `Unit\Invoke-GroupsUpdate.Tests.ps1` | Yes |
-| Custom / ExportAll | Yes | `Unit\Invoke-CustomExportAll.Tests.ps1` | Yes |
+| Custom / ExportAll | Yes | `Unit\Invoke-CustomExportAll.Tests.ps1` | Yes — now also discovers and runs Applications/ListAuthMethods (added this session, per user request), not previously part of Export All. That specific addition is unverified against a real host |
 | Custom / ExportEntitlements | Yes | `Unit\Invoke-CustomExportEntitlements.Tests.ps1` | Yes |
 | Custom / ExportGroupMembersLDAP | Yes | `Unit\Invoke-CustomExportGroupMembersLDAP.Tests.ps1` | Yes — requires line-of-sight from wherever the script runs to the actual Active Directory (ADSI-based, not a CyberArk API call) |
 | Custom / ExportGroupMembersLocal | Yes (incl. new ISPSS-groupType-quirk regression test this session) | `Unit\Invoke-CustomExportGroupMembersLocal.Tests.ps1` | Yes |
 | Custom / TestApi | **No unit test file exists** (interactive raw API tester — same exemption class as other `Read-Host`-driven helpers) | — | Yes (manual smoke test only) |
+| Custom / TestConnectivity | Yes (orchestration mocked; DNS/TCP helpers exercised against real loopback/localhost - no CyberArk connection needed for those) | `Unit\Invoke-CustomTestConnectivity.Tests.ps1` | Yes — the actual SMB (`New-SmbMapping`) and SSH (PS7 `-SSHTransport` / plink) auth attempts are not exercised by any automated test; confirm against a real Windows and Linux target. See the module's own code comments for the PS7-SSH-transport password-auth limitation (native OpenSSH does not support non-interactive password auth - only the plink.exe fallback reliably does). Also confirm the new `Safe`/`Username`/`PasswordSource` output columns (F22, this session) against a real vault-backed lookup |
 
 ---
 
@@ -217,6 +250,17 @@ the checklist later in this document for what still needs live confirmation.
 | F09 | `Manage-Privilege.ps1` — inner category/action loop (`Invoke-SessionLoop`) | The outer (category-selection) menu loop ran inactivity-timeout, proactive-refresh, and token-expiry checks on every iteration; the **inner** (action-within-category) loop did not run any of them. A user who stayed inside one category performing many actions in a row never got a keepalive, a proactive refresh, or an inactivity timeout until they backed out to the category menu. | Duplicated the outer loop's check block (inactivity check, `Invoke-ProactiveRefresh`, `Test-TokenExpiry` handling for `Expired`/`Warning`) at the top of the inner loop. | Not unit-tested (see note below) |
 | F10 | `Auth/Get-AuthToken.ps1` | Dead file — a legacy shim with zero real call sites (only referenced by an unrelated same-named Pester mock stub), left over from the Auth-module rework. `Auth-Module-Rework-Design.md` itself documents deleting this file as a never-executed final step of that rework. | Deleted. | N/A |
 | F11 | `README.md`, `Docs/API-Module-Development-Guide.md`, `Docs/Interfaces.md` | Stale documentation: project-structure trees still listed the deleted `Get-AuthToken.ps1`; `Interfaces.md` described `Invoke-WebView2Window`'s actual parameters and return shape incorrectly, and showed `Get-SelfHostedAuthToken`'s `AuthMethod`/`PVWAUrl` as falsely `[Parameter(Mandatory)]` when both actually fall back to interactive `Read-Host` prompts if omitted. | Corrected all three documents to match the actual code. | N/A (documentation only) |
+| F12 | `APIModules/Accounts/Invoke-AccountsChangeInVault.ps1` | Called the wrong endpoint: `POST /API/Accounts/{id}/SetNextPassword`, which per the Swagger spec (`Swagger/CyberArk_PasswordVault_Swagger_14.6.v1.json`) "gives the ability to set the account's credentials for the next CPM change" — a queued-for-CPM operation, not an immediate vault-only change. The module's own name and description ("Change Credentials In Vault"/"does not change on the target system") match `POST /API/Accounts/{id}/Password/Update` instead, confirmed both by the Swagger spec's description ("set the account's credentials and change it in the Vault. This will not affect the credentials on the target device") and by psPAS's `Invoke-PASCPMOperation.ps1`, which treats `Password/Update` and `SetNextPassword` as two distinct parameter sets. Reported directly by the user. | Changed the endpoint to `/API/Accounts/{id}/Password/Update`. The request body was already correct (`NewCredentials`) — both endpoints share that field name per the Swagger `ChangeInVaultProperties`/`SetNextCredentialsProperties` schemas. | No new test added — the existing test file mocks `Invoke-CyberArkAPI` generically and doesn't assert on the endpoint string |
+| F13 | `Manage-Privilege.ps1` — `Invoke-ActionModule` (results display) | `[FATAL] PropertyNotFoundException` on `.Count`, reported directly by the user, for any `List` action that returns exactly one row. `$tableData = if ($meta.Action -eq 'List') {@(...)} else {@($result.Results)}` had no outer `@(...)` wrapping the whole `if/else` — when the branch emitted exactly one object, PowerShell auto-unrolled it onto the pipeline as a bare scalar instead of a one-element array (the single/some-item counterpart of the empty-collapses-to-`$null` bug already documented as Lessons-Learned 9.8), and `$tableData.Count` on the very next line threw under `Set-StrictMode`. A second, identical assignment two lines later (`$displayData = if (...) {...} else {$tableData}`) had the same latent bug. | Wrapped both entire `if/else` expressions in an outer `@(...)` (`$tableData = @(if (...) {...} else {...})`), matching the already-established fix pattern from 9.8. Verified directly against real `powershell.exe` (Windows PowerShell 5.1) before and after — `pwsh`/PowerShell 7 does not reproduce the exception at all, since PS7 gives every scalar object a synthetic `Count` of `1`, masking the type defect. | No automated test added — `Invoke-ActionModule` is an interactive, `Read-Host`/dynamic-dispatch-driven function outside this project's established unit-testing boundary, and `Manage-Privilege.Tests.ps1` has a documented reproducible Pester v6.1 hang risk for new `Describe` blocks in this area (see the F08/F09 note below) |
+| F14 | `APIModules/Accounts/Invoke-AccountsCancelCpmTask.ps1`, `Invoke-AccountsResumeAutoManagement.ps1` | Both call an endpoint with a minimum PVWA version requirement not previously accounted for: `/Cancel/` needs 15.2+ and `/Resume/` needs 15.0+ per the user (psPAS's own `Stop-PASCPMTask.ps1`/`Resume-PASCPMAutoManagement.ps1` assert `RequiredVersion 15.2` for both — a discrepancy from the user's stated 15.0 for Resume that's noted here but doesn't affect the fix, since neither this project nor psPAS has a reliable way to query the actual PVWA version). On an older PVWA, both endpoints simply don't exist. Reported directly by the user. | Per user direction: both modules now call the newer endpoint first; on an HTTP 404 specifically (any other failure - 401/403/500/network - stays a real, non-fallback error), they retry against a version-agnostic fallback and log a `WARN` noting the fallback. `CancelCpmTask` falls back to the pre-Phase-1 `/StopImmediateAutoMgmtOperations` endpoint (recovered from git history, commit `1f06d6e`'s parent). `ResumeAutoManagement` (Self-Hosted only - ISPSS already uses the fallback shape as its primary path) falls back to the same `PATCH .../ automaticManagementEnabled` JSON Patch body already used for ISPSS. | New tests in both modules' `*.Tests.ps1` files: fallback triggers and succeeds on 404, does NOT trigger on a non-404 failure (only one API call made), and the overall result is a failure when the fallback also fails |
+| F15 | `APIModules/Custom/Invoke-CustomTestApi.ps1` | Reported directly by the user: the whole script process closes immediately with no error shown when the session token expires while using Test API. Root cause: this module is the only place in the codebase that enables the IgnoreSSL bypass via `[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }` - a raw PowerShell scriptblock assigned directly to a .NET delegate. Every other module instead goes through `Invoke-CyberArkAPI`'s `Disable-SSLValidation`, which uses a compiled `ICertificatePolicy` class. Assigning a scriptblock to `ServerCertificateValidationCallback` is a known hazard: if .NET's TLS stack invokes it off the runspace's own thread - plausible for a fresh handshake, such as the one triggered by a mid-session re-authentication request - it can silently crash the whole process with no catchable PowerShell exception, matching the reported symptom exactly. Not confirmed against a live repro (the user could not attach an error, since none is shown), but this is the only IgnoreSSL-bypass code in the entire codebase that deviates from the shared, already-safe pattern. | Exported `Disable-SSLValidation` from `CyberArkComms.psm1` (previously module-private, used only internally by `Invoke-CyberArkAPI`) and switched `Invoke-CustomTestApi.ps1` to call it instead of assigning the raw callback delegate. | No automated test added - this only matters when `IgnoreSSL` is enabled on the active profile, and this module has no existing unit test file (an interactive request/response loop, untested for the same `Show-FieldPrompt`-dependency reason as other interactive-only functions in this codebase). **Needs live verification specifically with `IgnoreSSL` enabled and a token allowed to expire mid-session** — if the crash recurs after this fix, the SSL-callback hypothesis is wrong and this needs further investigation |
+| F16 | `APIModules/Custom/Invoke-CustomTestApi.ps1` | Found while using Test API to diagnose a separate live 400 error: a real CyberArk error response (400, `Content-Length: 80`, `Content-Type: application/json`) came back as `ResponseBody = null` in Test API's captured output. Root cause: Windows PowerShell 5.1's `Invoke-WebRequest` already reads the error response stream once internally to populate `$_.ErrorDetails.Message` before the `catch` block runs - by the time this module's own `catch [System.Net.WebException]` block tried to read `$webResp.GetResponseStream()` a second time, the stream was already consumed and returned empty, silently discarding the server's actual error body on every 4xx/5xx response this module has ever captured. | Changed the catch block to prefer `$caughtErr.ErrorDetails.Message` (which PowerShell already populated from the same stream) when non-empty, falling back to a manual stream read only if that's unexpectedly empty. | No automated test added, for the same reason as F15 (no unit test file exists for this interactive module) - **confirmed the fix is needed live** (the null-body repro above), but the fix itself has not yet been re-verified against a real 400 response |
+| F17 | `Modules/CyberArkComms.psm1` | Per user request, following the F16 investigation: the live 400 turned out to be a legitimate CyberArk error (`PASWS001W: The account is locked by: [ca_jesse].`), not a bug in `Invoke-AccountsChangeInVault.ps1` - but `Invoke-CyberArkAPI`'s `ErrorMessage` only ever surfaced the bare `ErrorMessage` field, dropping the `ErrorCode` every module's own error text is built from. Since every module already composes its displayed/logged error from `$response.ErrorMessage`, none of them (except Test API, which shows the full raw body separately) ever showed the code. Investigating this also surfaced a real latent bug in `Parse-CyberArkError`: unguarded dot access on the parsed JSON meant a body with only one of `ErrorCode`/`ErrorMessage` (e.g. `{"ErrorMessage":"Not Found"}` with no code) threw `PropertyNotFoundException` under this module's own `Set-StrictMode`, silently discarding both fields instead of just the missing one - caught by the try/catch, but downgrading to a bare `"HTTP <code>"` fallback that lost the message even though it WAS present in the body. | `Parse-CyberArkError` now uses `PSObject.Properties[...]` guards for both fields. `Invoke-CyberArkAPI`'s two error-response-building sites now format `ErrorMessage` as `"<ErrorCode>: <ErrorMessage>"` when a code is present, falling back to the bare message (or `"HTTP <code>"`) otherwise - applied once, in the shared helper, so every module's own error text picks it up automatically with no per-module changes needed. | C29-C32 in `CyberArkComms.Tests.ps1`: code+message combines correctly for both 4xx and 5xx, a body with no `ErrorCode` falls back to the bare message, and a non-JSON body falls back to `"HTTP <code>"` without throwing |
+| F18 | `APIModules/Custom/Invoke-CustomTestApi.ps1` | Per user request: the "Query Params" prompt appeared for every HTTP method, even though query parameters are conventionally only meaningful for `GET`. | The prompt is now skipped (query string forced to empty) for any method other than `GET`. | No automated test added, for the same reason as F15/F16 (no unit test file exists for this interactive module) |
+| F19 | `Modules/CyberArkComms.psm1` | Per user request: "Error messages for failed requests should include the body information unless it is blank or null" - the F17 fix only covered the structured `ErrorCode`/`ErrorMessage` envelope; a body in any other shape (an IIS HTML error page, or JSON without those exact fields) still fell back to a generic, information-free `"HTTP <code>"` message even though the server sent real content. | `Format-CyberArkErrorMessage` (added for F17) now has a third preference tier: the raw response body, whenever it is non-blank, before falling back to the generic HTTP-status message. | C32 (updated) and new C33 in `CyberArkComms.Tests.ps1`: a non-blank non-JSON body is now included in `ErrorMessage`; a genuinely blank body still falls back to the bare `"HTTP <code>"` message |
+| F20 | `APIModules/Safes/Invoke-SafesAdd.ps1`, `Invoke-SafesAddFromTemplate.ps1`, `Invoke-SafesAssignCPM.ps1`, `Manage-Privilege.ps1` | Per user request, three related changes to "screens that ask for a CPM": (1) Add Safe no longer prompts for `Location` interactively (always uses the default `\`); (2) Add Safe's `ManagingCPM` prompt now uses the same numbered picker as Add Safe From Template instead of free text; (3) all three CPM-picker screens now share one CPM source instead of three inconsistent per-module implementations - `Invoke-SafesAddFromTemplate.ps1` previously used only the profile's `CPM_List` (never queried live) and `Invoke-SafesAssignCPM.ps1` previously used only a live query (never fell back to `CPM_List`), a split Architecture.md had recorded as "per explicit direction, not an oversight" - that direction was explicitly superseded by this request. | Added `Get-CpmOptions` to `Manage-Privilege.ps1` (alongside similar shared driver-scope helpers like `Invoke-EntitySearch`): queries live via `GET /API/Users?userType=CPM&componentUser=true`, using that result whenever the call succeeds (even if empty - a real environment state, not a failure), falling back to the profile's `CPM_List` only on failure or a thrown exception. All three modules' own per-module CPM-source functions (`script:Get-ProfileCPMOptions`, `script:Get-SafesCPMOptions`) were deleted in favor of this one shared function. | No automated test added - like `Invoke-EntitySearch`, this class of driver-scope helper has no unit test coverage in this codebase, and `Manage-Privilege.Tests.ps1` has a documented Pester v6.1 hang risk for new `Describe` blocks. Manually verified all four cases (live success with results, live success empty, live failure, live exception) via a standalone `powershell.exe` repro instead. The 7 existing unit tests for the two deleted functions (T32-T35 in `Invoke-SafesAddFromTemplate.Tests.ps1`, A15-A17 in `Invoke-SafesAssignCPM.Tests.ps1`) were removed, since the functions they tested no longer exist |
+| F21 | `Modules/CyberArkComms.psm1` | Per user report, live: `?search=` values containing a period fail to match on the CyberArk API - `[Uri]::EscapeDataString` treats `.` as an unreserved character (RFC 3986) and leaves it as a literal period, but these endpoints require it percent-encoded as `%2E` to work. Affects every module that searches by a value that can contain a period - usernames like `domain.user`, addresses/IPs, email-style account names - via `Invoke-EntitySearch`'s picker, `Invoke-AccountsLinkAccount.ps1`, `Invoke-CustomTestConnectivity.ps1`'s vault lookup, the several Platforms modules' by-ID search, and `Invoke-SafesAddFromTemplate.ps1`'s role-prefix group lookup. | `New-CyberArkQuery` now replaces `.` with `%2E` in a value's already-encoded form specifically when the query key is `search` (matched case-insensitively, since `Invoke-EntitySearch`'s Platforms callers use `-SearchParam 'Search'` while most direct callers use lowercase `search`). Applied once, in the shared query-builder every module already routes through via `Invoke-CyberArkAPI`, so no per-module changes were needed. | C34-C36 in `CyberArkComms.Tests.ps1`: a period in a lowercase `search` value is encoded, a period in a capitalized `Search` value is also encoded (case-insensitive key match), and a period in a non-search value (e.g. `filter`) is left alone |
+| F22 | `APIModules/Custom/Invoke-CustomTestConnectivity.ps1` | Per user request: the output had no way to tell, after the fact, whether a connection attempt used a password supplied directly or one pulled from the vault - and if from the vault, which specific account (Safe + Username) was used. | Added three columns to the result row: `Safe` and `Username` (the vaulted account's `safeName`/`userName`, populated only when a vault lookup actually matched and retrieved a credential - blank otherwise) and `PasswordSource` (`Provided` or `Vault`, set as soon as the password's origin is known, regardless of whether a vault lookup ultimately succeeds). `Resolve-VaultPassword` now returns `SafeName`/`Username` alongside `Password` for this purpose. | Updated TC11-TC12 (`Resolve-VaultPassword`'s new return fields) and TC20, TC21, TC27-TC29 (the three new output columns across the DNS-failure, direct-password, vault-success, and vault-failure paths) in `Invoke-CustomTestConnectivity.Tests.ps1`; also manually verified the full flow end-to-end under real `powershell.exe` strict mode |
 
 > **Note on F08/F09:** `Manage-Privilege.Tests.ps1` is documented (in `Documentation-Tracker.md`) as
 > having a reproducible Pester v6.1 hang risk when new `Describe` blocks are added around
@@ -577,42 +621,116 @@ Reconcile/etc.) — never point a write action at production data.
 - [ ] Token save/load/refresh/keepalive/logoff lifecycle
 
 ### Accounts (17 actions)
-- [ ] Add · [ ] CancelCpmTask · [ ] ChangeImmediate · [ ] ChangeInVault (confirm F02 masking) ·
-      [ ] CheckIn · [ ] Delete · [ ] Get · [ ] GetActivity · [ ] GetCredential · [ ] LinkAccount ·
-      [ ] List (incl. By-Safe mode, confirm 20K cap behavior) · [ ] Reconcile ·
-      [ ] ResumeAutoManagement · [ ] UnlinkAccount · [ ] Unlock · [ ] Update (JSON Patch) · [ ] Verify
+- [ ] Add · [ ] CancelCpmTask (confirm the `/Cancel/` endpoint, Phase 1 this session — was
+      `/StopImmediateAutoMgmtOperations` before; F14 this session added a 404 fallback to that
+      same old endpoint for PVWA older than 15.2, unverified against a real pre-15.2 host) ·
+      [ ] ChangeImmediate ·
+      [x] ChangeInVault (F12's `Password/Update` endpoint correction **confirmed correct
+      2026-09-03** — a live 400 against it turned out to be a legitimate `PASWS001W` account-lock
+      error once F16 let Test API surface the real body, not a bug in the endpoint/body shape;
+      still confirm F02 masking against a real successful change) · [ ] CheckIn ·
+      [ ] Delete · [ ] Get ·
+      [ ] GetActivity · [ ] GetCredential · [ ] LinkAccount ·
+      [x] List (incl. By-Safe mode, confirm 20K cap behavior — **confirmed 2026-09-02**) · [ ] Reconcile ·
+      [ ] ResumeAutoManagement (confirm `POST .../Resume/` on Self-Hosted, Phase 1 this session —
+      was `PATCH .../` before; ISPSS was deliberately left unchanged/unconfirmed; F14 this
+      session added a 404 fallback on Self-Hosted to the same PATCH `automaticManagementEnabled`
+      approach for PVWA older than 15.2, unverified against a real pre-15.2 host) ·
+      [ ] UnlinkAccount · [ ] Unlock · [ ] Update (JSON Patch) · [ ] Verify
 
-### Safes (9 actions)
-- [ ] Add · [ ] AddFromTemplate (T01-T24 scenarios) · [ ] AssignCPM (confirm live CPM query) ·
-      [ ] Delete · [ ] Get · [ ] List (confirm F05 ExtendedDetails CSV-boolean fix) ·
+  **For every `AccountName`+`Safe`-resolving action above:** confirm the `filter=safeName eq ...`
+  lookup now works against a **safe name containing a space** (e.g. `"Prod Web Servers"`), not just
+  a single-word safe name - this session fixed all 16 call sites of this bug (raw string
+  interpolation never quoted the value; now routed through `New-CyberArkSearchFilter`, confirmed
+  against psPAS's `ConvertTo-FilterString.ps1`), but none of the 16 fixes have been exercised
+  against a real PVWA/ISPSS tenant yet. `List`'s By-Safe iteration mode needs the same check with
+  at least one accessible safe whose name contains a space.
+
+### Safes (8 actions)
+- [ ] Add (F20 this session — Location no longer prompted interactively, confirm the default `\`
+      is still used; ManagingCPM picker now matches AddFromTemplate, sourced from the new shared
+      `Get-CpmOptions` — confirm the live CPM query populates it, and that a deliberately-broken
+      query falls back to the profile's CPM_List) ·
+      [ ] AddFromTemplate (T01-T24 scenarios; F20 this session — CPM picker now sourced from
+      `Get-CpmOptions` instead of `CPM_List` only, confirm live query + fallback) ·
+      [ ] AssignCPM (F20 this session — CPM picker now sourced from `Get-CpmOptions`, same
+      live-query behavior as before but now with a CPM_List fallback on failure that didn't
+      exist previously; confirm both paths) ·
+      [ ] Delete · [ ] Get ·
+      [x] List (confirm F05 ExtendedDetails CSV-boolean fix — **confirmed 2026-09-02**) ·
       [ ] UnassignCPM · [ ] Update
 
 ### SafeMembers (6 actions)
 - [ ] Add (confirm SearchIn directory picker lists real LDAP directories) ·
-      [ ] AddFromTemplateRole · [ ] List · [ ] Remove · [ ] Update · [ ] UpdateFromTemplateRole
+      [ ] AddFromTemplateRole · [x] List (**confirmed 2026-09-02**) · [ ] Remove · [ ] Update ·
+      [ ] UpdateFromTemplateRole
 
-### Platforms (2 actions)
-- [ ] Get · [ ] List (confirm F06 field-fallback fix against this PVWA version's actual response shape)
+### Platforms (9 actions)
+- [ ] Get ·
+      [x] List (confirm F06 field-fallback fix and the new `SystemType` filter — **confirmed
+      2026-09-02**) · [ ] Copy (Target platforms only — see `E2E-Automation-Design.md`) ·
+      [ ] Disable · [ ] Enable ·
+      [ ] Import (confirm the ZIP-as-byte-array request shape actually works) ·
+      [ ] Remove (destructive — use a disposable sandbox platform) ·
+      [ ] Rename (Self-Hosted only, PVWA 15.0+) · [ ] SetPSMConfig
+
+### Policies (2 actions — Self-Hosted only, PVWA 14.6+)
+- [ ] GetMasterPolicy · [ ] SetMasterPolicy (mutates tenant-wide config — use a dedicated lab host,
+      never a shared/production one; confirm every field's validation range: `ConfirmersNumber`
+      1-64, `PasswordChangeDays`/`PasswordVerificationDays` 1-3650, `RetentionPeriod` 0-3650)
 
 ### Users (2 actions)
-- [ ] Get · [ ] List
+- [ ] Get · [x] List (**confirmed 2026-09-02**)
 
 ### Groups (7 actions)
-- [ ] Add · [ ] AddMember · [ ] Delete · [ ] GetMembers · [ ] List (confirm GroupType filter works
-      correctly on Self-Hosted, unlike ISPSS) · [ ] RemoveMember · [ ] Update
+- [ ] Add · [ ] AddMember (confirm `MemberType` platform split: `Domain`/`Vault` on Self-Hosted) ·
+      [ ] Delete · [ ] GetMembers (confirm the new `IncludeMembers` opt-in field) ·
+      [x] List (confirm GroupType filter works correctly on Self-Hosted, unlike ISPSS —
+      **confirmed 2026-09-02**) · [ ] RemoveMember · [ ] Update
 
-### Applications (SelfHosted only — 7 actions)
-- [ ] Add · [ ] AddAuthMethod · [ ] Delete · [ ] DeleteAuthMethod · [ ] Get ·
-      [ ] List (confirm F01 trailing-slash / PIMServices.svc routing fix) · [ ] ListAuthMethods
+### Applications (7 actions — dual-use, see caution section)
+- [x] Add (confirm `Location` is now enforced as mandatory, Phase 1 this session — **confirmed
+      2026-09-02**, the only Applications action visible on the ISPSS menu before this pass) ·
+      [ ] AddAuthMethod · [ ] Delete · [ ] DeleteAuthMethod · [ ] Get ·
+      [x] List (confirm F01 trailing-slash / PIMServices.svc routing fix — **confirmed
+      2026-09-02**) ·
+      [ ] ListAuthMethods (per user request, this session: leaving App ID blank now lists auth
+      methods for every application instead of failing - **not** covered by the "List confirmed"
+      status above, since its `Action` is `ListAuthMethods`; this new blank-App-ID behavior is
+      unverified against a real host)
+- AddAuthMethod, Delete, DeleteAuthMethod, Get, List, and ListAuthMethods were expanded from
+  Self-Hosted-only to dual-use on 2026-09-02, after the user found only Add visible on the ISPSS
+  Applications menu — confirming the other 6 had been Self-Hosted-only in error. Only ISPSS menu
+  visibility has been confirmed for these 6; their actual ISPSS request/response behavior is
+  unverified.
 
-### Reports (SelfHosted only — 1 action)
-- [ ] List (confirm F04 sparse-field guards against a real report with missing fields, if any exist)
+### Reports (1 action — Self-Hosted only, see caution section)
+- [x] List (confirm F04 sparse-field guards against a real report with missing fields, if any
+      exist — **confirmed 2026-09-02**, Self-Hosted only. Also confirmed 2026-09-02 that this
+      endpoint 404s on ISPSS/Privilege Cloud — `SupportedSystems` reverted to Self-Hosted-only,
+      reversing Phase 1's dual-use expansion)
 
-### Custom (5 actions)
-- [ ] ExportAll · [ ] ExportEntitlements · [ ] ExportGroupMembersLDAP (requires AD line-of-sight) ·
+### Custom (6 actions)
+- [ ] ExportAll (per user request, this session, now also runs Applications/ListAuthMethods -
+      that specific addition is unverified against a real host) ·
+      [ ] ExportEntitlements (confirm the CSV now saves automatically with no `[y/N]` prompt) ·
+      [ ] ExportGroupMembersLDAP (requires AD line-of-sight; confirm auto-save CSV) ·
       [ ] ExportGroupMembersLocal (confirm F07 groupType quirk fix, though Self-Hosted may not
-      exhibit the ISPSS quirk at all — confirm normal local-group export still works) ·
-      [ ] TestApi (manual smoke test — no unit test exists for this module)
+      exhibit the ISPSS quirk at all — confirm normal local-group export still works; confirm
+      auto-save CSV) ·
+      [ ] TestApi (manual smoke test — no unit test exists for this module; confirm the base URL
+      shown/used no longer includes `/PasswordVault`, widening what paths it can reach; **F15
+      this session — needs live verification specifically with `IgnoreSSL` enabled and a token
+      allowed to expire mid-session**, reported by the user as the whole process silently
+      closing with no error shown; fixed by switching from a raw
+      `ServerCertificateValidationCallback` scriptblock to the shared, already-safe
+      `Disable-SSLValidation` helper, but not yet confirmed the crash is actually gone) ·
+      [ ] TestConnectivity (confirm against a real Windows target: SMB admin-
+      share auth on port 445; and a real Linux target: SSH auth via PS7 `-SSHTransport` and/or
+      plink.exe if installed, and the "Plink or PS7 needed" message if neither is; confirm the
+      vault password fallback resolves Address+Account correctly; confirm auto-save CSV; F22 this
+      session — confirm the `Safe`/`Username`/`PasswordSource` output columns are populated
+      correctly for a real vault-backed lookup, and stay blank when a password is supplied directly)
 
 ### Driver-level (Manage-Privilege.ps1)
 - [ ] D01-D25 (see Manage-Privilege.ps1 manual test procedures above, including new D23-D25)
@@ -620,6 +738,13 @@ Reconcile/etc.) — never point a write action at production data.
 - [ ] List drill-down (select a row number from any List result to open its Get/Details view)
 - [ ] WhatIf mode toggled on, confirm every write action across every category is suppressed and logged
 - [ ] Structured logging: confirm no secrets appear in the log file at any level (spot-check F02's fix)
+- [ ] Run any `List` action against a real host where exactly one row is returned (F13, this
+      session — was a `[FATAL] PropertyNotFoundException` on `.Count`, reported directly by the
+      user against `Accounts / List`) — confirm the result table renders correctly with 1 row
+- [ ] `Invoke-EntitySearch`'s interactive picker (used by several `Get`/`Delete`/etc. custom
+      input functions) with a search term containing a period (e.g. a UPN-style username or a
+      dotted IP) — confirm F21's `%2E` encoding fix actually returns matches now, per the user's
+      live report that a literal period previously found nothing
 
 ---
 
@@ -635,3 +760,17 @@ Reconcile/etc.) — never point a write action at production data.
 | 2026-08-20 | Added Invoke-SafeMembersAddFromTemplateRole.ps1 and Invoke-SafeMembersUpdateFromTemplateRole.ps1 to Component Test Matrix (44 tests: ATR01-ATR23, UTR01-UTR21) |
 | 2026-08-20 | Added A13 (Import-AuthToken Created field) and D19-D22 (logon-phase age refresh, unconditional 401 invalidation including network-error side effect) manual test procedures |
 | 2026-09-02 | Full Self-Hosted-focused review and rewrite: added the Self-Hosted vs. ISPSS scope/caution section; replaced the stale Component Test Matrix with a complete matrix of every module in the project; added the Findings and Fixes section (F01-F11, covering the Join-CyberArkUrl trailing-slash fix, JSON-key secret-masking fix, ApplicationsAdd TryParse validation, ReportsList strict-mode property guards, five CSV-boolean cast fixes, PlatformsList field-fallback fix, ExportGroupMembersLocal ISPSS-groupType fix, two Manage-Privilege.ps1 driver fixes, and the dead Get-AuthToken.ps1 deletion); added the Known Issues / Risk Register (K01-K07, none fixed this pass); replaced the stale Get-AuthToken.ps1-referencing auth test section with a Self-Hosted Auth section covering all 8 auth methods (A01-A18); added D23-D25 driver test cases for the two new driver fixes; added the Self-Hosted Full Functional Checklist enumerating all ~55 module actions plus driver-level checks for the live test pass |
+| 2026-09-02 | Updated for Phase 0-2 of `aPePAS-Improvement-Plan-2026-09-02.md` (same day, later revision): corrected the Self-Hosted vs. ISPSS caution section's now-stale claim that `Applications`/`Reports` are Self-Hosted-only (Phase 1 confirmed both work on ISPSS and expanded `SupportedSystems`); added the new Self-Hosted-only entries (`Platforms/Rename`, the new `Policies` category) to the Component Test Matrix; added all 7 new Phase 2 Platforms modules (`Copy`/`Disable`/`Enable`/`Import`/`Remove`/`Rename`/`SetPSMConfig`) and both new Policies modules to the matrix and the Full Functional Checklist; updated the Accounts/Groups/Custom checklist entries for Phase 1's confirmed endpoint/field changes (Cancel CPM Task, Resume Auto Management, Group Member `MemberType`/`IncludeMembers`, Applications `Location`, the three Custom export tools' new auto-save-CSV behavior, and Test API's widened base URL); added a cross-reference at the top to the new `E2E-Automation-Design.md`, which tracks progress toward automating this document's manual checklist |
+| 2026-09-02 | Added the new `Custom/Invoke-CustomTestConnectivity.ps1` module (DNS resolution, port checks, and Windows SMB / Linux SSH authentication testing, with a vault password fallback) to the Component Test Matrix and the Full Functional Checklist (Custom now 6 actions); updated the dual-use module count to 62 of 65 total |
+| 2026-09-02 | Added a note to the Accounts checklist flagging the `filter=safeName eq ...` space-quoting fix (16 files, confirmed against psPAS's `ConvertTo-FilterString.ps1`) as needing live verification against a safe name containing a space - not yet exercised against a real tenant |
+| 2026-09-02 | Per user report, marked every `Action = 'List'` module (Accounts, Safes, SafeMembers, Platforms, Users, Groups, Applications, Reports - 8 modules) as confirmed against a real Self-Hosted host in both the Component Test Matrix and the Full Functional Checklist. `Applications/ListAuthMethods` and `Custom/ExportAll` were explicitly called out as **not** covered by this confirmation - `ListAuthMethods`'s `Action` isn't literally `List`, and both gained new, unverified behavior this same session (see next entry) |
+| 2026-09-02 | Per user request: `Invoke-ApplicationsListAuthMethods.ps1`'s `AppID` is now optional - leaving it blank lists auth methods for every application instead of failing with "AppID is required". `Invoke-CustomExportAll.ps1` was updated to discover and run it alongside every `List` action, so Export All now includes it automatically. Both changes are new this session and unverified against a real host - added to the Applications and Custom checklist sections above |
+| 2026-09-02 | Per user report from live ISPSS testing: `Reports/Invoke-ReportsList.ps1` 404s on ISPSS/Privilege Cloud, reversing Phase 1's dual-use expansion - `SupportedSystems` reverted to `@('SelfHosted')`. Separately, the user found only `Applications/Add` visible on the ISPSS Applications menu, confirming the other 6 Applications modules (`AddAuthMethod`, `Delete`, `DeleteAuthMethod`, `Get`, `List`, `ListAuthMethods`) had been left Self-Hosted-only in error - all 7 Applications modules now declare `SupportedSystems = @('ISPSS', 'SelfHosted')`. Updated the Self-Hosted vs. ISPSS caution section (SelfHosted-only count 3 -> 4, dual-use count 62 -> 61 of 65), the Component Test Matrix rows for Reports/List and all 7 Applications modules, and the Full Functional Checklist's Applications and Reports section headings and notes accordingly. Only ISPSS menu visibility has been confirmed for the 6 newly-expanded Applications modules; their actual ISPSS request/response behavior remains unverified |
+| 2026-09-02 | Per user report: `Invoke-AccountsChangeInVault.ps1` was calling `POST /API/Accounts/{id}/SetNextPassword` (a queued-for-CPM change) instead of `POST /API/Accounts/{id}/Password/Update` (an immediate vault-only change, matching the module's own name and description). Confirmed the distinction against the local Swagger spec's descriptions for both paths and against psPAS's `Invoke-PASCPMOperation.ps1`, which treats them as two separate parameter sets. Fixed the endpoint (request body unchanged - both share the `NewCredentials` field); added Finding F12 and a regression test asserting the exact endpoint string |
+| 2026-09-02 | Per user report (`[FATAL] PropertyNotFoundException` on `.Count`, hit against `Accounts / List` returning exactly one row): fixed `Manage-Privilege.ps1`'s `Invoke-ActionModule`, where `$tableData`/`$displayData` were each assigned from an `if/else` without an outer `@(...)` wrap - a one-item branch result collapsed to a bare scalar instead of a one-element array, the single-item counterpart of the already-documented Lessons-Learned 9.8 empty-collapses-to-`$null` bug. Wrapped both entire `if/else` expressions in `@(...)`. Added Finding F13, a driver-level checklist item, and a Lessons-Learned 9.8 addendum documenting the new manifestation and that reproducing it requires real `powershell.exe` (PS 5.1) - PowerShell 7/`pwsh` masks it via a synthetic scalar `.Count` |
+| 2026-09-02 | Per user report and design direction: `Invoke-AccountsCancelCpmTask.ps1` and `Invoke-AccountsResumeAutoManagement.ps1` now fall back to a version-agnostic endpoint on an HTTP 404 from the newer, version-gated one (`/Cancel/` needs PVWA 15.2+, `/Resume/` needs 15.0-15.2+ depending on source - neither this project nor psPAS can query the actual version). `CancelCpmTask` falls back to the pre-Phase-1 `/StopImmediateAutoMgmtOperations` endpoint; `ResumeAutoManagement` (Self-Hosted only) falls back to the same PATCH `automaticManagementEnabled` approach already used for ISPSS. Only a 404 triggers the fallback - any other failure stays a real, non-fallback error. Added Finding F14, checklist notes, and regression tests covering the fallback-succeeds, no-fallback-on-non-404, and fallback-also-fails cases for both modules |
+| 2026-09-02 | Per user report (Custom Test API: the whole process silently closes with no error shown when the session token expires): found `Invoke-CustomTestApi.ps1` was the only module enabling the `IgnoreSSL` bypass via a raw `ServerCertificateValidationCallback` scriptblock instead of `Invoke-CyberArkAPI`'s already-safe, compiled-class-based `Disable-SSLValidation` - a known hazard if .NET's TLS stack ever invokes that delegate off the runspace's own thread, which a fresh handshake during re-authentication could plausibly trigger. Exported `Disable-SSLValidation` from `CyberArkComms.psm1` and switched `Invoke-CustomTestApi.ps1` to use it. Added Finding F15 and a checklist note - **not yet confirmed this was the actual cause**, since no error was available to inspect; needs live verification with `IgnoreSSL` enabled and a token allowed to expire mid-session |
+| 2026-09-03 | Added Finding F16 (Test API's `catch` block re-reading an already-consumed `WebException` response stream, discovered live via a real 400 whose body came back `null`) and Finding F17 (per user request: `Invoke-CyberArkAPI`'s `ErrorMessage` now includes the CyberArk `ErrorCode` prefix, e.g. `"PASWS001W: The account is locked by: [ca_jesse]."`, applied once in the shared helper so every module's own error text picks it up automatically; also fixed a latent `Parse-CyberArkError` bug where a body missing either field threw under strict mode and discarded both). Added Finding F18 (per user request: Test API no longer prompts for Query Params on any method other than `GET`). Added C29-C32 regression tests to `CyberArkComms.Tests.ps1` for F17 |
+| 2026-09-03 | Added Finding F19 (per user request: `Invoke-CyberArkAPI`'s error message now falls back to the raw response body when structured `ErrorCode`/`ErrorMessage` parsing finds neither, rather than a generic HTTP-status-only message; updated C32 and added C33). Added Finding F20 (per user request: Add Safe no longer prompts for `Location` interactively; Add Safe's `ManagingCPM` prompt now matches Add Safe From Template's numbered picker; all three CPM-picker screens - Add, AddFromTemplate, AssignCPM - now share one `Get-CpmOptions` source in `Manage-Privilege.ps1`, live-query-first with a `CPM_List` fallback on failure, superseding the prior per-page split recorded in Architecture.md). Removed T32-T35 and A15-A17, which tested the two now-deleted per-module CPM-source functions; manually verified `Get-CpmOptions`'s four cases via a standalone `powershell.exe` repro instead, for the same reason `Invoke-EntitySearch` has no unit coverage of its own. Updated the Safes checklist for all three affected actions |
+| 2026-09-03 | Added Finding F21 (per user report, live: `?search=` values containing a period fail to match on the CyberArk API unless the period is percent-encoded as `%2E` - `[Uri]::EscapeDataString` leaves `.` as a literal character per RFC 3986. Fixed once in `New-CyberArkQuery`, applied case-insensitively to the `search` key only, covering every module that routes through `Invoke-CyberArkAPI`'s `-QueryParams`). Added C34-C36 to `CyberArkComms.Tests.ps1`. Added Lessons-Learned Section 34 |
+| 2026-09-03 | Added Finding F22 (per user request: `Custom/TestConnectivity` output now includes `Safe`, `Username`, and `PasswordSource` columns identifying which vaulted account, if any, was used to make the connection - `Resolve-VaultPassword` returns `SafeName`/`Username` alongside `Password` to support this). Updated TC11-TC12, TC20, TC21, TC27-TC29 in `Invoke-CustomTestConnectivity.Tests.ps1`; updated the Custom checklist |

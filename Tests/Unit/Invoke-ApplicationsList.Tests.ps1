@@ -17,6 +17,14 @@ BeforeAll {
 
 Describe 'Invoke-ApplicationsList' {
 
+    Context 'ModuleMeta' {
+        It 'SupportedSystems includes both SelfHosted and ISPSS' {
+            $ModuleMeta.SupportedSystems | Should -Contain 'SelfHosted'
+            $ModuleMeta.SupportedSystems | Should -Contain 'ISPSS'
+            $ModuleMeta.SupportedSystems.Count | Should -Be 2
+        }
+    }
+
     Context 'API call failure' {
         It 'records error on non-success response' {
             $token = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }

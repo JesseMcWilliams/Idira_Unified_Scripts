@@ -66,14 +66,46 @@ function script:New-ApiResponse {
     }
 }
 
+function script:Format-CyberArkErrorMessage {
+    <#
+        Single place both Invoke-CyberArkAPI error-response branches build their ErrorMessage
+        from, so every module's own displayed/logged error text stays consistent with no
+        per-module changes needed. Preference order, per user direction: the CyberArk
+        "<ErrorCode>: <ErrorMessage>" envelope when both are present; the bare ErrorMessage when
+        only that parsed; the raw response body when structured parsing found neither but the
+        server still sent content; and only then the generic HTTP-status fallback text.
+    #>
+    param(
+        [object]$ErrorDetails,
+        [int]   $StatusCode,
+        [string]$RawBody,
+        [string]$FallbackMessage
+    )
+    if ($ErrorDetails -and $ErrorDetails.ErrorCode) {
+        return "$($ErrorDetails.ErrorCode): $($ErrorDetails.ErrorMessage)"
+    }
+    if ($ErrorDetails -and $ErrorDetails.ErrorMessage) {
+        return $ErrorDetails.ErrorMessage
+    }
+    if ($RawBody -and $RawBody.Trim()) {
+        return "HTTP $StatusCode - $RawBody"
+    }
+    return $FallbackMessage
+}
+
 function script:Parse-CyberArkError {
     param([string]$Body)
     if (-not $Body) { return $null }
     try {
         $parsed = $Body | ConvertFrom-Json
+        # PSObject.Properties guards, not direct dot access: this module runs under its own
+        # Set-StrictMode, and a body with only one of these two fields (e.g. {"ErrorMessage":
+        # "Not Found"} with no ErrorCode) would otherwise throw PropertyNotFoundException on
+        # the missing one - discarding the field that WAS present too, since the whole object
+        # literal fails to construct.
         return [PSCustomObject]@{
-            ErrorCode    = $parsed.ErrorCode
-            ErrorMessage = $parsed.ErrorMessage
+            ErrorCode    = if ($parsed.PSObject.Properties['ErrorCode'])    { $parsed.ErrorCode }    else { $null }
+            ErrorMessage = if ($parsed.PSObject.Properties['ErrorMessage']) { $parsed.ErrorMessage } else { $null }
             Details      = $parsed
         }
     } catch {
@@ -94,6 +126,12 @@ function script:New-WhatIfResponse {
 function script:Disable-SSLValidation {
     # Only effective within the current AppDomain. Cannot be undone per-call cleanly in PS 5.1;
     # IgnoreSSL is therefore session-wide once set (matching profile-level scoping intent).
+    # Exported (not just used internally by Invoke-CyberArkAPI) so Invoke-CustomTestApi.ps1 -
+    # which calls Invoke-WebRequest directly instead of going through Invoke-CyberArkAPI - can
+    # reuse this same safe, compiled-class-based bypass instead of assigning a raw PowerShell
+    # scriptblock to ServerCertificateValidationCallback, which risks a silent, uncatchable
+    # process crash if .NET ever invokes that delegate off the runspace's own thread (e.g.
+    # during a fresh TLS handshake triggered by a mid-session re-authentication request).
     if (-not ([System.Management.Automation.PSTypeName]'TrustAllCerts').Type) {
         Add-Type -TypeDefinition @"
 using System.Net;
@@ -136,7 +174,16 @@ function New-CyberArkQuery {
     $parts = foreach ($key in $Params.Keys) {
         $val = $Params[$key]
         if ($null -ne $val -and "$val" -ne '') {
-            "$([Uri]::EscapeDataString($key))=$([Uri]::EscapeDataString("$val"))"
+            $encodedVal = [Uri]::EscapeDataString("$val")
+            # CyberArk's ?search= endpoints require a literal period in the search term to be
+            # percent-encoded as %2E to match correctly - confirmed live by the user.
+            # [Uri]::EscapeDataString treats '.' as an unreserved character per RFC 3986 and
+            # leaves it as a literal period, which these endpoints then fail to match on.
+            # Matched case-insensitively: some callers use 'search' (e.g. CancelCpmTask,
+            # LinkAccount), others 'Search' (Invoke-EntitySearch's interactive picker, via
+            # -SearchParam 'Search' in the Platforms modules).
+            if ($key -ieq 'search') { $encodedVal = $encodedVal.Replace('.', '%2E') }
+            "$([Uri]::EscapeDataString($key))=$encodedVal"
         }
     }
 
@@ -455,7 +502,8 @@ function Invoke-CyberArkAPI {
 
             # Non-429/504 HTTP error - fall through to response building below
             $errDetails = script:Parse-CyberArkError -Body $rawBody
-            $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode $($webEx.Message)" }
+            $errMsg     = script:Format-CyberArkErrorMessage -ErrorDetails $errDetails -StatusCode $statusCode `
+                -RawBody $rawBody -FallbackMessage "HTTP $statusCode $($webEx.Message)"
             if ($statusCode -ge 400) { $errMsg = "$errMsg  [$Method $fullUri]" }
             if ($rawBody -and (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue)) {
                 Write-CyberArkLog -Message "HTTP $statusCode response body: $rawBody" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI' -FileOnly
@@ -550,7 +598,8 @@ function Invoke-CyberArkAPI {
         $errMsg     = $null
         if (-not $isSuccess) {
             $errDetails = script:Parse-CyberArkError -Body $rawBody
-            $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode" }
+            $errMsg     = script:Format-CyberArkErrorMessage -ErrorDetails $errDetails -StatusCode $statusCode `
+                -RawBody $rawBody -FallbackMessage "HTTP $statusCode"
         }
 
         if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }
@@ -568,4 +617,5 @@ Export-ModuleMember -Function @(
     'New-CyberArkQuery'
     'Join-CyberArkUrl'
     'New-CyberArkSearchFilter'
+    'Disable-SSLValidation'
 )

@@ -36,8 +36,8 @@ $ErrorActionPreference = 'Stop'
 
 #region --- Configuration ---
 
-$script:AppName                   = 'Idira Unified Scripts - CyberArk PAS Driver'
-$script:Version                   = '1.0.0'
+$script:AppName                   = 'aPePAS - CyberArk PAS Driver'
+$script:Version                   = '1.0.0'   # Bump this value with every release - shown in the banner and startup log line
 $script:AuthCommonPath            = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.Common.psm1'
 $script:AuthISPSSPath             = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.ISPSS.psm1'
 $script:AuthSelfHostedPath        = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.SelfHosted.psm1'
@@ -99,6 +99,24 @@ function Assert-Prerequisites {
 
 #region --- Display Helpers ---
 
+function Get-SignedInUsername {
+    # Prefers the credential actually used to authenticate (_RefreshContext, set on the token
+    # by the Auth modules) over the profile's own Username field, which can be blank or stale
+    # for auth methods that don't require a stored username. _RefreshContext is a hashtable
+    # (see Interfaces.md) - bracket notation, not dot notation, matching Invoke-TokenRefresh's
+    # already-correct usage of the same field elsewhere in this file.
+    if ($script:SessionToken -and $script:SessionToken.PSObject.Properties['_RefreshContext']) {
+        $ctx = $script:SessionToken._RefreshContext
+        if ($ctx -and $ctx.ContainsKey('Credential') -and $ctx['Credential']) {
+            return $ctx['Credential'].UserName
+        }
+    }
+    if ($script:ActiveProfile -and $script:ActiveProfile.Username) {
+        return $script:ActiveProfile.Username
+    }
+    return ''
+}
+
 function Show-Header {
     param([string[]]$Breadcrumbs = @())
     Clear-Host
@@ -106,6 +124,10 @@ function Show-Header {
     Write-Host $bar -ForegroundColor Cyan
     $title = "  $($script:AppName)  v$($script:Version)"
     Write-Host $title -ForegroundColor White
+    $signedInUser = Get-SignedInUsername
+    if ($signedInUser) {
+        Write-Host "  User: $signedInUser" -ForegroundColor DarkGray
+    }
     if ($Breadcrumbs) {
         $crumb = '  ' + ($Breadcrumbs -join ' > ')
         Write-Host $crumb -ForegroundColor DarkCyan
@@ -172,7 +194,11 @@ function Show-FieldPrompt {
 function Get-CsvSavePath {
     param(
         [string]$DefaultFolder,
-        [string]$ModuleName
+        [string]$ModuleName,
+        # When set, skips the save dialog/prompt entirely and returns the computed default
+        # path directly - used by modules whose CSV should save automatically with no user
+        # interaction (see ModuleMeta.AutoSaveCsv).
+        [switch]$AutoSave
     )
     $safeName    = ($ModuleName -replace '[\\/:*?"<>|]', '_').Trim()
     $defaultName = "$safeName $(Get-Date -Format 'yyyy-MM-dd').csv"
@@ -187,6 +213,8 @@ function Get-CsvSavePath {
         $PSScriptRoot
     }
     $defaultPath = Join-Path $defaultDir $defaultName
+
+    if ($AutoSave.IsPresent) { return $defaultPath }
 
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
@@ -324,6 +352,54 @@ function Invoke-EntitySearch {
         }
     }
     return $null
+}
+
+function Get-CpmOptions {
+    # Shared source for every "pick a CPM" prompt in the driver (Add Safe, Add Safe From
+    # Template, Assign CPM to Safe). Per user direction, 2026-09-03: queries live via
+    # GET /API/Users?userType=CPM&componentUser=true (confirmed against the 14.6 Swagger spec -
+    # userType/componentUser are documented server-side query filters, and CPM is one of the
+    # userType values considered a component user) and uses that result whenever the call
+    # succeeds, even if it comes back empty - an empty-but-successful result is a real
+    # environment state, not a failure, so it is NOT treated as a reason to fall back.
+    # Falls back to the profile's manually-maintained CPM_List only when the API call fails or
+    # throws. This supersedes the prior per-page choice recorded in Architecture.md (Add Safe
+    # From Template used CPM_List only; Assign CPM used the live query only, "per explicit
+    # direction, not an oversight") - that distinction no longer applies as of this change.
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Token
+    )
+
+    $options = [System.Collections.Generic.List[string]]::new()
+
+    $response = $null
+    try {
+        $response = Invoke-CyberArkAPI -Token $Token -Method 'GET' -Endpoint '/API/Users' `
+            -QueryParams @{ userType = 'CPM'; componentUser = 'true' }
+    } catch {
+        Write-CyberArkLog -Level 'WARN' -Message "CPM user list query threw an exception: $_"
+    }
+
+    if ($response -and $response.IsSuccess) {
+        [array]$users = if ($response.Data -and $response.Data.PSObject.Properties['Users']) {
+            @($response.Data.Users)
+        } else { @() }
+        foreach ($user in $users) {
+            if ($user.username) { $options.Add("$($user.username)") }
+        }
+        return $options.ToArray()
+    }
+
+    if ($response) {
+        Write-CyberArkLog -Level 'WARN' -Message "CPM user list query failed (HTTP $($response.StatusCode)): $($response.ErrorMessage). Falling back to the profile's CPM_List."
+    }
+
+    if ($script:ActiveProfile -and $script:ActiveProfile.PSObject.Properties['CPM_List'] -and $script:ActiveProfile.CPM_List) {
+        return @(("$($script:ActiveProfile.CPM_List)" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+
+    return $options.ToArray()
 }
 
 #endregion
@@ -2046,18 +2122,18 @@ function Invoke-ActionModule {
     if ($result.Successes -gt 0 -or ($result.ItemsProcessed -eq 0 -and $result.Errors.Count -eq 0)) {
         Write-Host "  Result: $($result.Successes) succeeded, $($result.Failures) failed." -ForegroundColor Green
         if ($result.Results.Count -gt 0) {
-            $tableData = if ($meta.Action -eq 'List') {
+            $tableData = @(if ($meta.Action -eq 'List') {
                 $n = 1
                 @($result.Results | ForEach-Object {
                     $props = [ordered]@{ '#' = $n++ }
                     foreach ($p in $_.PSObject.Properties) { $props[$p.Name] = $p.Value }
                     [PSCustomObject]$props
                 })
-            } else { @($result.Results) }
-            $displayData = if ($truncateDisplay -and $tableData.Count -gt $displayLimit) {
+            } else { @($result.Results) })
+            $displayData = @(if ($truncateDisplay -and $tableData.Count -gt $displayLimit) {
                 Write-Host "  Showing first $displayLimit of $($result.Results.Count) results. (Change 'Display Limit' in Profile Settings)" -ForegroundColor DarkGray
                 $tableData[0..($displayLimit - 1)]
-            } else { $tableData }
+            } else { $tableData })
             $displayData | Format-Table -AutoSize | Out-String |
                 Where-Object { $_.Trim() } |
                 ForEach-Object { Write-Host "  $_" }
@@ -2085,9 +2161,20 @@ function Invoke-ActionModule {
     }
 
     if ($meta.ProducesOutput -and $result.Results.Count -gt 0) {
-        $saveCsv = Read-MenuChoice -Prompt 'Save results to CSV? [y/N]'
-        if ($saveCsv -match '^[Yy]') {
-            $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name
+        # AutoSaveCsv modules (bulk export tools whose whole purpose is producing a CSV) save
+        # straight to the default path with no prompt or dialog - see ModuleMeta.AutoSaveCsv.
+        # Bracket notation, not dot notation: $meta is a hashtable, and most modules don't
+        # declare this optional key at all - dot-accessing a missing hashtable key throws
+        # PropertyNotFoundException under Set-StrictMode (always active here), the same class
+        # of bug documented throughout this codebase for exactly this reason.
+        $autoSave = [bool]$meta['AutoSaveCsv']
+        $doSave   = $autoSave
+        if (-not $autoSave) {
+            $saveCsv = Read-MenuChoice -Prompt 'Save results to CSV? [y/N]'
+            $doSave  = ($saveCsv -match '^[Yy]')
+        }
+        if ($doSave) {
+            $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name -AutoSave:$autoSave
             if ($csvPath) {
                 $saved = Invoke-FileWriteWithRetry -Path $csvPath -Action {
                     $result.Results | Export-Csv -Path $csvPath -NoTypeInformation -Force
@@ -2217,7 +2304,7 @@ function Invoke-SessionLoop {
                     $catModules  = @($selectedCat.Group |
                         Sort-Object @(
                             @{ Expression = { [int]($_.Meta.Action -ne 'List') }; Descending = $false }
-                            @{ Expression = { if ($_.Meta.PSObject.Properties['Priority']) { [int]$_.Meta.Priority } else { 99 } }; Descending = $false }
+                            @{ Expression = { $_.Meta.Name }; Descending = $false }
                         ))
                     $catCrumbs   = $crumbs + @($catName)
 

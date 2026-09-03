@@ -460,34 +460,11 @@ Describe 'Invoke-SafesAddFromTemplate - array-collapse regression (strict mode)'
         @($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 0
     }
 
-    It 'T32 - script:Get-ProfileCPMOptions: profile has no CPM_List property at all - does not throw under strict mode' {
-        Set-StrictMode -Version Latest
-        $testProfile = [PSCustomObject]@{ Role_Template_Safe = 'TemplateSafe' }
-        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
-        $result.Count | Should -Be 0
-    }
-
-    It 'T33 - script:Get-ProfileCPMOptions: null profile - does not throw under strict mode' {
-        Set-StrictMode -Version Latest
-        [array]$result = @(script:Get-ProfileCPMOptions -Profile $null)
-        $result.Count | Should -Be 0
-    }
-
-    It 'T34 - script:Get-ProfileCPMOptions: blank CPM_List - does not throw under strict mode' {
-        Set-StrictMode -Version Latest
-        $testProfile = [PSCustomObject]@{ CPM_List = '   ' }
-        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
-        $result.Count | Should -Be 0
-    }
-
-    It 'T35 - script:Get-ProfileCPMOptions: splits, trims, and filters CPM_List correctly' {
-        Set-StrictMode -Version Latest
-        $testProfile = [PSCustomObject]@{ CPM_List = ' PM1 , PM2 ,, ' }
-        [array]$result = @(script:Get-ProfileCPMOptions -Profile $testProfile)
-        $result.Count | Should -Be 2
-        $result[0]    | Should -Be 'PM1'
-        $result[1]    | Should -Be 'PM2'
-    }
+    # T32-T35 (script:Get-ProfileCPMOptions strict-mode-safety tests) were removed 2026-09-03:
+    # that function was deleted when the CPM picker moved to the shared Get-CpmOptions
+    # (Manage-Privilege.ps1, live API with a CPM_List fallback - see Architecture.md). Like the
+    # similar shared helper Invoke-EntitySearch, it has no unit test coverage of its own - see
+    # Testing-Plan.md for the manual-verification note.
 }
 
 # ─────────────────────────────────────────────────────────────────

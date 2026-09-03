@@ -4,15 +4,19 @@ $ModuleMeta = @{
     Name             = 'List Reports'
     Category         = 'Reports'
     Action           = 'List'
-    Description      = 'Retrieve CyberArk PVWA reports.'
-    SupportedSystems = @('ISPSS', 'SelfHosted')
+    # Self-Hosted only - confirmed by the user against a live ISPSS/Privilege Cloud tenant,
+    # which returns HTTP 404 for this endpoint (GET /API/Reports). Phase 1 (earlier this
+    # session) had expanded this to dual-use based on psPAS's own comparison review claiming
+    # ISPSS support from v14.6+; that claim did not hold up against a real tenant.
+    Description      = 'Retrieve CyberArk PVWA reports. Self-Hosted only.'
+    SupportedSystems = @('SelfHosted')
     SupportsWhatIf   = $false
     AcceptsInputFile = $false
     ProducesOutput   = $true
     HasCustomInput   = $true
     InputSchema      = @()
     Priority         = 70
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function Get-ReportsListInput {

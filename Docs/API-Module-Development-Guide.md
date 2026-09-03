@@ -255,14 +255,23 @@ $response = Invoke-CyberArkAPI `
 ### Query Builder Helpers
 
 ```powershell
-# Build a query hashtable for standard CyberArk parameters
-$query = New-CyberArkQuery `
-    -Search      'admin' `
-    -Filter      'safeName eq TargetSafe' `
-    -Limit       100 `
-    -Offset      0 `
-    -Sort        'name asc' `
-    -SavedFilter 'MyFilter'
+# Build a query string from a hashtable of parameters
+$queryString = New-CyberArkQuery -Params @{ search = 'admin'; limit = 100; offset = 0; sort = 'name asc' }
+# Result: '?search=admin&sort=name%20asc&offset=0&limit=100' (key order is not guaranteed -
+# hashtable enumeration order in PS 5.1 is not the insertion order)
+
+# Build a filter= expression - always use this instead of hand-writing "field eq value",
+# even for a single field. It quotes any value containing spaces (safeName eq "My Safe")
+# to match CyberArk's own filter grammar - confirmed against psPAS's ConvertTo-FilterString.ps1,
+# which does the identical auto-quote-on-whitespace for API 14.6+. A hand-written
+# "safeName eq $targetSafe" silently breaks the moment a safe name contains a space; this
+# bug shipped in 16 Accounts modules before being caught and fixed (see
+# Documentation-Tracker.md, 2026-09-02).
+$filter = New-CyberArkSearchFilter -Criteria @{ safeName = $targetSafe }
+# $targetSafe = 'TestSafe'  -> 'safeName eq TestSafe'
+# $targetSafe = 'My Safe'   -> 'safeName eq "My Safe"'  (URL-encodes to ...eq%20%22My%20Safe%22)
+
+$queryParams = @{ filter = $filter; limit = 1000 }
 
 # Join URL segments — trims and normalizes slashes between segments
 $url = Join-CyberArkUrl $Token.BaseURL '/API/Accounts' $accountId
