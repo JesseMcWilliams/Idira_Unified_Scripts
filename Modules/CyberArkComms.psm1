@@ -174,7 +174,16 @@ function New-CyberArkQuery {
     $parts = foreach ($key in $Params.Keys) {
         $val = $Params[$key]
         if ($null -ne $val -and "$val" -ne '') {
-            "$([Uri]::EscapeDataString($key))=$([Uri]::EscapeDataString("$val"))"
+            $encodedVal = [Uri]::EscapeDataString("$val")
+            # CyberArk's ?search= endpoints require a literal period in the search term to be
+            # percent-encoded as %2E to match correctly - confirmed live by the user.
+            # [Uri]::EscapeDataString treats '.' as an unreserved character per RFC 3986 and
+            # leaves it as a literal period, which these endpoints then fail to match on.
+            # Matched case-insensitively: some callers use 'search' (e.g. CancelCpmTask,
+            # LinkAccount), others 'Search' (Invoke-EntitySearch's interactive picker, via
+            # -SearchParam 'Search' in the Platforms modules).
+            if ($key -ieq 'search') { $encodedVal = $encodedVal.Replace('.', '%2E') }
+            "$([Uri]::EscapeDataString($key))=$encodedVal"
         }
     }
 

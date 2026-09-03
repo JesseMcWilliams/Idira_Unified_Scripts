@@ -3142,3 +3142,41 @@ contract was already right and simply wasn't adopted everywhere it should have b
 `New-CyberArkSearchFilter` (and any other under-documented shared helper) to
 `API-Module-Development-Guide.md`'s example code - its absence from that guide's own filter-building
 example is a plausible reason none of these 16 sites reached for it in the first place.
+
+---
+
+## 34. CyberArk `?search=` Endpoints Require a Literal Period to Be Percent-Encoded as `%2E`
+
+**Observation, confirmed live by the user:** A `search` query parameter value containing a
+period (e.g. a UPN-style username like `jdoe.admin`, an email address, or a dotted IP address)
+fails to match on CyberArk's `?search=` endpoints unless that period is percent-encoded as
+`%2E`. A literal, unencoded period in the value causes the search to find nothing.
+
+**Root cause:** `[Uri]::EscapeDataString` - the standard .NET URL-encoding call this project
+uses everywhere (`New-CyberArkQuery`) - treats `.` as an *unreserved* character per RFC 3986 and
+deliberately leaves it as a literal period rather than encoding it. That's correct, standards-
+compliant URL-encoding in general, but CyberArk's own `search` parameter parsing does not accept
+a literal period the way RFC 3986 says a compliant server should - it needs the percent-encoded
+form specifically.
+
+**Wrong - standard encoding leaves the period as-is, and the search fails silently (no error, just no results):**
+```powershell
+New-CyberArkQuery -Params @{ search = 'jdoe.admin' }
+# ?search=jdoe.admin - the period is not encoded, and the API finds nothing
+```
+
+**Correct - percent-encode any period in a `search` value's already-encoded form:**
+```powershell
+$encodedVal = [Uri]::EscapeDataString($val)
+if ($key -ieq 'search') { $encodedVal = $encodedVal.Replace('.', '%2E') }
+# ?search=jdoe%2Eadmin
+```
+
+**Rule:** Fixed once, centrally, in `New-CyberArkQuery` (`CyberArkComms.psm1`) - every module
+already routes its `-QueryParams` through `Invoke-CyberArkAPI`, which calls this function, so no
+per-module changes were needed. The key match is case-insensitive: most direct callers use
+lowercase `search`, but `Invoke-EntitySearch`'s Platforms callers pass `-SearchParam 'Search'`
+(capitalized). This encoding is applied *only* to the `search` key - other query/filter values
+(e.g. `filter=safeName eq My.Vault`) are left alone, since there is no evidence CyberArk's other
+query mechanisms share this same quirk, and blanket-encoding periods everywhere would be an
+unproven, unrequested change.

@@ -79,6 +79,25 @@ Describe 'New-CyberArkQuery' {
         # Ampersand should be encoded
         $result | Should -Match '%26'
     }
+
+    It 'C34 - a period in a "search" value is percent-encoded as %2E, per user report' {
+        # [Uri]::EscapeDataString treats '.' as unreserved (RFC 3986) and leaves it literal,
+        # but CyberArk's ?search= endpoints fail to match on a literal period - confirmed live.
+        $result = New-CyberArkQuery -Params @{ search = 'jdoe.admin' }
+        $result | Should -Be '?search=jdoe%2Eadmin'
+    }
+
+    It 'C35 - a period in a "Search" value (capitalized key) is also percent-encoded' {
+        # Invoke-EntitySearch's interactive picker uses -SearchParam 'Search' in several
+        # Platforms modules, so the key match must be case-insensitive.
+        $result = New-CyberArkQuery -Params @{ Search = '192.168.1.5' }
+        $result | Should -Be '?Search=192%2E168%2E1%2E5'
+    }
+
+    It 'C36 - a period in a non-search value is left alone' {
+        $result = New-CyberArkQuery -Params @{ filter = 'safeName eq My.Vault' }
+        $result | Should -Match 'My\.Vault'
+    }
 }
 
 # ─────────────────────────────────────────────────────────────────
