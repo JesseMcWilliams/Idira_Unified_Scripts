@@ -13,3 +13,7 @@ desktop.ini
 
 # Editor
 .vscode/
+
+# Third-party tools dropped in the project root for local testing (e.g. Custom/TestConnectivity's
+# Linux SSH auth path) - not project source, not distributed with the repo.
+plink.exe

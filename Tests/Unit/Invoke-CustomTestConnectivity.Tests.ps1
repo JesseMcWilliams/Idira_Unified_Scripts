@@ -172,6 +172,39 @@ Describe 'ConvertTo-Win32QuotedArgument' {
     # than anything this code path controls.
 }
 
+Describe 'Find-PlinkExecutable' {
+    # Per user direction: check PATH, then the project root, then Program Files (x86), then
+    # Program Files, in that order. Get-Command/Test-Path are mocked so each tier can be tested
+    # in isolation, deterministically, regardless of what's actually installed on the machine
+    # running these tests.
+
+    It 'TC36 - found on PATH - returned directly, no further locations checked' {
+        Mock Get-Command { [PSCustomObject]@{ Source = 'C:\PATH\plink.exe' } } -ParameterFilter { $Name -eq 'plink.exe' }
+        Mock Test-Path { throw 'Should not check any further location when found on PATH' }
+        script:Find-PlinkExecutable | Should -Be 'C:\PATH\plink.exe'
+    }
+
+    It 'TC37 - not on PATH, found at the project root' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'plink.exe' }
+        Mock Test-Path { $LiteralPath -like '*\..\..\plink.exe' } -ParameterFilter { $PathType -eq 'Leaf' }
+        Mock Resolve-Path { [PSCustomObject]@{ Path = 'C:\Code\aPePAS\plink.exe' } }
+        script:Find-PlinkExecutable | Should -Be 'C:\Code\aPePAS\plink.exe'
+    }
+
+    It 'TC38 - not on PATH or project root, found in Program Files (x86)' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'plink.exe' }
+        Mock Test-Path { $LiteralPath -like '*PuTTY\plink.exe' -and $LiteralPath -like '*(x86)*' } -ParameterFilter { $PathType -eq 'Leaf' }
+        Mock Resolve-Path { [PSCustomObject]@{ Path = 'C:\Program Files (x86)\PuTTY\plink.exe' } }
+        script:Find-PlinkExecutable | Should -Be 'C:\Program Files (x86)\PuTTY\plink.exe'
+    }
+
+    It 'TC39 - not found anywhere - returns $null' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'plink.exe' }
+        Mock Test-Path { $false } -ParameterFilter { $PathType -eq 'Leaf' }
+        script:Find-PlinkExecutable | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'Resolve-VaultPassword' {
 
     BeforeEach {

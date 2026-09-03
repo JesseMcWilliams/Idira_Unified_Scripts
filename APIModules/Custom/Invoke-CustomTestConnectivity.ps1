@@ -29,7 +29,7 @@ $ModuleMeta = @{
         @{ Column = 'Password';   Required = $false; Description = 'Password to authenticate with. Leave blank to look up this Address+Account in the vault.' }
     )
     Priority         = 96
-    Version          = '1.3.0'
+    Version          = '1.4.0'
 }
 
 #region Private helpers - each isolated so Pester can mock it independently of the others
@@ -229,11 +229,43 @@ function script:Invoke-ExternalProcessWithTimeout {
     return @{ TimedOut = $false; ExitCode = $proc.ExitCode; StdOut = $stdout.Result; StdErr = $stderr.Result }
 }
 
+function script:Find-PlinkExecutable {
+    <#
+        Locates plink.exe, checking in order (per user direction): PATH, then the project root
+        (a documented drop-in location for a user who doesn't want to add it to PATH system-
+        wide), then the standard PuTTY install directories - 32-bit ("Program Files (x86)")
+        before 64-bit ("Program Files"), matching the user's specified check order. Uses the
+        %ProgramFiles%/%ProgramFiles(x86)% environment variables rather than hardcoded drive
+        letters, since Windows is not guaranteed to be installed on C:\. Returns the full path
+        to plink.exe, or $null if none of these locations has it.
+    #>
+    $onPath = Get-Command -Name 'plink.exe' -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    $candidates.Add((Join-Path $PSScriptRoot '..\..\plink.exe'))
+    if (${env:ProgramFiles(x86)}) { $candidates.Add((Join-Path ${env:ProgramFiles(x86)} 'PuTTY\plink.exe')) }
+    if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles 'PuTTY\plink.exe')) }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+    return $null
+}
+
 function script:Test-LinuxSshAuth {
     <#
         Authentication test for Linux targets over SSH (port 22). PowerShell 5.1 has no built-in
-        SSH client, so this cascades: try PowerShell 7's SSH transport if pwsh is available,
-        then plink.exe (PuTTY) if not, then report neither is available.
+        SSH client, so this cascades: try plink.exe (PuTTY) first if available, then PowerShell
+        7's SSH transport if pwsh is available, then report neither is available.
+
+        Plink is tried FIRST as of 2026-09-04, per the user's own live test: even after fixing
+        the PS7 path's unknown-host-key hang (StrictHostKeyChecking=no, see below), a real
+        password-auth attempt via that path still timed out - confirming the CAVEAT below in
+        practice, not just in theory. Plink doesn't have this problem, since -pw submits the
+        password directly rather than needing a TTY prompt.
 
         IMPORTANT CAVEAT: native OpenSSH (which PS7's -SSHTransport relies on) deliberately does
         not support non-interactive password authentication - it requires either a TTY for an
@@ -241,9 +273,9 @@ function script:Test-LinuxSshAuth {
         exist as a separate pty-emulation wrapper on Linux, with no equivalent bundled on
         Windows). The PS7 path below can confirm the SSH handshake/host reachability and will
         succeed for key-based auth, but is not a reliable way to validate a *password* - only
-        plink.exe (which has its own, more permissive -pw flag) reliably does that. This path is
-        implemented as directed, with this limitation surfaced via ErrorMessage rather than
-        silently treated as equivalent to plink.
+        plink.exe (which has its own, more permissive -pw flag) reliably does that, confirmed
+        live. This path is kept as a fallback for environments without plink.exe available, with
+        this limitation surfaced via ErrorMessage rather than silently treated as equivalent.
 
         SECURITY NOTE on the plink path: -pw passes the plaintext password as a process command-
         line argument, which is briefly visible to anything else on the machine that can enumerate
@@ -261,8 +293,33 @@ function script:Test-LinuxSshAuth {
         [int]$TimeoutSec = 15
     )
 
-    $pwshCmd  = Get-Command -Name 'pwsh' -ErrorAction SilentlyContinue
-    $plinkCmd = Get-Command -Name 'plink.exe' -ErrorAction SilentlyContinue
+    $plinkPath = script:Find-PlinkExecutable
+    $pwshCmd   = Get-Command -Name 'pwsh' -ErrorAction SilentlyContinue
+
+    if ($plinkPath) {
+        # -batch already disables plink's own interactive prompts. Confirmed live against a
+        # genuinely never-before-seen host (no HKCU:\Software\SimonTatham\PuTTY\SshHostKeys
+        # existed yet on this machine): an unrecognized host key does NOT hang, unlike the PS7
+        # path above - plink aborts in well under a second with a clear "host key is not cached
+        # ... Connection abandoned" message (its own fingerprint included), which flows through
+        # to ErrorMessage below as-is. Unlike OpenSSH's StrictHostKeyChecking=no, plink has no
+        # CLI flag to auto-accept an unknown key (-hostkey requires the exact key already known
+        # in advance) - PuTTY deliberately does not offer that shortcut, so this module doesn't
+        # try to work around it; the error message it produces already tells the user what
+        # happened and gives them the fingerprint to verify.
+        Write-CyberArkLog -Level 'DEBUG' -Message "Using plink at '$plinkPath' for SSH auth test."
+        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkPath `
+            -ArgumentList @('-ssh', '-batch', '-pw', $Password, "$Account@$Address", 'exit') -TimeoutSec $TimeoutSec
+
+        if ($procResult.TimedOut) {
+            return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' via plink timed out after $TimeoutSec second(s)." }
+        }
+        if ($procResult.ExitCode -eq 0) {
+            return @{ Success = $true; ErrorMessage = '' }
+        }
+        $errText = if ($procResult.StdErr) { $procResult.StdErr.Trim() } elseif ($procResult.StdOut) { $procResult.StdOut.Trim() } else { "plink exited with code $($procResult.ExitCode)" }
+        return @{ Success = $false; ErrorMessage = $errText }
+    }
 
     if ($pwshCmd) {
         # See the CAVEAT above - this validates SSH reachability/handshake reliably, but password
@@ -302,27 +359,6 @@ function script:Test-LinuxSshAuth {
         }
         $detail = if ($resultLine) { $resultLine -replace '^FAIL:', '' } elseif ($procResult.StdErr) { $procResult.StdErr.Trim() } else { 'no result returned' }
         return @{ Success = $false; ErrorMessage = "PowerShell 7 SSH transport failed: $detail (note: password auth is not reliably testable via this path - see module source comments; plink.exe is the more reliable option for password validation)" }
-    }
-
-    if ($plinkCmd) {
-        # -batch already disables plink's own interactive prompts, including the "unknown host
-        # key, continue connecting?" question a first-time connection would otherwise raise -
-        # per PuTTY's own documentation, that makes plink abort with an explicit error instead
-        # of hanging (unlike the PS7 path above, which was confirmed live to hang on exactly
-        # this). Not verified live in this session (no plink.exe available in this environment)
-        # - if a real report ever shows plink hanging the same way, this would need the same
-        # kind of fix.
-        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkCmd.Source `
-            -ArgumentList @('-ssh', '-batch', '-pw', $Password, "$Account@$Address", 'exit') -TimeoutSec $TimeoutSec
-
-        if ($procResult.TimedOut) {
-            return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' via plink timed out after $TimeoutSec second(s)." }
-        }
-        if ($procResult.ExitCode -eq 0) {
-            return @{ Success = $true; ErrorMessage = '' }
-        }
-        $errText = if ($procResult.StdErr) { $procResult.StdErr.Trim() } elseif ($procResult.StdOut) { $procResult.StdOut.Trim() } else { "plink exited with code $($procResult.ExitCode)" }
-        return @{ Success = $false; ErrorMessage = $errText }
     }
 
     return @{ Success = $false; ErrorMessage = 'Plink or PS7 needed for auth test' }
