@@ -16,6 +16,12 @@ $ModuleMeta = @{
     # Only applies to the interactive single-item path - CSV-batch mode already writes its own
     # output file automatically via Invoke-CsvProcessing, independent of this flag.
     AutoSaveCsv      = $true
+    # Per user request: the single-interactive-run auto-saved CSV filename includes the tested
+    # Address (e.g. "Test Connectivity - 172.21.20.14 2026-09-04.csv") instead of just the
+    # module name and date, since a user testing several servers one at a time would otherwise
+    # overwrite the same file on every run. Only applies to that single-item path - CSV-batch
+    # mode names its own output file independently via Invoke-CsvProcessing.
+    CsvFilenameField = 'Address'
     InputSchema      = @(
         @{ Column = 'Address';    Required = $true;  Description = 'IP address, short hostname, or FQDN of the target server.' }
         @{ Column = 'ServerType'; Required = $true;  Description = 'Windows or Linux.' }
@@ -23,7 +29,7 @@ $ModuleMeta = @{
         @{ Column = 'Password';   Required = $false; Description = 'Password to authenticate with. Leave blank to look up this Address+Account in the vault.' }
     )
     Priority         = 96
-    Version          = '1.2.0'
+    Version          = '1.3.0'
 }
 
 #region Private helpers - each isolated so Pester can mock it independently of the others
@@ -261,13 +267,33 @@ function script:Test-LinuxSshAuth {
     if ($pwshCmd) {
         # See the CAVEAT above - this validates SSH reachability/handshake reliably, but password
         # auth specifically is not guaranteed to be exercised non-interactively.
-        $innerScript = "try { `$s = New-PSSession -HostName '$Address' -UserName '$Account' -SSHTransport -ErrorAction Stop; Remove-PSSession -Session `$s -ErrorAction SilentlyContinue; Write-Output 'SUCCESS' } catch { Write-Output ('FAIL:' + `$_.Exception.Message) }"
+        #
+        # -Options @{StrictHostKeyChecking='no'} (an OpenSSH ssh_config directive, passed straight
+        # through by New-PSSession's -SSHTransport): confirmed live - connecting to a target
+        # whose host key isn't yet in this machine's known_hosts otherwise hangs until
+        # $TimeoutSec, silently (no prompt visible), because the interactive "are you sure you
+        # want to continue connecting" confirmation OpenSSH would normally ask has nothing to
+        # answer it in this non-interactive child process. StrictHostKeyChecking=no answers
+        # "yes" automatically on a first-time connection and still records the key in
+        # known_hosts for next time (unlike disabling UserKnownHostsFile entirely) - an
+        # acceptable tradeoff for a connectivity *test* tool whose purpose is confirming
+        # reachability, not maintaining long-term host-key-pinning security guarantees for an
+        # ongoing session.
+        $innerScript = "try { `$s = New-PSSession -HostName '$Address' -UserName '$Account' -SSHTransport -Options @{StrictHostKeyChecking='no'} -ErrorAction Stop; Remove-PSSession -Session `$s -ErrorAction SilentlyContinue; Write-Output 'SUCCESS' } catch { Write-Output ('FAIL:' + `$_.Exception.Message) }"
 
         $procResult = Invoke-ExternalProcessWithTimeout -FilePath $pwshCmd.Source `
             -ArgumentList @('-NoProfile', '-NoLogo', '-Command', $innerScript) -TimeoutSec $TimeoutSec
 
         if ($procResult.TimedOut) {
-            return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' timed out after $TimeoutSec second(s) (PowerShell 7 SSH transport)." }
+            # Confirmed live: an unrecognized host key used to hang here waiting for an
+            # interactive confirmation that had nothing to answer it - fixed above via
+            # StrictHostKeyChecking=no. A timeout can still happen even with a known host key,
+            # though: this path spawns pwsh/ssh with no console at all, and native OpenSSH's
+            # password prompt (see the CAVEAT above) can hang the same way waiting for input
+            # that will never arrive, rather than failing fast the way it does with a real
+            # console attached. plink.exe (below) doesn't have this problem, since -pw submits
+            # the password directly rather than needing a TTY prompt.
+            return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' timed out after $TimeoutSec second(s) (PowerShell 7 SSH transport - this can happen even with a correct password, since this path cannot reliably submit one non-interactively; install plink.exe for reliable password testing)." }
         }
 
         $resultLine = @($procResult.StdOut -split "`r?`n") | Where-Object { $_ -match '^(SUCCESS|FAIL:)' } | Select-Object -Last 1
@@ -279,6 +305,13 @@ function script:Test-LinuxSshAuth {
     }
 
     if ($plinkCmd) {
+        # -batch already disables plink's own interactive prompts, including the "unknown host
+        # key, continue connecting?" question a first-time connection would otherwise raise -
+        # per PuTTY's own documentation, that makes plink abort with an explicit error instead
+        # of hanging (unlike the PS7 path above, which was confirmed live to hang on exactly
+        # this). Not verified live in this session (no plink.exe available in this environment)
+        # - if a real report ever shows plink hanging the same way, this would need the same
+        # kind of fix.
         $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkCmd.Source `
             -ArgumentList @('-ssh', '-batch', '-pw', $Password, "$Account@$Address", 'exit') -TimeoutSec $TimeoutSec
 
