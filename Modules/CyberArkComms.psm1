@@ -71,9 +71,14 @@ function script:Parse-CyberArkError {
     if (-not $Body) { return $null }
     try {
         $parsed = $Body | ConvertFrom-Json
+        # PSObject.Properties guards, not direct dot access: this module runs under its own
+        # Set-StrictMode, and a body with only one of these two fields (e.g. {"ErrorMessage":
+        # "Not Found"} with no ErrorCode) would otherwise throw PropertyNotFoundException on
+        # the missing one - discarding the field that WAS present too, since the whole object
+        # literal fails to construct.
         return [PSCustomObject]@{
-            ErrorCode    = $parsed.ErrorCode
-            ErrorMessage = $parsed.ErrorMessage
+            ErrorCode    = if ($parsed.PSObject.Properties['ErrorCode'])    { $parsed.ErrorCode }    else { $null }
+            ErrorMessage = if ($parsed.PSObject.Properties['ErrorMessage']) { $parsed.ErrorMessage } else { $null }
             Details      = $parsed
         }
     } catch {
@@ -461,7 +466,9 @@ function Invoke-CyberArkAPI {
 
             # Non-429/504 HTTP error - fall through to response building below
             $errDetails = script:Parse-CyberArkError -Body $rawBody
-            $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode $($webEx.Message)" }
+            $errMsg     = if ($errDetails -and $errDetails.ErrorCode) { "$($errDetails.ErrorCode): $($errDetails.ErrorMessage)" }
+                          elseif ($errDetails) { $errDetails.ErrorMessage }
+                          else { "HTTP $statusCode $($webEx.Message)" }
             if ($statusCode -ge 400) { $errMsg = "$errMsg  [$Method $fullUri]" }
             if ($rawBody -and (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue)) {
                 Write-CyberArkLog -Message "HTTP $statusCode response body: $rawBody" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI' -FileOnly
@@ -556,7 +563,9 @@ function Invoke-CyberArkAPI {
         $errMsg     = $null
         if (-not $isSuccess) {
             $errDetails = script:Parse-CyberArkError -Body $rawBody
-            $errMsg     = if ($errDetails) { $errDetails.ErrorMessage } else { "HTTP $statusCode" }
+            $errMsg     = if ($errDetails -and $errDetails.ErrorCode) { "$($errDetails.ErrorCode): $($errDetails.ErrorMessage)" }
+                          elseif ($errDetails) { $errDetails.ErrorMessage }
+                          else { "HTTP $statusCode" }
         }
 
         if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }

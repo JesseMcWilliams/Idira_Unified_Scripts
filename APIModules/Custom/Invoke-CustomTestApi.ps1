@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $false
     InputSchema      = @()
     Priority         = 95
-    Version          = '1.3.0'
+    Version          = '1.4.0'
 }
 
 function Invoke-CustomTestApi {
@@ -101,9 +101,11 @@ function Invoke-CustomTestApi {
             if (-not $apiPath) { continue }
             $cleanPath = if ($apiPath.Trim().StartsWith('/')) { $apiPath.Trim() } else { "/$($apiPath.Trim())" }
 
-            # --- Query Params ---
-            $queryString = Show-FieldPrompt -Label 'Query Params' `
-                -Description 'Optional: key=value&key2=value2  (leave blank for none)'
+            # --- Query Params (GET only, per user request) ---
+            $queryString = if ($method -eq 'GET') {
+                Show-FieldPrompt -Label 'Query Params' `
+                    -Description 'Optional: key=value&key2=value2  (leave blank for none)'
+            } else { '' }
         } else {
             Write-Host "  Reusing: $method $cleanPath" -ForegroundColor DarkGray
             if ($queryString -and $queryString.Trim()) {
