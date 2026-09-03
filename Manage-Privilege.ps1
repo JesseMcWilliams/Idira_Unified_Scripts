@@ -36,8 +36,8 @@ $ErrorActionPreference = 'Stop'
 
 #region --- Configuration ---
 
-$script:AppName                   = 'Idira Unified Scripts - CyberArk PAS Driver'
-$script:Version                   = '1.0.0'
+$script:AppName                   = 'aPePAS - CyberArk PAS Driver'
+$script:Version                   = '1.0.0'   # Bump this value with every release - shown in the banner and startup log line
 $script:AuthCommonPath            = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.Common.psm1'
 $script:AuthISPSSPath             = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.ISPSS.psm1'
 $script:AuthSelfHostedPath        = Join-Path $PSScriptRoot 'Auth\CyberArk.Auth.SelfHosted.psm1'
@@ -99,6 +99,24 @@ function Assert-Prerequisites {
 
 #region --- Display Helpers ---
 
+function Get-SignedInUsername {
+    # Prefers the credential actually used to authenticate (_RefreshContext, set on the token
+    # by the Auth modules) over the profile's own Username field, which can be blank or stale
+    # for auth methods that don't require a stored username. _RefreshContext is a hashtable
+    # (see Interfaces.md) - bracket notation, not dot notation, matching Invoke-TokenRefresh's
+    # already-correct usage of the same field elsewhere in this file.
+    if ($script:SessionToken -and $script:SessionToken.PSObject.Properties['_RefreshContext']) {
+        $ctx = $script:SessionToken._RefreshContext
+        if ($ctx -and $ctx.ContainsKey('Credential') -and $ctx['Credential']) {
+            return $ctx['Credential'].UserName
+        }
+    }
+    if ($script:ActiveProfile -and $script:ActiveProfile.Username) {
+        return $script:ActiveProfile.Username
+    }
+    return ''
+}
+
 function Show-Header {
     param([string[]]$Breadcrumbs = @())
     Clear-Host
@@ -106,6 +124,10 @@ function Show-Header {
     Write-Host $bar -ForegroundColor Cyan
     $title = "  $($script:AppName)  v$($script:Version)"
     Write-Host $title -ForegroundColor White
+    $signedInUser = Get-SignedInUsername
+    if ($signedInUser) {
+        Write-Host "  User: $signedInUser" -ForegroundColor DarkGray
+    }
     if ($Breadcrumbs) {
         $crumb = '  ' + ($Breadcrumbs -join ' > ')
         Write-Host $crumb -ForegroundColor DarkCyan
