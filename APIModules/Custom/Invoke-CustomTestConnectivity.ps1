@@ -29,7 +29,7 @@ $ModuleMeta = @{
         @{ Column = 'Password';   Required = $false; Description = 'Password to authenticate with. Leave blank to look up this Address+Account in the vault.' }
     )
     Priority         = 96
-    Version          = '1.4.0'
+    Version          = '1.5.0'
 }
 
 #region Private helpers - each isolated so Pester can mock it independently of the others
@@ -43,18 +43,19 @@ function script:Resolve-ConnectivityTarget {
     #>
     param([string]$Address)
 
+    $ipObj       = $null
+    $isLiteralIp = [System.Net.IPAddress]::TryParse($Address, [ref]$ipObj)
+
     try {
         $entry = [System.Net.Dns]::GetHostEntry($Address)
 
-        $resolvedIp = $null
-        $ipObj      = $null
-        if ([System.Net.IPAddress]::TryParse($Address, [ref]$ipObj)) {
+        $resolvedIp = if ($isLiteralIp) {
             # Address was already an IP literal - echo it back rather than re-deriving it from
             # AddressList, which could legitimately differ on a multi-homed host.
-            $resolvedIp = $Address
+            $Address
         } else {
             $ipv4 = $entry.AddressList | Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } | Select-Object -First 1
-            $resolvedIp = if ($ipv4) { $ipv4.IPAddressToString } elseif ($entry.AddressList.Count -gt 0) { $entry.AddressList[0].IPAddressToString } else { '' }
+            if ($ipv4) { $ipv4.IPAddressToString } elseif ($entry.AddressList.Count -gt 0) { $entry.AddressList[0].IPAddressToString } else { '' }
         }
 
         return @{
@@ -64,6 +65,21 @@ function script:Resolve-ConnectivityTarget {
             ErrorMessage = ''
         }
     } catch {
+        # Confirmed live: a real, fully reachable test host failed here with "No such host is
+        # known" purely because it has no reverse-DNS (PTR) record - common for internal/test
+        # hosts that were never registered in reverse DNS, and not a real connectivity problem.
+        # For a literal IP, the address itself is already fully known and directly usable
+        # without any DNS lookup at all - failing to also learn its hostname must not abort the
+        # whole test before the port/auth checks even run. A name that fails to resolve, by
+        # contrast, leaves nothing to connect to at all, so that case is still a hard failure.
+        if ($isLiteralIp) {
+            return @{
+                Success      = $true
+                FQDN         = ''
+                IPAddress    = $Address
+                ErrorMessage = ''
+            }
+        }
         return @{
             Success      = $false
             FQDN         = ''
@@ -293,7 +309,10 @@ function script:Test-LinuxSshAuth {
         [int]$TimeoutSec = 15
     )
 
-    $plinkPath = script:Find-PlinkExecutable
+    # Bare name, not script:Find-PlinkExecutable - a script:-qualified call bypasses Pester's
+    # Mock shadowing entirely (see Lessons-Learned-PowerShell-Pester.md), same as every other
+    # helper call in this file.
+    $plinkPath = Find-PlinkExecutable
     $pwshCmd   = Get-Command -Name 'pwsh' -ErrorAction SilentlyContinue
 
     if ($plinkPath) {
@@ -301,15 +320,28 @@ function script:Test-LinuxSshAuth {
         # genuinely never-before-seen host (no HKCU:\Software\SimonTatham\PuTTY\SshHostKeys
         # existed yet on this machine): an unrecognized host key does NOT hang, unlike the PS7
         # path above - plink aborts in well under a second with a clear "host key is not cached
-        # ... Connection abandoned" message (its own fingerprint included), which flows through
-        # to ErrorMessage below as-is. Unlike OpenSSH's StrictHostKeyChecking=no, plink has no
-        # CLI flag to auto-accept an unknown key (-hostkey requires the exact key already known
-        # in advance) - PuTTY deliberately does not offer that shortcut, so this module doesn't
-        # try to work around it; the error message it produces already tells the user what
-        # happened and gives them the fingerprint to verify.
+        # ... Connection abandoned" message, which includes its own fingerprint.
+        #
+        # Unlike OpenSSH's StrictHostKeyChecking=no, plink has no CLI flag to blindly trust
+        # whatever key a target presents - -hostkey requires the exact key already known. But
+        # confirmed live: that error message always includes the fingerprint plink itself
+        # computed, so it can be parsed out and fed straight back via -hostkey on a single
+        # automatic retry - trust-on-first-use, the same tradeoff already made for the PS7 path
+        # above (StrictHostKeyChecking=no) and appropriate for the same reason: this is a
+        # connectivity *test* tool, not a long-term managed session.
         Write-CyberArkLog -Level 'DEBUG' -Message "Using plink at '$plinkPath' for SSH auth test."
-        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkPath `
-            -ArgumentList @('-ssh', '-batch', '-pw', $Password, "$Account@$Address", 'exit') -TimeoutSec $TimeoutSec
+        $plinkArgs = @('-ssh', '-batch', '-pw', $Password, "$Account@$Address", 'exit')
+        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkPath -ArgumentList $plinkArgs -TimeoutSec $TimeoutSec
+
+        if (-not $procResult.TimedOut -and $procResult.ExitCode -ne 0) {
+            $combinedOutput = "$($procResult.StdOut)`n$($procResult.StdErr)"
+            if ($combinedOutput -match 'host key is not cached' -and $combinedOutput -match '(SHA256:\S+)') {
+                $fingerprint = $Matches[1]
+                Write-CyberArkLog -Level 'WARN' -Message "plink: host key for '$Address' not cached ($fingerprint) - retrying once with that fingerprint pre-authorized (trust-on-first-use)."
+                $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkPath `
+                    -ArgumentList (@('-ssh', '-batch', '-hostkey', $fingerprint) + $plinkArgs[2..($plinkArgs.Count - 1)]) -TimeoutSec $TimeoutSec
+            }
+        }
 
         if ($procResult.TimedOut) {
             return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' via plink timed out after $TimeoutSec second(s)." }

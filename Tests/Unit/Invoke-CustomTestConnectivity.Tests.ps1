@@ -111,6 +111,19 @@ Describe 'Resolve-ConnectivityTarget - real DNS (no mocking, deterministic input
         $r.Success   | Should -BeTrue
         $r.IPAddress | Should -Be '127.0.0.1'
     }
+
+    It 'TC40 - a literal IP with no reverse-DNS (PTR) record still succeeds, per live user report' {
+        # Confirmed live against a real, fully reachable test host: GetHostEntry throws "No such
+        # host is known" for a literal IP that simply has no PTR record configured - common for
+        # internal/test hosts - which previously aborted the whole connectivity test before any
+        # port/auth check even ran. 192.0.2.0/24 (RFC 5737 TEST-NET-1) is reserved specifically
+        # for documentation/testing and is guaranteed to never have a PTR record, making this a
+        # deterministic repro of the live bug without depending on any specific real host.
+        $r = Resolve-ConnectivityTarget -Address '192.0.2.123'
+        $r.Success   | Should -BeTrue
+        $r.IPAddress | Should -Be '192.0.2.123'
+        $r.FQDN      | Should -Be ''
+    }
 }
 
 Describe 'Test-TcpPortOpen - real loopback socket (no mocking)' {
@@ -202,6 +215,59 @@ Describe 'Find-PlinkExecutable' {
         Mock Get-Command { $null } -ParameterFilter { $Name -eq 'plink.exe' }
         Mock Test-Path { $false } -ParameterFilter { $PathType -eq 'Leaf' }
         script:Find-PlinkExecutable | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Test-LinuxSshAuth - plink trust-on-first-use retry' {
+    # Per user report and live verification: plink has no CLI flag to blindly trust an unknown
+    # host key, but its "host key is not cached" failure always includes the fingerprint it
+    # computed - Test-LinuxSshAuth parses that out and retries once with -hostkey set to it,
+    # confirmed live to succeed against a genuinely fresh (never-before-seen) real host.
+
+    BeforeEach {
+        Mock Write-CyberArkLog { }
+        Mock Find-PlinkExecutable { 'C:\fake\plink.exe' }
+    }
+
+    It 'TC41 - an unrecognized host key is retried once with -hostkey, and the retry result is returned' {
+        $callCount = 0
+        Mock Invoke-ExternalProcessWithTimeout {
+            $script:callCount++
+            if ($script:callCount -eq 1) {
+                return @{
+                    TimedOut = $false; ExitCode = 1; StdOut = ''
+                    StdErr   = "The host key is not cached for this server:`n  test.example.com (port 22)`nThe server's ssh-ed25519 key fingerprint is:`n  ssh-ed25519 255 SHA256:AbCdEf1234567890+/=`nConnection abandoned.`nFATAL ERROR: Cannot confirm a host key in batch mode"
+                }
+            }
+            return @{ TimedOut = $false; ExitCode = 0; StdOut = ''; StdErr = '' }
+        }
+        $script:callCount = 0
+
+        $result = script:Test-LinuxSshAuth -Address 'test.example.com' -Account 'user1' -Password 'pw' -TimeoutSec 15
+        $result.Success | Should -BeTrue
+        Should -Invoke Invoke-ExternalProcessWithTimeout -Times 2
+        Should -Invoke Invoke-ExternalProcessWithTimeout -Times 1 -ParameterFilter {
+            $ArgumentList -contains '-hostkey' -and $ArgumentList -contains 'SHA256:AbCdEf1234567890+/='
+        }
+    }
+
+    It 'TC42 - a non-host-key failure (e.g. wrong password) is not retried' {
+        Mock Invoke-ExternalProcessWithTimeout {
+            @{ TimedOut = $false; ExitCode = 1; StdOut = ''; StdErr = "Access denied`nFATAL ERROR: Configured password was not accepted" }
+        }
+        $result = script:Test-LinuxSshAuth -Address 'test.example.com' -Account 'user1' -Password 'wrongpw' -TimeoutSec 15
+        $result.Success      | Should -BeFalse
+        $result.ErrorMessage | Should -Match 'Access denied'
+        Should -Invoke Invoke-ExternalProcessWithTimeout -Times 1
+    }
+
+    It 'TC43 - a host-key failure whose message has no parseable fingerprint is not retried' {
+        Mock Invoke-ExternalProcessWithTimeout {
+            @{ TimedOut = $false; ExitCode = 1; StdOut = ''; StdErr = 'host key is not cached for this server, but no fingerprint line here' }
+        }
+        $result = script:Test-LinuxSshAuth -Address 'test.example.com' -Account 'user1' -Password 'pw' -TimeoutSec 15
+        $result.Success | Should -BeFalse
+        Should -Invoke Invoke-ExternalProcessWithTimeout -Times 1
     }
 }
 
