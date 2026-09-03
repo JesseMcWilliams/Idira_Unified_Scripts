@@ -354,6 +354,54 @@ function Invoke-EntitySearch {
     return $null
 }
 
+function Get-CpmOptions {
+    # Shared source for every "pick a CPM" prompt in the driver (Add Safe, Add Safe From
+    # Template, Assign CPM to Safe). Per user direction, 2026-09-03: queries live via
+    # GET /API/Users?userType=CPM&componentUser=true (confirmed against the 14.6 Swagger spec -
+    # userType/componentUser are documented server-side query filters, and CPM is one of the
+    # userType values considered a component user) and uses that result whenever the call
+    # succeeds, even if it comes back empty - an empty-but-successful result is a real
+    # environment state, not a failure, so it is NOT treated as a reason to fall back.
+    # Falls back to the profile's manually-maintained CPM_List only when the API call fails or
+    # throws. This supersedes the prior per-page choice recorded in Architecture.md (Add Safe
+    # From Template used CPM_List only; Assign CPM used the live query only, "per explicit
+    # direction, not an oversight") - that distinction no longer applies as of this change.
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$Token
+    )
+
+    $options = [System.Collections.Generic.List[string]]::new()
+
+    $response = $null
+    try {
+        $response = Invoke-CyberArkAPI -Token $Token -Method 'GET' -Endpoint '/API/Users' `
+            -QueryParams @{ userType = 'CPM'; componentUser = 'true' }
+    } catch {
+        Write-CyberArkLog -Level 'WARN' -Message "CPM user list query threw an exception: $_"
+    }
+
+    if ($response -and $response.IsSuccess) {
+        [array]$users = if ($response.Data -and $response.Data.PSObject.Properties['Users']) {
+            @($response.Data.Users)
+        } else { @() }
+        foreach ($user in $users) {
+            if ($user.username) { $options.Add("$($user.username)") }
+        }
+        return $options.ToArray()
+    }
+
+    if ($response) {
+        Write-CyberArkLog -Level 'WARN' -Message "CPM user list query failed (HTTP $($response.StatusCode)): $($response.ErrorMessage). Falling back to the profile's CPM_List."
+    }
+
+    if ($script:ActiveProfile -and $script:ActiveProfile.PSObject.Properties['CPM_List'] -and $script:ActiveProfile.CPM_List) {
+        return @(("$($script:ActiveProfile.CPM_List)" -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+
+    return $options.ToArray()
+}
+
 #endregion
 
 #region --- currentProfile Directory ---

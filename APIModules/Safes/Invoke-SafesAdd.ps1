@@ -13,14 +13,14 @@ $ModuleMeta = @{
     InputSchema      = @(
         @{ Column = 'SafeName';                   Required = $true;  Description = 'Unique safe name (max 28 chars).' }
         @{ Column = 'Description';                Required = $false; Description = 'Safe description.' }
-        @{ Column = 'Location';                   Required = $false; Description = 'Safe location path (default: \).' }
-        @{ Column = 'ManagingCPM';               Required = $false; Description = 'CPM user managing this safe.' }
+        @{ Column = 'Location';                   Required = $false; Description = 'Safe location path (default: \). Not prompted for interactively - every safe is created at the default location unless overridden here via CSV/bulk input.' }
+        @{ Column = 'ManagingCPM';               Required = $false; Description = 'CPM user managing this safe. Interactive mode shows a picker sourced live from the CPM user list, falling back to the profile CPM_List if that call fails.' }
         @{ Column = 'NumberOfVersionsRetention';  Required = $false; Description = 'Password versions to retain (default: 5). Mutually exclusive with NumberOfDaysRetention - set that instead for days-based retention.' }
         @{ Column = 'NumberOfDaysRetention';      Required = $false; Description = 'Days to retain (default: 0 = not used). Mutually exclusive with NumberOfVersionsRetention - when this is greater than 0, only this is sent and NumberOfVersionsRetention is ignored.' }
         @{ Column = 'AutoPurgeEnabled';           Required = $false; Description = 'Auto-purge enabled: true/false (default: false).' }
     )
     Priority         = 12
-    Version          = '1.1.1'
+    Version          = '1.2.0'
 }
 
 function Get-SafesAddInput {
@@ -48,13 +48,46 @@ function Get-SafesAddInput {
         -Default $(if ($Defaults['Description']) { $Defaults['Description'] } else { '' }) `
         -Description 'Safe description.'
 
-    $location = Show-FieldPrompt -Label 'Location' `
-        -Default $(if ($Defaults['Location']) { $Defaults['Location'] } else { '\' }) `
-        -Description 'Safe location path (default: \).'
+    # Location is no longer prompted for interactively, per user request - every safe is
+    # created at the default root location ('\'). CSV/bulk input can still override it via the
+    # Location column (unchanged - see Invoke-SafesAdd's InputSchema and body-building below).
+    $location = if ($Defaults['Location']) { $Defaults['Location'] } else { '\' }
 
-    $managingCPM = Show-FieldPrompt -Label 'ManagingCPM' `
-        -Default $(if ($Defaults['ManagingCPM']) { $Defaults['ManagingCPM'] } else { '' }) `
-        -Description 'CPM user managing this safe.'
+    # --- CPM picker: same display as Add Safe From Template - sourced from Get-CpmOptions
+    # (Manage-Privilege.ps1), which queries live and falls back to the profile's CPM_List only
+    # if that call fails. Per user request, 2026-09-03.
+    Write-Host ''
+    [array]$cpmList = @(Get-CpmOptions -Token $Token)
+
+    $managingCPM = ''
+    if ($cpmList.Count -gt 0) {
+        Write-Host '  Managing CPM:' -ForegroundColor DarkGray
+        Write-Host '    1 = (none)'
+        for ($i = 0; $i -lt $cpmList.Count; $i++) {
+            Write-Host "    $($i + 2) = $($cpmList[$i])"
+        }
+        Write-Host ''
+
+        $defaultCpmIndex = 1
+        if ($Defaults['ManagingCPM']) {
+            for ($i = 0; $i -lt $cpmList.Count; $i++) {
+                if ($cpmList[$i] -eq $Defaults['ManagingCPM']) { $defaultCpmIndex = $i + 2; break }
+            }
+        }
+
+        $cpmChoice = Read-Host "  Select CPM (1-$($cpmList.Count + 1), default=$defaultCpmIndex)"
+        $cpmIndex  = $defaultCpmIndex
+        $parsedCpm = 0
+        if ($cpmChoice -and [int]::TryParse($cpmChoice, [ref]$parsedCpm) -and $parsedCpm -ge 1 -and $parsedCpm -le ($cpmList.Count + 1)) {
+            $cpmIndex = $parsedCpm
+        }
+        if ($cpmIndex -gt 1) { $managingCPM = $cpmList[$cpmIndex - 2] }
+    } else {
+        Write-Host '  (No CPMs available - enter the username manually, or leave blank for none.)' -ForegroundColor Yellow
+        $managingCPM = Show-FieldPrompt -Label 'ManagingCPM' `
+            -Default $(if ($Defaults['ManagingCPM']) { $Defaults['ManagingCPM'] } else { '' }) `
+            -Description 'CPM username to assign, or leave blank for none.'
+    }
 
     $numberOfVersionsRetention = Show-FieldPrompt -Label 'NumberOfVersionsRetention' `
         -Default $(if ($Defaults['NumberOfVersionsRetention']) { $Defaults['NumberOfVersionsRetention'] } else { '5' }) `

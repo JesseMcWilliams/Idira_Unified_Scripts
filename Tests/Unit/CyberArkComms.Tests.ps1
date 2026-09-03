@@ -423,10 +423,18 @@ Describe 'Invoke-CyberArkAPI - error responses (mocked Invoke-WebRequest, no exc
         $r.ErrorMessage | Should -Be 'Not Found'
     }
 
-    It 'C32 - a non-JSON 4xx body falls back to a bare HTTP-status message without throwing' {
+    It 'C32 - a non-JSON 4xx body with content is included in ErrorMessage, per user request' {
         # Direct assignment, not `{ $r = ... } | Should -Not -Throw` - that form runs the
         # scriptblock in a child scope, so $r never reaches this scope (Lessons-Learned 32).
         Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = '<html>Bad Request</html>' } } `
+            -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes'
+        $r.ErrorMessage | Should -Be 'HTTP 400 - <html>Bad Request</html>'
+    }
+
+    It 'C33 - a genuinely blank 4xx body falls back to a bare HTTP-status message' {
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = '' } } `
             -ModuleName 'CyberArkComms'
 
         $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes'

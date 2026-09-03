@@ -66,6 +66,33 @@ function script:New-ApiResponse {
     }
 }
 
+function script:Format-CyberArkErrorMessage {
+    <#
+        Single place both Invoke-CyberArkAPI error-response branches build their ErrorMessage
+        from, so every module's own displayed/logged error text stays consistent with no
+        per-module changes needed. Preference order, per user direction: the CyberArk
+        "<ErrorCode>: <ErrorMessage>" envelope when both are present; the bare ErrorMessage when
+        only that parsed; the raw response body when structured parsing found neither but the
+        server still sent content; and only then the generic HTTP-status fallback text.
+    #>
+    param(
+        [object]$ErrorDetails,
+        [int]   $StatusCode,
+        [string]$RawBody,
+        [string]$FallbackMessage
+    )
+    if ($ErrorDetails -and $ErrorDetails.ErrorCode) {
+        return "$($ErrorDetails.ErrorCode): $($ErrorDetails.ErrorMessage)"
+    }
+    if ($ErrorDetails -and $ErrorDetails.ErrorMessage) {
+        return $ErrorDetails.ErrorMessage
+    }
+    if ($RawBody -and $RawBody.Trim()) {
+        return "HTTP $StatusCode - $RawBody"
+    }
+    return $FallbackMessage
+}
+
 function script:Parse-CyberArkError {
     param([string]$Body)
     if (-not $Body) { return $null }
@@ -466,9 +493,8 @@ function Invoke-CyberArkAPI {
 
             # Non-429/504 HTTP error - fall through to response building below
             $errDetails = script:Parse-CyberArkError -Body $rawBody
-            $errMsg     = if ($errDetails -and $errDetails.ErrorCode) { "$($errDetails.ErrorCode): $($errDetails.ErrorMessage)" }
-                          elseif ($errDetails) { $errDetails.ErrorMessage }
-                          else { "HTTP $statusCode $($webEx.Message)" }
+            $errMsg     = script:Format-CyberArkErrorMessage -ErrorDetails $errDetails -StatusCode $statusCode `
+                -RawBody $rawBody -FallbackMessage "HTTP $statusCode $($webEx.Message)"
             if ($statusCode -ge 400) { $errMsg = "$errMsg  [$Method $fullUri]" }
             if ($rawBody -and (Get-Command -Name 'Write-CyberArkLog' -ErrorAction SilentlyContinue)) {
                 Write-CyberArkLog -Message "HTTP $statusCode response body: $rawBody" -Level 'DEBUG' -FunctionName 'Invoke-CyberArkAPI' -FileOnly
@@ -563,9 +589,8 @@ function Invoke-CyberArkAPI {
         $errMsg     = $null
         if (-not $isSuccess) {
             $errDetails = script:Parse-CyberArkError -Body $rawBody
-            $errMsg     = if ($errDetails -and $errDetails.ErrorCode) { "$($errDetails.ErrorCode): $($errDetails.ErrorMessage)" }
-                          elseif ($errDetails) { $errDetails.ErrorMessage }
-                          else { "HTTP $statusCode" }
+            $errMsg     = script:Format-CyberArkErrorMessage -ErrorDetails $errDetails -StatusCode $statusCode `
+                -RawBody $rawBody -FallbackMessage "HTTP $statusCode"
         }
 
         if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }
