@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $false
     InputSchema      = @()
     Priority         = 95
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function Invoke-CustomTestApi {
@@ -44,9 +44,18 @@ function Invoke-CustomTestApi {
     $queryString    = ''
     $fullUri        = ''
 
+    # Reuses CyberArkComms.psm1's Disable-SSLValidation (a compiled ICertificatePolicy class)
+    # instead of assigning a raw PowerShell scriptblock to ServerCertificateValidationCallback.
+    # The latter used to be this module's own approach and is a known hazard: if .NET's TLS
+    # stack ever invokes that delegate off the runspace's own thread - plausible for a fresh
+    # handshake triggered by the re-authentication request below - it can crash the whole
+    # process silently, with no catchable exception. Every other module already avoids this via
+    # Invoke-CyberArkAPI's -IgnoreSSL switch; this module can't use that (it calls
+    # Invoke-WebRequest directly to reach arbitrary methods/paths) but can call the same
+    # underlying helper directly.
     $ignoreSSL = $script:ActiveProfile.PSObject.Properties['IgnoreSSL'] -and [bool]$script:ActiveProfile.IgnoreSSL
     if ($ignoreSSL) {
-        try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } } catch {}
+        Disable-SSLValidation
     }
 
     # Strip the trailing /PasswordVault segment from the token's BaseURL - every other

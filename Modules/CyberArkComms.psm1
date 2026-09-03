@@ -94,6 +94,12 @@ function script:New-WhatIfResponse {
 function script:Disable-SSLValidation {
     # Only effective within the current AppDomain. Cannot be undone per-call cleanly in PS 5.1;
     # IgnoreSSL is therefore session-wide once set (matching profile-level scoping intent).
+    # Exported (not just used internally by Invoke-CyberArkAPI) so Invoke-CustomTestApi.ps1 -
+    # which calls Invoke-WebRequest directly instead of going through Invoke-CyberArkAPI - can
+    # reuse this same safe, compiled-class-based bypass instead of assigning a raw PowerShell
+    # scriptblock to ServerCertificateValidationCallback, which risks a silent, uncatchable
+    # process crash if .NET ever invokes that delegate off the runspace's own thread (e.g.
+    # during a fresh TLS handshake triggered by a mid-session re-authentication request).
     if (-not ([System.Management.Automation.PSTypeName]'TrustAllCerts').Type) {
         Add-Type -TypeDefinition @"
 using System.Net;
@@ -568,4 +574,5 @@ Export-ModuleMember -Function @(
     'New-CyberArkQuery'
     'Join-CyberArkUrl'
     'New-CyberArkSearchFilter'
+    'Disable-SSLValidation'
 )
