@@ -3180,3 +3180,76 @@ lowercase `search`, but `Invoke-EntitySearch`'s Platforms callers pass `-SearchP
 (e.g. `filter=safeName eq My.Vault`) are left alone, since there is no evidence CyberArk's other
 query mechanisms share this same quirk, and blanket-encoding periods everywhere would be an
 unproven, unrequested change.
+
+---
+
+## 35. `ProcessStartInfo.ArgumentList` Is Not Safely Usable Under `Set-StrictMode` on Windows PowerShell 5.1
+
+**Observation, reported live by the user with a full stack trace:** Code using
+`[System.Diagnostics.ProcessStartInfo]::new()` then `$psi.ArgumentList.Add(...)` crashed with
+`PropertyNotFoundException: The property 'ArgumentList' cannot be found on this object` on every
+Linux SSH connectivity test - a code path this project's own unit tests could never exercise,
+since they mock the function that calls this one rather than spawning a real process.
+
+**Root cause, confirmed with two different symptoms on two machines:** `ArgumentList` was added
+to `ProcessStartInfo` in .NET Framework 4.6.1. On the user's machine, accessing it under
+`Set-StrictMode -Version Latest` (always active in this project - `Manage-Privilege.ps1` sets it,
+and every module is dot-sourced into that same scope) threw the exact `PropertyNotFoundException`
+above. Reproduced independently on a *different* machine (.NET Framework 4.8, the same version
+this project's own dev environment runs) with a *different* symptom: without `Set-StrictMode`,
+`$psi.ArgumentList` silently evaluated to `$null` on a freshly-constructed `ProcessStartInfo` -
+not missing, but not a usable collection either - and only threw the identical
+`PropertyNotFoundException` once `Set-StrictMode` was turned on to match real production
+conditions. Neither the .NET Framework version number nor `$psi.GetType().GetProperty
+('ArgumentList')` (raw reflection, bypassing PowerShell's adapter) reliably predicts whether the
+property is actually usable through PowerShell's own member-access syntax - reflection reported
+the property as present on the machine where using it still failed.
+
+**Wrong - assumes `ArgumentList` just works because the .NET Framework version is "new enough,"
+or because reflection says the member exists:**
+```powershell
+$psi = [System.Diagnostics.ProcessStartInfo]::new()
+foreach ($a in $ArgumentList) { $psi.ArgumentList.Add($a) }   # can throw, or silently do nothing
+```
+
+**Correct - probe a disposable object (never the one actually being configured) for real,
+in a `try/catch`, and fall back to the single-string `.Arguments` property with proper manual
+quoting when `ArgumentList` isn't safely usable:**
+```powershell
+$argumentListUsable = $false
+try {
+    $probe = [System.Diagnostics.ProcessStartInfo]::new()
+    if ($null -ne $probe.ArgumentList) {
+        $probe.ArgumentList.Add('x')
+        $argumentListUsable = ($probe.ArgumentList.Count -eq 1)
+    }
+} catch {
+    $argumentListUsable = $false
+}
+
+if ($argumentListUsable) {
+    foreach ($a in $ArgumentList) { $psi.ArgumentList.Add($a) }
+} else {
+    $psi.Arguments = (($ArgumentList | ForEach-Object { ConvertTo-Win32QuotedArgument -Value $_ }) -join ' ')
+}
+```
+Probing a separate, disposable object - not the real `$psi` about to be used to start the
+process - matters: if the real object were used for the probe and `ArgumentList.Add()` failed
+partway through a multi-argument loop, `.Arguments` and a partially-populated `.ArgumentList`
+could both end up set on the same object, and .NET does not treat that combination predictably.
+
+**The manual quoting itself must follow the actual Win32 command-line-parsing rules** (the same
+ones `CommandLineToArgvW` and `ArgumentList` itself use internally) - not simply wrapping
+everything in quotes or joining with spaces. An argument with no spaces, tabs, or quotes needs no
+quoting at all; otherwise, wrap in `"..."` and double any run of backslashes that immediately
+precedes either a literal quote (plus one more backslash) or the end of the argument - backslashes
+anywhere else are left alone. Verified against a real child process receiving arguments with
+embedded spaces, quotes, and trailing backslashes, confirming byte-for-byte correct round-tripping
+through the manual path.
+
+**Rule:** Never assume a .NET API added in a specific framework version behaves identically once
+routed through PowerShell 5.1's member-access system, especially under `Set-StrictMode`. When a
+property's exact behavior varies by environment in a way that can't be predicted from version
+numbers or reflection, probe it defensively - on a disposable object, in a `try/catch` - rather
+than gating on a version check or a `GetType().GetProperty(...)` existence test that can itself
+be misleading.

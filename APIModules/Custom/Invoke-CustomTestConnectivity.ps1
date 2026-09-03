@@ -16,6 +16,12 @@ $ModuleMeta = @{
     # Only applies to the interactive single-item path - CSV-batch mode already writes its own
     # output file automatically via Invoke-CsvProcessing, independent of this flag.
     AutoSaveCsv      = $true
+    # Per user request: the single-interactive-run auto-saved CSV filename includes the tested
+    # Address (e.g. "Test Connectivity - 172.21.20.14 2026-09-04.csv") instead of just the
+    # module name and date, since a user testing several servers one at a time would otherwise
+    # overwrite the same file on every run. Only applies to that single-item path - CSV-batch
+    # mode names its own output file independently via Invoke-CsvProcessing.
+    CsvFilenameField = 'Address'
     InputSchema      = @(
         @{ Column = 'Address';    Required = $true;  Description = 'IP address, short hostname, or FQDN of the target server.' }
         @{ Column = 'ServerType'; Required = $true;  Description = 'Windows or Linux.' }
@@ -23,7 +29,7 @@ $ModuleMeta = @{
         @{ Column = 'Password';   Required = $false; Description = 'Password to authenticate with. Leave blank to look up this Address+Account in the vault.' }
     )
     Priority         = 96
-    Version          = '1.1.0'
+    Version          = '1.5.0'
 }
 
 #region Private helpers - each isolated so Pester can mock it independently of the others
@@ -37,18 +43,19 @@ function script:Resolve-ConnectivityTarget {
     #>
     param([string]$Address)
 
+    $ipObj       = $null
+    $isLiteralIp = [System.Net.IPAddress]::TryParse($Address, [ref]$ipObj)
+
     try {
         $entry = [System.Net.Dns]::GetHostEntry($Address)
 
-        $resolvedIp = $null
-        $ipObj      = $null
-        if ([System.Net.IPAddress]::TryParse($Address, [ref]$ipObj)) {
+        $resolvedIp = if ($isLiteralIp) {
             # Address was already an IP literal - echo it back rather than re-deriving it from
             # AddressList, which could legitimately differ on a multi-homed host.
-            $resolvedIp = $Address
+            $Address
         } else {
             $ipv4 = $entry.AddressList | Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork } | Select-Object -First 1
-            $resolvedIp = if ($ipv4) { $ipv4.IPAddressToString } elseif ($entry.AddressList.Count -gt 0) { $entry.AddressList[0].IPAddressToString } else { '' }
+            if ($ipv4) { $ipv4.IPAddressToString } elseif ($entry.AddressList.Count -gt 0) { $entry.AddressList[0].IPAddressToString } else { '' }
         }
 
         return @{
@@ -58,6 +65,21 @@ function script:Resolve-ConnectivityTarget {
             ErrorMessage = ''
         }
     } catch {
+        # Confirmed live: a real, fully reachable test host failed here with "No such host is
+        # known" purely because it has no reverse-DNS (PTR) record - common for internal/test
+        # hosts that were never registered in reverse DNS, and not a real connectivity problem.
+        # For a literal IP, the address itself is already fully known and directly usable
+        # without any DNS lookup at all - failing to also learn its hostname must not abort the
+        # whole test before the port/auth checks even run. A name that fails to resolve, by
+        # contrast, leaves nothing to connect to at all, so that case is still a hard failure.
+        if ($isLiteralIp) {
+            return @{
+                Success      = $true
+                FQDN         = ''
+                IPAddress    = $Address
+                ErrorMessage = ''
+            }
+        }
         return @{
             Success      = $false
             FQDN         = ''
@@ -121,6 +143,44 @@ function script:Test-WindowsSmbAuth {
     }
 }
 
+function script:ConvertTo-Win32QuotedArgument {
+    <#
+        Quotes a single argument per the same rules CommandLineToArgvW/CreateProcess expect,
+        matching what ProcessStartInfo.ArgumentList does internally - used as the fallback
+        below on .NET Framework versions older than 4.6.1, where ArgumentList does not exist.
+        An argument with no spaces, tabs, or quotes is returned unchanged; otherwise it is
+        wrapped in double quotes with embedded backslashes/quotes escaped correctly (a run of
+        backslashes is only doubled when it immediately precedes a quote or the end of the
+        argument - backslashes elsewhere are left alone).
+    #>
+    param([string]$Value)
+
+    if ($null -eq $Value) { $Value = '' }
+    if ($Value -ne '' -and $Value -notmatch '[\s"]') { return $Value }
+
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.Append('"')
+    $chars = $Value.ToCharArray()
+    $i = 0
+    while ($i -lt $chars.Length) {
+        $backslashes = 0
+        while ($i -lt $chars.Length -and $chars[$i] -eq '\') { $backslashes++; $i++ }
+        if ($i -eq $chars.Length) {
+            [void]$sb.Append('\', ($backslashes * 2))
+        } elseif ($chars[$i] -eq '"') {
+            [void]$sb.Append('\', ($backslashes * 2 + 1))
+            [void]$sb.Append('"')
+            $i++
+        } else {
+            [void]$sb.Append('\', $backslashes)
+            [void]$sb.Append($chars[$i])
+            $i++
+        }
+    }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
 function script:Invoke-ExternalProcessWithTimeout {
     <#
         Runs an external executable, capturing stdout/stderr, without ever hanging past
@@ -135,9 +195,36 @@ function script:Invoke-ExternalProcessWithTimeout {
 
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $FilePath
-    # Quote every argument individually rather than joining with spaces first - avoids
-    # mis-splitting an argument that itself contains a space (e.g. a password with a space in it).
-    foreach ($a in $ArgumentList) { $psi.ArgumentList.Add($a) }
+
+    # ProcessStartInfo.ArgumentList was added in .NET Framework 4.6.1 and is not reliably usable
+    # on every machine this driver runs on - confirmed live by the user as a full
+    # PropertyNotFoundException crash under Set-StrictMode on one machine (older .NET Framework,
+    # where the member genuinely does not exist), and separately reproduced here as a silent
+    # $null property - present as a member, but not populated with a real collection - on
+    # another (.NET Framework 4.8). Neither failure mode is safe to assume away, so detection
+    # uses a disposable probe object (never the real $psi) wrapped in try/catch: if anything
+    # about ArgumentList is unusable, fall back to the single-string .Arguments property with
+    # each argument manually quoted per Win32 command-line rules instead. Probing separately
+    # avoids ever leaving $psi in a partially-populated, ambiguous state if the real usage
+    # failed partway through the loop.
+    $argumentListUsable = $false
+    try {
+        $probe = [System.Diagnostics.ProcessStartInfo]::new()
+        if ($null -ne $probe.ArgumentList) {
+            $probe.ArgumentList.Add('x')
+            $argumentListUsable = ($probe.ArgumentList.Count -eq 1)
+        }
+    } catch {
+        $argumentListUsable = $false
+    }
+
+    if ($argumentListUsable) {
+        # Quote every argument individually rather than joining with spaces first - avoids
+        # mis-splitting an argument that itself contains a space (e.g. a password with a space in it).
+        foreach ($a in $ArgumentList) { $psi.ArgumentList.Add($a) }
+    } else {
+        $psi.Arguments = (($ArgumentList | ForEach-Object { script:ConvertTo-Win32QuotedArgument -Value $_ }) -join ' ')
+    }
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute        = $false
@@ -158,11 +245,43 @@ function script:Invoke-ExternalProcessWithTimeout {
     return @{ TimedOut = $false; ExitCode = $proc.ExitCode; StdOut = $stdout.Result; StdErr = $stderr.Result }
 }
 
+function script:Find-PlinkExecutable {
+    <#
+        Locates plink.exe, checking in order (per user direction): PATH, then the project root
+        (a documented drop-in location for a user who doesn't want to add it to PATH system-
+        wide), then the standard PuTTY install directories - 32-bit ("Program Files (x86)")
+        before 64-bit ("Program Files"), matching the user's specified check order. Uses the
+        %ProgramFiles%/%ProgramFiles(x86)% environment variables rather than hardcoded drive
+        letters, since Windows is not guaranteed to be installed on C:\. Returns the full path
+        to plink.exe, or $null if none of these locations has it.
+    #>
+    $onPath = Get-Command -Name 'plink.exe' -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    $candidates.Add((Join-Path $PSScriptRoot '..\..\plink.exe'))
+    if (${env:ProgramFiles(x86)}) { $candidates.Add((Join-Path ${env:ProgramFiles(x86)} 'PuTTY\plink.exe')) }
+    if ($env:ProgramFiles) { $candidates.Add((Join-Path $env:ProgramFiles 'PuTTY\plink.exe')) }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+    return $null
+}
+
 function script:Test-LinuxSshAuth {
     <#
         Authentication test for Linux targets over SSH (port 22). PowerShell 5.1 has no built-in
-        SSH client, so this cascades: try PowerShell 7's SSH transport if pwsh is available,
-        then plink.exe (PuTTY) if not, then report neither is available.
+        SSH client, so this cascades: try plink.exe (PuTTY) first if available, then PowerShell
+        7's SSH transport if pwsh is available, then report neither is available.
+
+        Plink is tried FIRST as of 2026-09-04, per the user's own live test: even after fixing
+        the PS7 path's unknown-host-key hang (StrictHostKeyChecking=no, see below), a real
+        password-auth attempt via that path still timed out - confirming the CAVEAT below in
+        practice, not just in theory. Plink doesn't have this problem, since -pw submits the
+        password directly rather than needing a TTY prompt.
 
         IMPORTANT CAVEAT: native OpenSSH (which PS7's -SSHTransport relies on) deliberately does
         not support non-interactive password authentication - it requires either a TTY for an
@@ -170,9 +289,9 @@ function script:Test-LinuxSshAuth {
         exist as a separate pty-emulation wrapper on Linux, with no equivalent bundled on
         Windows). The PS7 path below can confirm the SSH handshake/host reachability and will
         succeed for key-based auth, but is not a reliable way to validate a *password* - only
-        plink.exe (which has its own, more permissive -pw flag) reliably does that. This path is
-        implemented as directed, with this limitation surfaced via ErrorMessage rather than
-        silently treated as equivalent to plink.
+        plink.exe (which has its own, more permissive -pw flag) reliably does that, confirmed
+        live. This path is kept as a fallback for environments without plink.exe available, with
+        this limitation surfaced via ErrorMessage rather than silently treated as equivalent.
 
         SECURITY NOTE on the plink path: -pw passes the plaintext password as a process command-
         line argument, which is briefly visible to anything else on the machine that can enumerate
@@ -190,32 +309,39 @@ function script:Test-LinuxSshAuth {
         [int]$TimeoutSec = 15
     )
 
-    $pwshCmd  = Get-Command -Name 'pwsh' -ErrorAction SilentlyContinue
-    $plinkCmd = Get-Command -Name 'plink.exe' -ErrorAction SilentlyContinue
+    # Bare name, not script:Find-PlinkExecutable - a script:-qualified call bypasses Pester's
+    # Mock shadowing entirely (see Lessons-Learned-PowerShell-Pester.md), same as every other
+    # helper call in this file.
+    $plinkPath = Find-PlinkExecutable
+    $pwshCmd   = Get-Command -Name 'pwsh' -ErrorAction SilentlyContinue
 
-    if ($pwshCmd) {
-        # See the CAVEAT above - this validates SSH reachability/handshake reliably, but password
-        # auth specifically is not guaranteed to be exercised non-interactively.
-        $innerScript = "try { `$s = New-PSSession -HostName '$Address' -UserName '$Account' -SSHTransport -ErrorAction Stop; Remove-PSSession -Session `$s -ErrorAction SilentlyContinue; Write-Output 'SUCCESS' } catch { Write-Output ('FAIL:' + `$_.Exception.Message) }"
+    if ($plinkPath) {
+        # -batch already disables plink's own interactive prompts. Confirmed live against a
+        # genuinely never-before-seen host (no HKCU:\Software\SimonTatham\PuTTY\SshHostKeys
+        # existed yet on this machine): an unrecognized host key does NOT hang, unlike the PS7
+        # path above - plink aborts in well under a second with a clear "host key is not cached
+        # ... Connection abandoned" message, which includes its own fingerprint.
+        #
+        # Unlike OpenSSH's StrictHostKeyChecking=no, plink has no CLI flag to blindly trust
+        # whatever key a target presents - -hostkey requires the exact key already known. But
+        # confirmed live: that error message always includes the fingerprint plink itself
+        # computed, so it can be parsed out and fed straight back via -hostkey on a single
+        # automatic retry - trust-on-first-use, the same tradeoff already made for the PS7 path
+        # above (StrictHostKeyChecking=no) and appropriate for the same reason: this is a
+        # connectivity *test* tool, not a long-term managed session.
+        Write-CyberArkLog -Level 'DEBUG' -Message "Using plink at '$plinkPath' for SSH auth test."
+        $plinkArgs = @('-ssh', '-batch', '-pw', $Password, "$Account@$Address", 'exit')
+        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkPath -ArgumentList $plinkArgs -TimeoutSec $TimeoutSec
 
-        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $pwshCmd.Source `
-            -ArgumentList @('-NoProfile', '-NoLogo', '-Command', $innerScript) -TimeoutSec $TimeoutSec
-
-        if ($procResult.TimedOut) {
-            return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' timed out after $TimeoutSec second(s) (PowerShell 7 SSH transport)." }
+        if (-not $procResult.TimedOut -and $procResult.ExitCode -ne 0) {
+            $combinedOutput = "$($procResult.StdOut)`n$($procResult.StdErr)"
+            if ($combinedOutput -match 'host key is not cached' -and $combinedOutput -match '(SHA256:\S+)') {
+                $fingerprint = $Matches[1]
+                Write-CyberArkLog -Level 'WARN' -Message "plink: host key for '$Address' not cached ($fingerprint) - retrying once with that fingerprint pre-authorized (trust-on-first-use)."
+                $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkPath `
+                    -ArgumentList (@('-ssh', '-batch', '-hostkey', $fingerprint) + $plinkArgs[2..($plinkArgs.Count - 1)]) -TimeoutSec $TimeoutSec
+            }
         }
-
-        $resultLine = @($procResult.StdOut -split "`r?`n") | Where-Object { $_ -match '^(SUCCESS|FAIL:)' } | Select-Object -Last 1
-        if ($resultLine -eq 'SUCCESS') {
-            return @{ Success = $true; ErrorMessage = '' }
-        }
-        $detail = if ($resultLine) { $resultLine -replace '^FAIL:', '' } elseif ($procResult.StdErr) { $procResult.StdErr.Trim() } else { 'no result returned' }
-        return @{ Success = $false; ErrorMessage = "PowerShell 7 SSH transport failed: $detail (note: password auth is not reliably testable via this path - see module source comments; plink.exe is the more reliable option for password validation)" }
-    }
-
-    if ($plinkCmd) {
-        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $plinkCmd.Source `
-            -ArgumentList @('-ssh', '-batch', '-pw', $Password, "$Account@$Address", 'exit') -TimeoutSec $TimeoutSec
 
         if ($procResult.TimedOut) {
             return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' via plink timed out after $TimeoutSec second(s)." }
@@ -225,6 +351,46 @@ function script:Test-LinuxSshAuth {
         }
         $errText = if ($procResult.StdErr) { $procResult.StdErr.Trim() } elseif ($procResult.StdOut) { $procResult.StdOut.Trim() } else { "plink exited with code $($procResult.ExitCode)" }
         return @{ Success = $false; ErrorMessage = $errText }
+    }
+
+    if ($pwshCmd) {
+        # See the CAVEAT above - this validates SSH reachability/handshake reliably, but password
+        # auth specifically is not guaranteed to be exercised non-interactively.
+        #
+        # -Options @{StrictHostKeyChecking='no'} (an OpenSSH ssh_config directive, passed straight
+        # through by New-PSSession's -SSHTransport): confirmed live - connecting to a target
+        # whose host key isn't yet in this machine's known_hosts otherwise hangs until
+        # $TimeoutSec, silently (no prompt visible), because the interactive "are you sure you
+        # want to continue connecting" confirmation OpenSSH would normally ask has nothing to
+        # answer it in this non-interactive child process. StrictHostKeyChecking=no answers
+        # "yes" automatically on a first-time connection and still records the key in
+        # known_hosts for next time (unlike disabling UserKnownHostsFile entirely) - an
+        # acceptable tradeoff for a connectivity *test* tool whose purpose is confirming
+        # reachability, not maintaining long-term host-key-pinning security guarantees for an
+        # ongoing session.
+        $innerScript = "try { `$s = New-PSSession -HostName '$Address' -UserName '$Account' -SSHTransport -Options @{StrictHostKeyChecking='no'} -ErrorAction Stop; Remove-PSSession -Session `$s -ErrorAction SilentlyContinue; Write-Output 'SUCCESS' } catch { Write-Output ('FAIL:' + `$_.Exception.Message) }"
+
+        $procResult = Invoke-ExternalProcessWithTimeout -FilePath $pwshCmd.Source `
+            -ArgumentList @('-NoProfile', '-NoLogo', '-Command', $innerScript) -TimeoutSec $TimeoutSec
+
+        if ($procResult.TimedOut) {
+            # Confirmed live: an unrecognized host key used to hang here waiting for an
+            # interactive confirmation that had nothing to answer it - fixed above via
+            # StrictHostKeyChecking=no. A timeout can still happen even with a known host key,
+            # though: this path spawns pwsh/ssh with no console at all, and native OpenSSH's
+            # password prompt (see the CAVEAT above) can hang the same way waiting for input
+            # that will never arrive, rather than failing fast the way it does with a real
+            # console attached. plink.exe (below) doesn't have this problem, since -pw submits
+            # the password directly rather than needing a TTY prompt.
+            return @{ Success = $false; ErrorMessage = "SSH connection to '$Address' timed out after $TimeoutSec second(s) (PowerShell 7 SSH transport - this can happen even with a correct password, since this path cannot reliably submit one non-interactively; install plink.exe for reliable password testing)." }
+        }
+
+        $resultLine = @($procResult.StdOut -split "`r?`n") | Where-Object { $_ -match '^(SUCCESS|FAIL:)' } | Select-Object -Last 1
+        if ($resultLine -eq 'SUCCESS') {
+            return @{ Success = $true; ErrorMessage = '' }
+        }
+        $detail = if ($resultLine) { $resultLine -replace '^FAIL:', '' } elseif ($procResult.StdErr) { $procResult.StdErr.Trim() } else { 'no result returned' }
+        return @{ Success = $false; ErrorMessage = "PowerShell 7 SSH transport failed: $detail (note: password auth is not reliably testable via this path - see module source comments; plink.exe is the more reliable option for password validation)" }
     }
 
     return @{ Success = $false; ErrorMessage = 'Plink or PS7 needed for auth test' }
@@ -336,9 +502,14 @@ function Get-CustomTestConnectivityInput {
         -Required $true `
         -Description 'IP address, short hostname, or FQDN of the target server.'
 
+    # Per user request: the prompt asks for the number, not the name - the shown default is
+    # translated back to its number too, so it stays number-only even when re-prompting with a
+    # prior value (e.g. from a CSV template) carried forward as the default.
+    $currentServerType    = if ($Defaults['ServerType']) { $Defaults['ServerType'] } else { 'Windows' }
+    $defaultServerTypeNum = if ($currentServerType -eq 'Linux') { '2' } else { '1' }
     $serverTypeInput = Show-FieldPrompt -Label 'Server Type' `
-        -Default $(if ($Defaults['ServerType']) { $Defaults['ServerType'] } else { 'Windows' }) `
-        -Description '[1] Windows  [2] Linux (or type the name).'
+        -Default $defaultServerTypeNum `
+        -Description 'Enter 1 for Windows or 2 for Linux.'
     $serverType = switch ($serverTypeInput.Trim()) {
         '1'       { 'Windows' }
         '2'       { 'Linux'   }

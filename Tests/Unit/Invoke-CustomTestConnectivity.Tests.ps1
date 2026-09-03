@@ -111,6 +111,19 @@ Describe 'Resolve-ConnectivityTarget - real DNS (no mocking, deterministic input
         $r.Success   | Should -BeTrue
         $r.IPAddress | Should -Be '127.0.0.1'
     }
+
+    It 'TC40 - a literal IP with no reverse-DNS (PTR) record still succeeds, per live user report' {
+        # Confirmed live against a real, fully reachable test host: GetHostEntry throws "No such
+        # host is known" for a literal IP that simply has no PTR record configured - common for
+        # internal/test hosts - which previously aborted the whole connectivity test before any
+        # port/auth check even ran. 192.0.2.0/24 (RFC 5737 TEST-NET-1) is reserved specifically
+        # for documentation/testing and is guaranteed to never have a PTR record, making this a
+        # deterministic repro of the live bug without depending on any specific real host.
+        $r = Resolve-ConnectivityTarget -Address '192.0.2.123'
+        $r.Success   | Should -BeTrue
+        $r.IPAddress | Should -Be '192.0.2.123'
+        $r.FQDN      | Should -Be ''
+    }
 }
 
 Describe 'Test-TcpPortOpen - real loopback socket (no mocking)' {
@@ -134,6 +147,127 @@ Describe 'Test-TcpPortOpen - real loopback socket (no mocking)' {
         # Port is now guaranteed closed (listener stopped) - a fast, deterministic negative case.
         $open = Test-TcpPortOpen -ComputerName '127.0.0.1' -Port $port -TimeoutMs 1000
         $open | Should -BeFalse
+    }
+}
+
+Describe 'ConvertTo-Win32QuotedArgument' {
+    # Regression coverage for a live crash: PropertyNotFoundException on ProcessStartInfo's
+    # ArgumentList under Set-StrictMode, reproduced on TWO different .NET Framework versions
+    # with two different symptoms (a true missing-member exception on the user's machine; a
+    # present-but-unusable $null property here) - so Invoke-ExternalProcessWithTimeout falls
+    # back to this manual quoting instead of relying on ArgumentList at all when it's not usable.
+
+    It 'TC30 - a plain argument with no special characters is returned unchanged' {
+        script:ConvertTo-Win32QuotedArgument -Value 'plain' | Should -Be 'plain'
+    }
+
+    It 'TC31 - an argument containing a space is wrapped in double quotes' {
+        script:ConvertTo-Win32QuotedArgument -Value 'has space' | Should -Be '"has space"'
+    }
+
+    It 'TC32 - an embedded double quote is escaped with a preceding backslash' {
+        script:ConvertTo-Win32QuotedArgument -Value 'has"quote' | Should -Be '"has\"quote"'
+    }
+
+    It 'TC33 - a trailing backslash with no surrounding spaces is left alone (no quoting needed)' {
+        script:ConvertTo-Win32QuotedArgument -Value 'trail\' | Should -Be 'trail\'
+    }
+
+    It 'TC34 - an empty string is quoted as an empty pair of double quotes' {
+        script:ConvertTo-Win32QuotedArgument -Value '' | Should -Be '""'
+    }
+
+    # A real-child-process, end-to-end round-trip of these tricky arguments (spaces, an embedded
+    # quote, a trailing backslash) through Invoke-ExternalProcessWithTimeout's manual-quoting
+    # fallback was verified manually against a real powershell.exe child - not included as an
+    # automated test here because it requires writing and executing a temporary .ps1 file, which
+    # depends on the local machine's PowerShell execution policy (unrelated to this fix) rather
+    # than anything this code path controls.
+}
+
+Describe 'Find-PlinkExecutable' {
+    # Per user direction: check PATH, then the project root, then Program Files (x86), then
+    # Program Files, in that order. Get-Command/Test-Path are mocked so each tier can be tested
+    # in isolation, deterministically, regardless of what's actually installed on the machine
+    # running these tests.
+
+    It 'TC36 - found on PATH - returned directly, no further locations checked' {
+        Mock Get-Command { [PSCustomObject]@{ Source = 'C:\PATH\plink.exe' } } -ParameterFilter { $Name -eq 'plink.exe' }
+        Mock Test-Path { throw 'Should not check any further location when found on PATH' }
+        script:Find-PlinkExecutable | Should -Be 'C:\PATH\plink.exe'
+    }
+
+    It 'TC37 - not on PATH, found at the project root' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'plink.exe' }
+        Mock Test-Path { $LiteralPath -like '*\..\..\plink.exe' } -ParameterFilter { $PathType -eq 'Leaf' }
+        Mock Resolve-Path { [PSCustomObject]@{ Path = 'C:\Code\aPePAS\plink.exe' } }
+        script:Find-PlinkExecutable | Should -Be 'C:\Code\aPePAS\plink.exe'
+    }
+
+    It 'TC38 - not on PATH or project root, found in Program Files (x86)' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'plink.exe' }
+        Mock Test-Path { $LiteralPath -like '*PuTTY\plink.exe' -and $LiteralPath -like '*(x86)*' } -ParameterFilter { $PathType -eq 'Leaf' }
+        Mock Resolve-Path { [PSCustomObject]@{ Path = 'C:\Program Files (x86)\PuTTY\plink.exe' } }
+        script:Find-PlinkExecutable | Should -Be 'C:\Program Files (x86)\PuTTY\plink.exe'
+    }
+
+    It 'TC39 - not found anywhere - returns $null' {
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'plink.exe' }
+        Mock Test-Path { $false } -ParameterFilter { $PathType -eq 'Leaf' }
+        script:Find-PlinkExecutable | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Test-LinuxSshAuth - plink trust-on-first-use retry' {
+    # Per user report and live verification: plink has no CLI flag to blindly trust an unknown
+    # host key, but its "host key is not cached" failure always includes the fingerprint it
+    # computed - Test-LinuxSshAuth parses that out and retries once with -hostkey set to it,
+    # confirmed live to succeed against a genuinely fresh (never-before-seen) real host.
+
+    BeforeEach {
+        Mock Write-CyberArkLog { }
+        Mock Find-PlinkExecutable { 'C:\fake\plink.exe' }
+    }
+
+    It 'TC41 - an unrecognized host key is retried once with -hostkey, and the retry result is returned' {
+        $callCount = 0
+        Mock Invoke-ExternalProcessWithTimeout {
+            $script:callCount++
+            if ($script:callCount -eq 1) {
+                return @{
+                    TimedOut = $false; ExitCode = 1; StdOut = ''
+                    StdErr   = "The host key is not cached for this server:`n  test.example.com (port 22)`nThe server's ssh-ed25519 key fingerprint is:`n  ssh-ed25519 255 SHA256:AbCdEf1234567890+/=`nConnection abandoned.`nFATAL ERROR: Cannot confirm a host key in batch mode"
+                }
+            }
+            return @{ TimedOut = $false; ExitCode = 0; StdOut = ''; StdErr = '' }
+        }
+        $script:callCount = 0
+
+        $result = script:Test-LinuxSshAuth -Address 'test.example.com' -Account 'user1' -Password 'pw' -TimeoutSec 15
+        $result.Success | Should -BeTrue
+        Should -Invoke Invoke-ExternalProcessWithTimeout -Times 2
+        Should -Invoke Invoke-ExternalProcessWithTimeout -Times 1 -ParameterFilter {
+            $ArgumentList -contains '-hostkey' -and $ArgumentList -contains 'SHA256:AbCdEf1234567890+/='
+        }
+    }
+
+    It 'TC42 - a non-host-key failure (e.g. wrong password) is not retried' {
+        Mock Invoke-ExternalProcessWithTimeout {
+            @{ TimedOut = $false; ExitCode = 1; StdOut = ''; StdErr = "Access denied`nFATAL ERROR: Configured password was not accepted" }
+        }
+        $result = script:Test-LinuxSshAuth -Address 'test.example.com' -Account 'user1' -Password 'wrongpw' -TimeoutSec 15
+        $result.Success      | Should -BeFalse
+        $result.ErrorMessage | Should -Match 'Access denied'
+        Should -Invoke Invoke-ExternalProcessWithTimeout -Times 1
+    }
+
+    It 'TC43 - a host-key failure whose message has no parseable fingerprint is not retried' {
+        Mock Invoke-ExternalProcessWithTimeout {
+            @{ TimedOut = $false; ExitCode = 1; StdOut = ''; StdErr = 'host key is not cached for this server, but no fingerprint line here' }
+        }
+        $result = script:Test-LinuxSshAuth -Address 'test.example.com' -Account 'user1' -Password 'pw' -TimeoutSec 15
+        $result.Success | Should -BeFalse
+        Should -Invoke Invoke-ExternalProcessWithTimeout -Times 1
     }
 }
 

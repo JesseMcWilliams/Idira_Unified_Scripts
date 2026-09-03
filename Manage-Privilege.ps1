@@ -2174,7 +2174,18 @@ function Invoke-ActionModule {
             $doSave  = ($saveCsv -match '^[Yy]')
         }
         if ($doSave) {
-            $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName $meta.Name -AutoSave:$autoSave
+            # Optional ModuleMeta.CsvFilenameField: names an InputData column whose value
+            # (when present and non-blank) is appended to the saved filename - e.g. Test
+            # Connectivity declares 'Address' so a single interactive run's CSV is named after
+            # the server it tested, not just "Test Connectivity <date>.csv" for every run. Per
+            # user request. Bracket notation - most modules don't declare this optional key.
+            $csvNameSuffix = ''
+            $csvFilenameField = $meta['CsvFilenameField']
+            if ($csvFilenameField -and $inputData -and $inputData.ContainsKey($csvFilenameField)) {
+                $fieldValue = "$($inputData[$csvFilenameField])".Trim()
+                if ($fieldValue) { $csvNameSuffix = " - $fieldValue" }
+            }
+            $csvPath = Get-CsvSavePath -DefaultFolder $script:ActiveProfile.OutputFolder -ModuleName "$($meta.Name)$csvNameSuffix" -AutoSave:$autoSave
             if ($csvPath) {
                 $saved = Invoke-FileWriteWithRetry -Path $csvPath -Action {
                     $result.Results | Export-Csv -Path $csvPath -NoTypeInformation -Force
