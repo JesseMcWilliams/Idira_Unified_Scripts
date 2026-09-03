@@ -2138,6 +2138,62 @@ try {
 
 ---
 
+### 14.3 Re-reading `WebException.Response.GetResponseStream()` in a `catch` block returns empty — the stream is already consumed
+
+**Root cause:** Windows PowerShell 5.1's `Invoke-WebRequest` already reads the error response
+stream once internally, to populate `$_.ErrorDetails.Message` on the `ErrorRecord` it throws.
+Response streams are forward-only and single-read. By the time a `catch [System.Net.WebException]`
+block runs its own `[System.IO.StreamReader]::new($webResp.GetResponseStream()).ReadToEnd()`, that
+stream has already been consumed and returns an empty string — even though the server genuinely
+sent a body (a real CyberArk 400 response with `Content-Length: 80` and
+`Content-Type: application/json` came back this way).
+
+**Symptom:** No exception is thrown — this fails silently. The response status code and headers
+come through fine (they're read from the response object, not the stream), but the captured body
+is always an empty string, which then round-trips through `ConvertFrom-Json` as `$null` rather than
+throwing. This makes the bug easy to miss: everything downstream *looks* like it worked, it just
+never has the one piece of information — the server's actual error detail — that the code exists
+to capture. Found live in `Invoke-CustomTestApi.ps1`, whose entire purpose is displaying that exact
+detail to a user debugging some other API failure.
+
+**Wrong — re-reads an already-consumed stream:**
+```powershell
+} catch [System.Net.WebException] {
+    $webResp = $_.Exception.Response -as [System.Net.HttpWebResponse]
+    $rawBody = ''
+    if ($webResp) {
+        $reader  = [System.IO.StreamReader]::new($webResp.GetResponseStream())
+        $rawBody = $reader.ReadToEnd()   # always '' - the stream is already spent
+        $reader.Dispose()
+    }
+}
+```
+
+**Correct — use `$_.ErrorDetails.Message`, which PowerShell already populated from that same read:**
+```powershell
+} catch [System.Net.WebException] {
+    $caughtErr = $_
+    $webResp   = $caughtErr.Exception.Response -as [System.Net.HttpWebResponse]
+    $rawBody   = ''
+    if ($caughtErr.ErrorDetails -and $caughtErr.ErrorDetails.Message) {
+        $rawBody = $caughtErr.ErrorDetails.Message
+    } elseif ($webResp) {
+        # Fallback only - by this point the stream is normally already empty
+        try {
+            $reader  = [System.IO.StreamReader]::new($webResp.GetResponseStream())
+            $rawBody = $reader.ReadToEnd()
+            $reader.Dispose()
+        } catch { }
+    }
+}
+```
+
+**Rule:** Never try to manually re-read a `WebException`'s response stream for the body text.
+`$_.ErrorDetails.Message` already holds it, populated by PowerShell itself during the original
+call — read from there first, and treat a manual stream read as a last-resort fallback only.
+
+---
+
 ## 15. Session Token and NoteProperty Preservation
 
 ### 15.1 NoteProperties are lost when the token object is replaced

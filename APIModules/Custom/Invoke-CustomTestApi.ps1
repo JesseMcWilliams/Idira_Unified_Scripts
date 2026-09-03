@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $false
     InputSchema      = @()
     Priority         = 95
-    Version          = '1.2.0'
+    Version          = '1.3.0'
 }
 
 function Invoke-CustomTestApi {
@@ -211,13 +211,24 @@ function Invoke-CustomTestApi {
                 $rawBody    = ''
                 $respHeaders = @{}
                 if ($webResp) {
+                    foreach ($key in $webResp.Headers.AllKeys) {
+                        $respHeaders[$key] = $webResp.Headers[$key]
+                    }
+                }
+                # Windows PowerShell 5.1's Invoke-WebRequest already reads the error response
+                # stream once internally to populate $_.ErrorDetails.Message - by the time this
+                # catch block runs, $webResp.GetResponseStream() has already been consumed and
+                # reads back empty, silently losing the server's actual error body (discovered
+                # live: a real CyberArk 400 with an 80-byte JSON body came back as ResponseBody
+                # = null). Prefer ErrorDetails.Message, which already has that content; fall
+                # back to a manual stream read only if it's unexpectedly empty.
+                if ($caughtErr.ErrorDetails -and $caughtErr.ErrorDetails.Message) {
+                    $rawBody = $caughtErr.ErrorDetails.Message
+                } elseif ($webResp) {
                     try {
                         $reader  = [System.IO.StreamReader]::new($webResp.GetResponseStream())
                         $rawBody = $reader.ReadToEnd()
                         $reader.Dispose()
-                        foreach ($key in $webResp.Headers.AllKeys) {
-                            $respHeaders[$key] = $webResp.Headers[$key]
-                        }
                     } catch {}
                 }
                 $errMsg = $webEx.Message
