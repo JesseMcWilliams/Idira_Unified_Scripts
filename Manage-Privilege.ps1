@@ -2234,7 +2234,7 @@ function Invoke-SessionLoop {
                     $catModules  = @($selectedCat.Group |
                         Sort-Object @(
                             @{ Expression = { [int]($_.Meta.Action -ne 'List') }; Descending = $false }
-                            @{ Expression = { if ($_.Meta.PSObject.Properties['Priority']) { [int]$_.Meta.Priority } else { 99 } }; Descending = $false }
+                            @{ Expression = { $_.Meta.Name }; Descending = $false }
                         ))
                     $catCrumbs   = $crumbs + @($catName)
 
