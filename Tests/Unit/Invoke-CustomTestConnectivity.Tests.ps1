@@ -143,12 +143,12 @@ Describe 'Resolve-VaultPassword' {
         Mock Write-CyberArkLog { }
     }
 
-    It 'TC11 - exact Address+Account match found - retrieves and returns the password' {
+    It 'TC11 - exact Address+Account match found - retrieves and returns the password, SafeName, and Username' {
         Mock Invoke-CyberArkAPI {
             param($Method, $Endpoint)
             if ($Method -eq 'GET') {
                 script:New-VaultAccountsResponse -Accounts @(
-                    [PSCustomObject]@{ id = '123_456'; address = 'server1.corp.local'; userName = 'svc_account' }
+                    [PSCustomObject]@{ id = '123_456'; address = 'server1.corp.local'; userName = 'svc_account'; safeName = 'ServerAdmins' }
                 )
             } else {
                 [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = 'S3cr3tPass'; RawResponse = 'S3cr3tPass' }
@@ -157,13 +157,17 @@ Describe 'Resolve-VaultPassword' {
         $r = Resolve-VaultPassword -Token $script:MockToken -Address 'server1.corp.local' -Account 'svc_account'
         $r.Success  | Should -BeTrue
         $r.Password | Should -Be 'S3cr3tPass'
+        $r.SafeName | Should -Be 'ServerAdmins'
+        $r.Username | Should -Be 'svc_account'
     }
 
-    It 'TC12 - no matching account - Success=$false, ErrorMessage=Password Not Found' {
+    It 'TC12 - no matching account - Success=$false, ErrorMessage=Password Not Found, SafeName/Username blank' {
         Mock Invoke-CyberArkAPI { script:New-VaultAccountsResponse -Accounts @() }
         $r = Resolve-VaultPassword -Token $script:MockToken -Address 'server1.corp.local' -Account 'svc_account'
         $r.Success      | Should -BeFalse
         $r.ErrorMessage | Should -Be 'Password Not Found'
+        $r.SafeName     | Should -Be ''
+        $r.Username     | Should -Be ''
     }
 
     It 'TC13 - account found but address does not match exactly - not treated as a match' {
@@ -250,9 +254,13 @@ Describe 'Invoke-CustomTestConnectivity - DNS failure' {
     It 'TC20 - DNS failure produces a Fail row with DNSMatch=$false and no port/auth calls' {
         $r = Invoke-CustomTestConnectivity -Token $script:MockToken -InputData @{ Address = 'bogus'; ServerType = 'Windows'; Account = 'user1'; Password = 'x' }
         $r.Failures | Should -Be 1
-        $r.Results[0].DNSMatch     | Should -BeFalse
-        $r.Results[0].AuthStatus   | Should -Be 'Fail'
-        $r.Results[0].ErrorMessage | Should -Match 'DNS resolution failed'
+        $r.Results[0].DNSMatch       | Should -BeFalse
+        $r.Results[0].AuthStatus     | Should -Be 'Fail'
+        $r.Results[0].ErrorMessage   | Should -Match 'DNS resolution failed'
+        # No vault lookup is attempted before DNS resolves, so these stay blank.
+        $r.Results[0].Safe           | Should -Be ''
+        $r.Results[0].Username       | Should -Be ''
+        $r.Results[0].PasswordSource | Should -Be ''
         Should -Invoke Test-TcpPortOpen -Times 0
     }
 }
@@ -273,6 +281,10 @@ Describe 'Invoke-CustomTestConnectivity - Windows flow' {
         $r.Results[0].Protocol   | Should -Be 'RPC'
         $r.Results[0].AuthStatus | Should -Be 'Success'
         $r.Successes | Should -Be 1
+        # A password was supplied directly, so no vault account was used.
+        $r.Results[0].Safe           | Should -Be ''
+        $r.Results[0].Username       | Should -Be ''
+        $r.Results[0].PasswordSource | Should -Be 'Provided'
     }
 
     It 'TC22 - port 445 closed - no auth attempted, AuthStatus=Fail, ErrorMessage notes port 445' {
@@ -345,26 +357,36 @@ Describe 'Invoke-CustomTestConnectivity - vault password fallback' {
         $r = Invoke-CustomTestConnectivity -Token $script:MockToken -InputData @{ Address = 'server1'; ServerType = 'Windows'; Account = 'user1'; Password = 'suppliedpw' }
         $r.Results[0].AuthStatus | Should -Be 'Success'
         Should -Invoke Resolve-VaultPassword -Times 0
+        $r.Results[0].PasswordSource | Should -Be 'Provided'
+        $r.Results[0].Safe           | Should -Be ''
+        $r.Results[0].Username       | Should -Be ''
     }
 
-    It 'TC28 - Password blank, vault lookup succeeds - the retrieved password is used for the auth attempt' {
-        Mock Resolve-VaultPassword { return @{ Success = $true; Password = 'VaultPass1'; ErrorMessage = '' } }
+    It 'TC28 - Password blank, vault lookup succeeds - the retrieved password is used, and Safe/Username/PasswordSource report the vaulted account' {
+        Mock Resolve-VaultPassword { return @{ Success = $true; Password = 'VaultPass1'; SafeName = 'ServerAdmins'; Username = 'user1'; ErrorMessage = '' } }
         $capturedPassword = $null
         Mock Test-WindowsSmbAuth {
             param($Address, $Account, $Password)
             Set-Variable -Name capturedPassword -Value $Password -Scope Script
             return @{ Success = $true; ErrorMessage = '' }
         }
-        Invoke-CustomTestConnectivity -Token $script:MockToken -InputData @{ Address = 'server1'; ServerType = 'Windows'; Account = 'user1' } | Out-Null
+        $r = Invoke-CustomTestConnectivity -Token $script:MockToken -InputData @{ Address = 'server1'; ServerType = 'Windows'; Account = 'user1' }
         $script:capturedPassword | Should -Be 'VaultPass1'
+        $r.Results[0].Safe           | Should -Be 'ServerAdmins'
+        $r.Results[0].Username       | Should -Be 'user1'
+        $r.Results[0].PasswordSource | Should -Be 'Vault'
     }
 
     It 'TC29 - Password blank, vault lookup fails - AuthStatus=Fail, ErrorMessage=Password Not Found, no auth attempt made even though the port is open' {
-        Mock Resolve-VaultPassword { return @{ Success = $false; Password = ''; ErrorMessage = 'Password Not Found' } }
+        Mock Resolve-VaultPassword { return @{ Success = $false; Password = ''; SafeName = ''; Username = ''; ErrorMessage = 'Password Not Found' } }
         Mock Test-WindowsSmbAuth { throw 'Should not be called when no password is available' }
         $r = Invoke-CustomTestConnectivity -Token $script:MockToken -InputData @{ Address = 'server1'; ServerType = 'Windows'; Account = 'user1' }
         $r.Results[0].AuthStatus   | Should -Be 'Fail'
         $r.Results[0].ErrorMessage | Should -Be 'Password Not Found'
         Should -Invoke Test-WindowsSmbAuth -Times 0
+        # A vault lookup was attempted (no password was supplied) even though it found nothing.
+        $r.Results[0].PasswordSource | Should -Be 'Vault'
+        $r.Results[0].Safe           | Should -Be ''
+        $r.Results[0].Username       | Should -Be ''
     }
 }
