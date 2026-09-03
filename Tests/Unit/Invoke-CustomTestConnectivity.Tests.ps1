@@ -137,6 +137,41 @@ Describe 'Test-TcpPortOpen - real loopback socket (no mocking)' {
     }
 }
 
+Describe 'ConvertTo-Win32QuotedArgument' {
+    # Regression coverage for a live crash: PropertyNotFoundException on ProcessStartInfo's
+    # ArgumentList under Set-StrictMode, reproduced on TWO different .NET Framework versions
+    # with two different symptoms (a true missing-member exception on the user's machine; a
+    # present-but-unusable $null property here) - so Invoke-ExternalProcessWithTimeout falls
+    # back to this manual quoting instead of relying on ArgumentList at all when it's not usable.
+
+    It 'TC30 - a plain argument with no special characters is returned unchanged' {
+        script:ConvertTo-Win32QuotedArgument -Value 'plain' | Should -Be 'plain'
+    }
+
+    It 'TC31 - an argument containing a space is wrapped in double quotes' {
+        script:ConvertTo-Win32QuotedArgument -Value 'has space' | Should -Be '"has space"'
+    }
+
+    It 'TC32 - an embedded double quote is escaped with a preceding backslash' {
+        script:ConvertTo-Win32QuotedArgument -Value 'has"quote' | Should -Be '"has\"quote"'
+    }
+
+    It 'TC33 - a trailing backslash with no surrounding spaces is left alone (no quoting needed)' {
+        script:ConvertTo-Win32QuotedArgument -Value 'trail\' | Should -Be 'trail\'
+    }
+
+    It 'TC34 - an empty string is quoted as an empty pair of double quotes' {
+        script:ConvertTo-Win32QuotedArgument -Value '' | Should -Be '""'
+    }
+
+    # A real-child-process, end-to-end round-trip of these tricky arguments (spaces, an embedded
+    # quote, a trailing backslash) through Invoke-ExternalProcessWithTimeout's manual-quoting
+    # fallback was verified manually against a real powershell.exe child - not included as an
+    # automated test here because it requires writing and executing a temporary .ps1 file, which
+    # depends on the local machine's PowerShell execution policy (unrelated to this fix) rather
+    # than anything this code path controls.
+}
+
 Describe 'Resolve-VaultPassword' {
 
     BeforeEach {

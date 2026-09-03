@@ -23,7 +23,7 @@ $ModuleMeta = @{
         @{ Column = 'Password';   Required = $false; Description = 'Password to authenticate with. Leave blank to look up this Address+Account in the vault.' }
     )
     Priority         = 96
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 #region Private helpers - each isolated so Pester can mock it independently of the others
@@ -121,6 +121,44 @@ function script:Test-WindowsSmbAuth {
     }
 }
 
+function script:ConvertTo-Win32QuotedArgument {
+    <#
+        Quotes a single argument per the same rules CommandLineToArgvW/CreateProcess expect,
+        matching what ProcessStartInfo.ArgumentList does internally - used as the fallback
+        below on .NET Framework versions older than 4.6.1, where ArgumentList does not exist.
+        An argument with no spaces, tabs, or quotes is returned unchanged; otherwise it is
+        wrapped in double quotes with embedded backslashes/quotes escaped correctly (a run of
+        backslashes is only doubled when it immediately precedes a quote or the end of the
+        argument - backslashes elsewhere are left alone).
+    #>
+    param([string]$Value)
+
+    if ($null -eq $Value) { $Value = '' }
+    if ($Value -ne '' -and $Value -notmatch '[\s"]') { return $Value }
+
+    $sb = [System.Text.StringBuilder]::new()
+    [void]$sb.Append('"')
+    $chars = $Value.ToCharArray()
+    $i = 0
+    while ($i -lt $chars.Length) {
+        $backslashes = 0
+        while ($i -lt $chars.Length -and $chars[$i] -eq '\') { $backslashes++; $i++ }
+        if ($i -eq $chars.Length) {
+            [void]$sb.Append('\', ($backslashes * 2))
+        } elseif ($chars[$i] -eq '"') {
+            [void]$sb.Append('\', ($backslashes * 2 + 1))
+            [void]$sb.Append('"')
+            $i++
+        } else {
+            [void]$sb.Append('\', $backslashes)
+            [void]$sb.Append($chars[$i])
+            $i++
+        }
+    }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
 function script:Invoke-ExternalProcessWithTimeout {
     <#
         Runs an external executable, capturing stdout/stderr, without ever hanging past
@@ -135,9 +173,36 @@ function script:Invoke-ExternalProcessWithTimeout {
 
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $FilePath
-    # Quote every argument individually rather than joining with spaces first - avoids
-    # mis-splitting an argument that itself contains a space (e.g. a password with a space in it).
-    foreach ($a in $ArgumentList) { $psi.ArgumentList.Add($a) }
+
+    # ProcessStartInfo.ArgumentList was added in .NET Framework 4.6.1 and is not reliably usable
+    # on every machine this driver runs on - confirmed live by the user as a full
+    # PropertyNotFoundException crash under Set-StrictMode on one machine (older .NET Framework,
+    # where the member genuinely does not exist), and separately reproduced here as a silent
+    # $null property - present as a member, but not populated with a real collection - on
+    # another (.NET Framework 4.8). Neither failure mode is safe to assume away, so detection
+    # uses a disposable probe object (never the real $psi) wrapped in try/catch: if anything
+    # about ArgumentList is unusable, fall back to the single-string .Arguments property with
+    # each argument manually quoted per Win32 command-line rules instead. Probing separately
+    # avoids ever leaving $psi in a partially-populated, ambiguous state if the real usage
+    # failed partway through the loop.
+    $argumentListUsable = $false
+    try {
+        $probe = [System.Diagnostics.ProcessStartInfo]::new()
+        if ($null -ne $probe.ArgumentList) {
+            $probe.ArgumentList.Add('x')
+            $argumentListUsable = ($probe.ArgumentList.Count -eq 1)
+        }
+    } catch {
+        $argumentListUsable = $false
+    }
+
+    if ($argumentListUsable) {
+        # Quote every argument individually rather than joining with spaces first - avoids
+        # mis-splitting an argument that itself contains a space (e.g. a password with a space in it).
+        foreach ($a in $ArgumentList) { $psi.ArgumentList.Add($a) }
+    } else {
+        $psi.Arguments = (($ArgumentList | ForEach-Object { script:ConvertTo-Win32QuotedArgument -Value $_ }) -join ' ')
+    }
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError  = $true
     $psi.UseShellExecute        = $false
@@ -336,9 +401,14 @@ function Get-CustomTestConnectivityInput {
         -Required $true `
         -Description 'IP address, short hostname, or FQDN of the target server.'
 
+    # Per user request: the prompt asks for the number, not the name - the shown default is
+    # translated back to its number too, so it stays number-only even when re-prompting with a
+    # prior value (e.g. from a CSV template) carried forward as the default.
+    $currentServerType    = if ($Defaults['ServerType']) { $Defaults['ServerType'] } else { 'Windows' }
+    $defaultServerTypeNum = if ($currentServerType -eq 'Linux') { '2' } else { '1' }
     $serverTypeInput = Show-FieldPrompt -Label 'Server Type' `
-        -Default $(if ($Defaults['ServerType']) { $Defaults['ServerType'] } else { 'Windows' }) `
-        -Description '[1] Windows  [2] Linux (or type the name).'
+        -Default $defaultServerTypeNum `
+        -Description 'Enter 1 for Windows or 2 for Linux.'
     $serverType = switch ($serverTypeInput.Trim()) {
         '1'       { 'Windows' }
         '2'       { 'Linux'   }
