@@ -132,16 +132,24 @@ function Invoke-ISPSSClientCredentials {
         throw "ClientCredentials token request failed: $_"
     }
 
-    $expiresIn = if ($resp.expires_in) { [int]$resp.expires_in } else { 3600 }
-    $token     = $resp.access_token
-    $expiry    = [DateTime]::UtcNow.AddSeconds($expiresIn)
+    # CyberArk's own "Create an API token" reference documents the client_credentials
+    # platformtoken response as { access_token, token_type, expires_in } only - no refresh_token
+    # field (client_credentials grants typically aren't paired with one, since the client can
+    # just re-present its own credentials for a new token). Guard every field with
+    # PSObject.Properties[] rather than dot-accessing it unconditionally - confirmed live that a
+    # genuinely absent property throws PropertyNotFoundException under Set-StrictMode, which
+    # would otherwise crash immediately after every successful ClientCredentials login.
+    $expiresIn    = if ($resp.PSObject.Properties['expires_in'])   { [int]$resp.expires_in } else { 3600 }
+    $token        = if ($resp.PSObject.Properties['access_token']) { $resp.access_token }     else { $null }
+    $refreshToken = if ($resp.PSObject.Properties['refresh_token']) { $resp.refresh_token }    else { $null }
+    $expiry       = [DateTime]::UtcNow.AddSeconds($expiresIn)
 
     New-AuthTokenObject `
         -Token        $token `
         -TokenType    'Bearer' `
         -Headers      @{ Authorization = "Bearer $token"; 'Content-Type' = 'application/json' } `
         -Expiry       $expiry `
-        -RefreshToken $resp.refresh_token `
+        -RefreshToken $refreshToken `
         -SystemType   'ISPSS' `
         -AuthMethod   'ClientCredentials' `
         -BaseURL      $BaseURL `
@@ -554,16 +562,24 @@ function Update-ISPSSAuthToken {
                     # Body is encoded as raw UTF8 bytes rather than a String so PowerShell's own
                     # ParameterBinding/module logging cannot record the literal refresh_token
                     # value. Mirrors psPAS's Invoke-PASRestMethod.ps1.
+                    # NOTE: CyberArk's own rate-limiting reference lists /oauth2/refreshplatformtoken
+                    # as a separate, distinct High-API-group endpoint from /oauth2/platformtoken -
+                    # this call reuses the latter with grant_type=refresh_token instead, which is
+                    # unverified against live ISPSS. In practice this whole branch is unreachable
+                    # today anyway, since Invoke-ISPSSClientCredentials never receives a
+                    # refresh_token to begin with (see its own comment) - kept here, defensively
+                    # guarded, in case some tenant configuration does return one.
                     $resp = Invoke-RestMethod -Uri "$($ctx['IdentityURL'])/oauth2/platformtoken" `
                         -Method POST `
                         -Headers @{ 'Content-Type' = 'application/x-www-form-urlencoded' } `
                         -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ErrorAction Stop
-                    $expiresIn  = if ($resp.expires_in) { [int]$resp.expires_in } else { 3600 }
-                    $newRefresh = if ($resp.refresh_token) { $resp.refresh_token } else { $TokenObject.RefreshToken }
+                    $expiresIn  = if ($resp.PSObject.Properties['expires_in'])   { [int]$resp.expires_in } else { 3600 }
+                    $newAccess  = if ($resp.PSObject.Properties['access_token']) { $resp.access_token }    else { $null }
+                    $newRefresh = if ($resp.PSObject.Properties['refresh_token']) { $resp.refresh_token }  else { $TokenObject.RefreshToken }
                     return New-AuthTokenObject `
-                        -Token        $resp.access_token `
+                        -Token        $newAccess `
                         -TokenType    'Bearer' `
-                        -Headers      @{ Authorization = "Bearer $($resp.access_token)"; 'Content-Type' = 'application/json' } `
+                        -Headers      @{ Authorization = "Bearer $newAccess"; 'Content-Type' = 'application/json' } `
                         -Expiry       ([DateTime]::UtcNow.AddSeconds($expiresIn)) `
                         -RefreshToken $newRefresh `
                         -SystemType   'ISPSS' `

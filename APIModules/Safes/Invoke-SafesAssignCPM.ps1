@@ -128,8 +128,8 @@ function Invoke-SafesAssignCPM {
         return $result
     }
 
-    $safeName    = if ($InputData.SafeName)    { "$($InputData.SafeName)".Trim() }    else { '' }
-    $managingCPM = if ($InputData.ManagingCPM) { "$($InputData.ManagingCPM)".Trim() } else { '' }
+    $safeName    = if ($InputData['SafeName'])    { "$($InputData['SafeName'])".Trim() }    else { '' }
+    $managingCPM = if ($InputData['ManagingCPM']) { "$($InputData['ManagingCPM'])".Trim() } else { '' }
 
     if (-not $safeName) {
         Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-SafesAssignCPM: SafeName is required but was empty.'
@@ -184,6 +184,7 @@ function Invoke-SafesAssignCPM {
     $currentSafe = $getResponse.Data
 
     $body = @{
+        SafeName         = $safeName
         Description      = if ($currentSafe.description) { $currentSafe.description } else { '' }
         Location         = if ($currentSafe.location)     { $currentSafe.location }     else { '' }
         ManagingCPM      = $managingCPM

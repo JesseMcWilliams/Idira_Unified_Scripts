@@ -121,6 +121,18 @@ InputSchema = @(
 )
 ```
 
+#### Optional ModuleMeta Fields
+
+These are all omitted by default (falsy/absent) and only need to be set when a module wants the
+non-default behavior:
+
+| Field | Purpose |
+|---|---|
+| `AutoSaveCsv = $true` | The driver automatically writes `$result.Results` to a CSV in the profile's `OutputFolder` after the module returns - the module itself does not need to write any file. Used by bulk-report-style modules (e.g. `Custom/ExportPlatformDetails`). |
+| `CsvFilenameField = '<InputData column name>'` | Appends that column's value to the auto-saved single-run CSV filename (e.g. `'Address'` on `Custom/TestConnectivity` produces `"Test Connectivity - 172.21.20.14 <date>.csv"`), so testing several targets in one session doesn't silently overwrite the same file each time. |
+| `IncludeInExportAll = $true` | Opts a module into `Custom/ExportAll`'s bulk run even though its `Action` isn't `List`/`ListAuthMethods` (which `ExportAll` auto-discovers by default). Use this for a single-row settings snapshot that still makes sense as part of a full-tenant export - e.g. `Policies/GetMasterPolicy`. `ExportAll` calls the module with empty `InputData`, so make sure your module has sensible defaults for every field in that case. |
+| `ExcludeFromExportAll = $true` | The opposite of `IncludeInExportAll` - excludes a `List`/`ListAuthMethods` module that would otherwise be auto-discovered (e.g. `SafeMembers/List`, whose data is already covered by `Custom/ExportEntitlements`'s combined safes+members export). |
+
 ---
 
 ### 2. Entry Point Function

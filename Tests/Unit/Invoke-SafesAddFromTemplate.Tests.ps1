@@ -236,7 +236,7 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
 
     It 'T08 - creates the safe: one Results row with ItemType=Safe' {
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
-        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
     }
 
     It 'T09 - copies only the two non-role members (excludes the CyberArk_ group)' {
@@ -262,6 +262,25 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
         $memberRows = @($r.Results | Where-Object { $_.ItemType -eq 'Member' })
         $memberRows.MemberName | Should -Not -Contain 'jdoe'
         $memberRows.MemberName | Should -Contain 'AdminGroup'
+    }
+
+    It 'T09c - the template safe creator is excluded from the copy even though not role-prefixed (confirmed live: CyberArk rejects re-adding it with HTTP 403)' {
+        $script:TemplateSafeResponse | Add-Member -NotePropertyName 'creator' -NotePropertyValue ([PSCustomObject]@{ id = '34'; name = 'CA_Admin' }) -Force
+        $script:TemplateMembersResponse.value += [PSCustomObject]@{
+            memberName = 'CA_Admin'
+            memberType = 'User'
+            membershipExpirationDate = $null
+            permissions = [PSCustomObject]@{ manageSafe = $true }
+        }
+        try {
+            $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
+            $memberRows = @($r.Results | Where-Object { $_.ItemType -eq 'Member' })
+            $memberRows.MemberName | Should -Not -Contain 'CA_Admin'
+            $memberRows.MemberName | Should -Contain 'AdminGroup'
+        } finally {
+            $script:TemplateSafeResponse.PSObject.Properties.Remove('creator')
+            $script:TemplateMembersResponse.value = @($script:TemplateMembersResponse.value | Where-Object { $_.memberName -ne 'CA_Admin' })
+        }
     }
 
     It 'T10 - Successes=3 (1 safe + 2 members), Failures=0' {
@@ -382,8 +401,8 @@ Describe 'Invoke-SafesAddFromTemplate - ExtraMembers' {
         $testInput.ExtraMembers = 'NotAType:baduser:CyberArk_TemplateSafe_Admins;User:gooduser:CyberArk_TemplateSafe_Admins'
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
 
-        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
-        ($r.Results | Where-Object { $_.MemberName -eq 'gooduser' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.MemberName -eq 'gooduser' }).Count | Should -Be 1
         $r.Errors.Count | Should -Be 1
         $r.IsFatal       | Should -BeFalse
     }
@@ -393,7 +412,7 @@ Describe 'Invoke-SafesAddFromTemplate - ExtraMembers' {
         $testInput.ExtraMembers = 'User:newuser:CyberArk_NoSuchRole'
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
 
-        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
         $r.Errors.Count | Should -Be 1
         $r.IsFatal       | Should -BeFalse
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
@@ -762,7 +781,7 @@ Describe 'Invoke-SafesAddFromTemplate - errors' {
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal        | Should -BeFalse
         $r.Failures       | Should -Be 1
-        ($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 1
     }
 
     It 'T24 - member POST returns 401: IsFatal=$true, loop stops' {

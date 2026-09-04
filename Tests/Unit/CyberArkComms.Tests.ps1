@@ -160,11 +160,25 @@ Describe 'New-CyberArkSearchFilter' {
 Describe 'Invoke-CyberArkAPI - success paths (mocked Invoke-WebRequest)' {
 
     BeforeAll {
-        # Build a minimal success response object that Invoke-WebRequest returns
-        # UseBasicParsing returns an object with StatusCode and Content
+        # Build a minimal success response object that Invoke-WebRequest returns.
+        # UseBasicParsing returns an object with StatusCode, Content, Headers, and
+        # RawContentStream - Headers is always present on a real response (confirmed live
+        # against a real HttpListener - see Lessons-Learned-PowerShell-Pester.md Section 39),
+        # so it's included here by default too rather than only on tests that need it.
         function script:New-MockWebResponse {
-            param([int]$StatusCode = 200, [string]$Body = '')
-            return [PSCustomObject]@{ StatusCode = $StatusCode; Content = $Body }
+            param(
+                [int]$StatusCode = 200,
+                [object]$Body = '',
+                [hashtable]$Headers = @{},
+                [byte[]]$RawBytes = $null
+            )
+            $rawStream = if ($RawBytes) { [System.IO.MemoryStream]::new($RawBytes) } else { $null }
+            return [PSCustomObject]@{
+                StatusCode       = $StatusCode
+                Content          = $Body
+                Headers          = $Headers
+                RawContentStream = $rawStream
+            }
         }
     }
 
@@ -347,6 +361,69 @@ Describe 'Invoke-CyberArkAPI - success paths (mocked Invoke-WebRequest)' {
 }
 
 # ─────────────────────────────────────────────────────────────────
+# Binary/file responses (e.g. Platforms/Export downloading a .zip) - response shape is
+# determined from the actual Content-Type/Content-Disposition headers, not by trying
+# ConvertFrom-Json and catching failure. See Lessons-Learned-PowerShell-Pester.md Section 39
+# for why RawContentStream (not .Content) is used when Content-Type is absent/misleading.
+Describe 'Invoke-CyberArkAPI - binary/file responses (mocked Invoke-WebRequest)' {
+
+    BeforeEach {
+        $script:TestZipBytes = [byte[]](0x50, 0x4B, 0x03, 0x04, 0x00, 0xFF, 0x80, 0x41, 0x0A, 0x0D)
+    }
+
+    It 'C37 - a correctly-labeled binary Content-Type (.Content already byte[]) returns DataType=File with exact bytes' {
+        Mock Invoke-WebRequest {
+            script:New-MockWebResponse -StatusCode 200 -Body $script:TestZipBytes `
+                -Headers @{ 'Content-Type' = 'application/octet-stream'; 'Content-Disposition' = 'attachment; filename="MyPlatform.zip"' }
+        } -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'POST' -Endpoint '/API/Platforms/WinServerLocal/Export'
+        $r.IsSuccess    | Should -BeTrue
+        $r.DataType     | Should -Be 'File'
+        ,$r.Data | Should -BeOfType 'System.Byte[]'
+        [System.Linq.Enumerable]::SequenceEqual([byte[]]$r.Data, [byte[]]$script:TestZipBytes) | Should -BeTrue
+        $r.SuggestedFileName | Should -Be 'MyPlatform.zip'
+    }
+
+    It 'C38 - a mislabeled Content-Type (text/html) with Content-Disposition still recovers exact bytes via RawContentStream' {
+        # .Content would be a lossily-decoded string in this real-world case (confirmed live -
+        # see Section 39) - RawContentStream is what must be used to avoid corrupting the file.
+        Mock Invoke-WebRequest {
+            script:New-MockWebResponse -StatusCode 200 -Body 'PK ??A' `
+                -Headers @{ 'Content-Type' = 'text/html; charset=utf-8'; 'Content-Disposition' = 'attachment; filename="MyPlatform.zip"' } `
+                -RawBytes $script:TestZipBytes
+        } -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'POST' -Endpoint '/API/Platforms/WinServerLocal/Export'
+        $r.DataType | Should -Be 'File'
+        [System.Linq.Enumerable]::SequenceEqual([byte[]]$r.Data, [byte[]]$script:TestZipBytes) | Should -BeTrue
+        $r.SuggestedFileName | Should -Be 'MyPlatform.zip'
+    }
+
+    It 'C39 - binary content with no Content-Disposition header still returns DataType=File, with SuggestedFileName null' {
+        Mock Invoke-WebRequest {
+            script:New-MockWebResponse -StatusCode 200 -Body $script:TestZipBytes `
+                -Headers @{ 'Content-Type' = 'application/zip' }
+        } -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'POST' -Endpoint '/API/Platforms/WinServerLocal/Export'
+        $r.DataType          | Should -Be 'File'
+        $r.SuggestedFileName | Should -BeNullOrEmpty
+    }
+
+    It 'C40 - a normal JSON response (Content-Type: application/json) is unaffected by the binary-detection logic' {
+        Mock Invoke-WebRequest {
+            script:New-MockWebResponse -StatusCode 200 -Body '{"value":[],"count":0}' `
+                -Headers @{ 'Content-Type' = 'application/json' }
+        } -ModuleName 'CyberArkComms'
+
+        $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes' -PageSize 0
+        $r.DataType | Should -Be 'JSON'
+        $r.SuggestedFileName | Should -BeNullOrEmpty
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────
 Describe 'Invoke-CyberArkAPI - pagination (mocked Invoke-WebRequest)' {
 
     It 'C26 - two full pages combined into single value array' {
@@ -357,11 +434,11 @@ Describe 'Invoke-CyberArkAPI - pagination (mocked Invoke-WebRequest)' {
         Mock Invoke-WebRequest {
             $script:callCount++
             if ($script:callCount -eq 1) {
-                [PSCustomObject]@{ StatusCode = 200; Content = $page1 }
+                [PSCustomObject]@{ StatusCode = 200; Content = $page1 ; Headers = @{} }
             } elseif ($script:callCount -eq 2) {
-                [PSCustomObject]@{ StatusCode = 200; Content = $page2 }
+                [PSCustomObject]@{ StatusCode = 200; Content = $page2 ; Headers = @{} }
             } else {
-                [PSCustomObject]@{ StatusCode = 200; Content = $page3 }
+                [PSCustomObject]@{ StatusCode = 200; Content = $page3 ; Headers = @{} }
             }
         } -ModuleName 'CyberArkComms'
 
@@ -379,9 +456,9 @@ Describe 'Invoke-CyberArkAPI - pagination (mocked Invoke-WebRequest)' {
         Mock Invoke-WebRequest {
             $script:callCount++
             if ($script:callCount -eq 1) {
-                [PSCustomObject]@{ StatusCode = 200; Content = $page1 }
+                [PSCustomObject]@{ StatusCode = 200; Content = $page1 ; Headers = @{} }
             } else {
-                [PSCustomObject]@{ StatusCode = 200; Content = $page2 }
+                [PSCustomObject]@{ StatusCode = 200; Content = $page2 ; Headers = @{} }
             }
         } -ModuleName 'CyberArkComms'
 
@@ -393,7 +470,7 @@ Describe 'Invoke-CyberArkAPI - pagination (mocked Invoke-WebRequest)' {
 
     It 'C28 - PageSize=0 disables pagination (single request)' {
         $json = '{"value":[{"safeName":"S1"}],"count":1}'
-        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 200; Content = $json } } `
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 200; Content = $json ; Headers = @{} } } `
             -ModuleName 'CyberArkComms'
 
         Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes' `
@@ -412,7 +489,7 @@ Describe 'Invoke-CyberArkAPI - error responses (mocked Invoke-WebRequest, no exc
 
     It 'C29 - a 4xx body with ErrorCode and ErrorMessage produces "CODE: message" in ErrorMessage' {
         $json = '{"ErrorCode":"PASWS001W","ErrorMessage":"The account is locked by: [ca_jesse]."}'
-        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = $json } } `
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = $json ; Headers = @{} } } `
             -ModuleName 'CyberArkComms'
 
         $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'POST' -Endpoint '/API/Accounts/60_5/Password/Update' `
@@ -426,7 +503,7 @@ Describe 'Invoke-CyberArkAPI - error responses (mocked Invoke-WebRequest, no exc
 
     It 'C30 - a 5xx body with ErrorCode and ErrorMessage also gets the "CODE: message" prefix' {
         $json = '{"ErrorCode":"CAWS00001E","ErrorMessage":"Internal error."}'
-        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 500; Content = $json } } `
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 500; Content = $json ; Headers = @{} } } `
             -ModuleName 'CyberArkComms'
 
         $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes'
@@ -435,7 +512,7 @@ Describe 'Invoke-CyberArkAPI - error responses (mocked Invoke-WebRequest, no exc
 
     It 'C31 - a 4xx body with no ErrorCode field falls back to the bare ErrorMessage (no leading colon)' {
         $json = '{"ErrorMessage":"Not Found"}'
-        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 404; Content = $json } } `
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 404; Content = $json ; Headers = @{} } } `
             -ModuleName 'CyberArkComms'
 
         $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Accounts/nope'
@@ -445,7 +522,7 @@ Describe 'Invoke-CyberArkAPI - error responses (mocked Invoke-WebRequest, no exc
     It 'C32 - a non-JSON 4xx body with content is included in ErrorMessage, per user request' {
         # Direct assignment, not `{ $r = ... } | Should -Not -Throw` - that form runs the
         # scriptblock in a child scope, so $r never reaches this scope (Lessons-Learned 32).
-        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = '<html>Bad Request</html>' } } `
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = '<html>Bad Request</html>' ; Headers = @{} } } `
             -ModuleName 'CyberArkComms'
 
         $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes'
@@ -453,7 +530,7 @@ Describe 'Invoke-CyberArkAPI - error responses (mocked Invoke-WebRequest, no exc
     }
 
     It 'C33 - a genuinely blank 4xx body falls back to a bare HTTP-status message' {
-        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = '' } } `
+        Mock Invoke-WebRequest { [PSCustomObject]@{ StatusCode = 400; Content = '' ; Headers = @{} } } `
             -ModuleName 'CyberArkComms'
 
         $r = Invoke-CyberArkAPI -Token $script:MockToken -Method 'GET' -Endpoint '/API/Safes'

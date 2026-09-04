@@ -193,6 +193,44 @@ Describe 'Invoke-CustomExportAll' {
         }
     }
 
+    Context 'IncludeInExportAll opt-in' {
+        It 'discovers a non-List/ListAuthMethods module that opts in via IncludeInExportAll' {
+            # Confirms Policies/GetMasterPolicy (Action = 'GetMasterPolicy', not a List action)
+            # is still picked up because it sets ModuleMeta.IncludeInExportAll = $true.
+            function Invoke-PoliciesGetMasterPolicy {
+                param($Token, $InputData, [switch]$WhatIf)
+                $r = [System.Collections.Generic.List[PSCustomObject]]::new()
+                $r.Add([PSCustomObject]@{ PolicyId = 1; DualControl = $true })
+                return [PSCustomObject]@{
+                    Results   = $r
+                    Errors    = [System.Collections.Generic.List[PSCustomObject]]::new()
+                    Successes = 1; Failures = 0
+                }
+            }
+
+            $script:LoadedModules = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $script:LoadedModules.Add([PSCustomObject]@{
+                Meta = @{ Name = 'Get Master Policy'; Category = 'Policies'; Action = 'GetMasterPolicy'; ProducesOutput = $true; Priority = 90; IncludeInExportAll = $true }
+            })
+
+            $token  = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $result = Invoke-CustomExportAll -Token $token -InputData @{}
+            $result.ItemsProcessed    | Should -Be 1
+            $result.Results[0].Module | Should -Be 'Get Master Policy'
+        }
+
+        It 'does not discover a non-List/ListAuthMethods module that does not opt in' {
+            $script:LoadedModules = [System.Collections.Generic.List[PSCustomObject]]::new()
+            $script:LoadedModules.Add([PSCustomObject]@{
+                Meta = @{ Name = 'Set Master Policy'; Category = 'Policies'; Action = 'SetMasterPolicy'; ProducesOutput = $true; Priority = 90 }
+            })
+
+            $token  = [PSCustomObject]@{ Token = 'tok'; Expiry = [DateTime]::UtcNow.AddHours(1) }
+            $result = Invoke-CustomExportAll -Token $token -InputData @{}
+            $result.ItemsProcessed | Should -Be 0
+        }
+    }
+
     Context 'Relative OutputFolder resolution' {
         BeforeEach {
             # $PSScriptRoot inside Invoke-CustomExportAll.ps1 is this file's own directory

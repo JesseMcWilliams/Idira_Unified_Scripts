@@ -156,16 +156,16 @@ function Invoke-SafesAdd {
 
     # NumberOfVersionsRetention and NumberOfDaysRetention are mutually exclusive on this API -
     # only one may be sent. Days wins when set to a value greater than 0; otherwise Versions is sent.
-    $numberOfVersionsRetention = if ($InputData.NumberOfVersionsRetention) { [int]$InputData.NumberOfVersionsRetention } else { 5 }
-    $numberOfDaysRetention     = if ($InputData.NumberOfDaysRetention)     { [int]$InputData.NumberOfDaysRetention }     else { 0 }
+    $numberOfVersionsRetention = if ($InputData['NumberOfVersionsRetention']) { [int]$InputData['NumberOfVersionsRetention'] } else { 5 }
+    $numberOfDaysRetention     = if ($InputData['NumberOfDaysRetention'])     { [int]$InputData['NumberOfDaysRetention'] }     else { 0 }
 
     # Build request body. OLACEnabled is intentionally never sent - it is not a supported input for this module.
     $body = @{
         SafeName         = $safeName
-        Description      = if ($InputData.Description) { $InputData.Description } else { '' }
-        Location         = if ($InputData.Location)     { $InputData.Location }     else { '\' }
-        ManagingCPM      = if ($InputData.ManagingCPM)   { $InputData.ManagingCPM }   else { '' }
-        AutoPurgeEnabled = ($InputData.AutoPurgeEnabled -match '^true$')
+        Description      = if ($InputData['Description']) { $InputData['Description'] } else { '' }
+        Location         = if ($InputData['Location'])     { $InputData['Location'] }     else { '\' }
+        ManagingCPM      = if ($InputData['ManagingCPM'])   { $InputData['ManagingCPM'] }   else { '' }
+        AutoPurgeEnabled = ("$($InputData['AutoPurgeEnabled'])" -match '^true$')
     }
     if ($numberOfDaysRetention -gt 0) {
         $body['NumberOfDaysRetention'] = $numberOfDaysRetention

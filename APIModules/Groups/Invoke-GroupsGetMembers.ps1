@@ -15,7 +15,7 @@ $ModuleMeta = @{
         @{ Column = 'IncludeMembers';  Required = $false; Description = 'Include full member details in the response (optional, default false).' }
     )
     Priority         = 64
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function Get-GroupsGetMembersInput {
@@ -174,11 +174,16 @@ function Invoke-GroupsGetMembers {
 
     foreach ($m in $members) {
         try {
+            # Confirmed live: a real member entry on this tenant is only { "username", "id" } -
+            # no userType/componentUser at all, with or without includeMembers=true. Guarded with
+            # PSObject.Properties[] existence checks (this codebase's established pattern) rather
+            # than assuming psPAS's documented shape is complete, since dot-accessing an absent
+            # property throws PropertyNotFoundException under Set-StrictMode.
             $result.Results.Add([PSCustomObject]@{
-                MemberID      = $m.id
-                Username      = $m.username
-                UserType      = $m.userType
-                ComponentUser = $m.componentUser
+                MemberID      = if ($m.PSObject.Properties['id'])            { $m.id }            else { $null }
+                Username      = if ($m.PSObject.Properties['username'])      { $m.username }      else { $null }
+                UserType      = if ($m.PSObject.Properties['userType'])      { $m.userType }      else { $null }
+                ComponentUser = if ($m.PSObject.Properties['componentUser']) { $m.componentUser } else { $null }
             })
             $result.Successes++
             $result.ItemsProcessed++

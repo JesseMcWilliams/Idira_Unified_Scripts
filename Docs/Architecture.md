@@ -20,7 +20,7 @@ the driver.
 | `Modules\CyberArkLogging.psm1` | Complete |
 | `Modules\CyberArkComms.psm1` | Complete |
 | `Manage-Privilege.ps1` | Complete |
-| API Modules (40+ modules across 9 categories) | Complete |
+| API Modules (67 modules across 10 categories) | Complete |
 
 ---
 
@@ -64,93 +64,106 @@ the driver.
 ## Folder Structure
 
 ```
-PowerShell\
+aPePAS\
 ├── Manage-Privilege.ps1                # Interactive driver script
 ├── Auth\
 │   ├── CyberArk.Auth.Common.psm1       # Shared auth utilities: token object, WebView2, profile persistence
 │   ├── CyberArk.Auth.ISPSS.psm1        # Privilege Cloud / CyberArk Identity authentication
 │   └── CyberArk.Auth.SelfHosted.psm1   # Self-Hosted PVWA authentication
 ├── Modules\
-│   ├── CyberArkComms.psm1              # Shared REST communications module
-│   ├── CyberArkLogging.psm1            # Logging module
-│   ├── CyberArk_Driver_REST.psm1       # Legacy — superseded by CyberArkComms
-│   └── Credential.psm1                 # Existing credential helper
-├── APIModules\
-│   ├── Accounts\
-│   │   ├── Invoke-AccountsList.ps1
-│   │   ├── Invoke-AccountsGet.ps1
+│   ├── CyberArkComms.psm1              # Shared REST communications module (pagination, rate limiting, binary/JSON detection)
+│   └── CyberArkLogging.psm1            # Structured log writer
+├── APIModules\                         # 67 action modules across 10 categories
+│   ├── Accounts\                       # 17 actions
 │   │   ├── Invoke-AccountsAdd.ps1
-│   │   ├── Invoke-AccountsUpdate.ps1
+│   │   ├── Invoke-AccountsCancelCpmTask.ps1
+│   │   ├── Invoke-AccountsChangeImmediate.ps1
+│   │   ├── Invoke-AccountsChangeInVault.ps1
+│   │   ├── Invoke-AccountsCheckIn.ps1
 │   │   ├── Invoke-AccountsDelete.ps1
-│   │   ├── Invoke-AccountsGetCredential.ps1
+│   │   ├── Invoke-AccountsGet.ps1
 │   │   ├── Invoke-AccountsGetActivity.ps1
+│   │   ├── Invoke-AccountsGetCredential.ps1
 │   │   ├── Invoke-AccountsLinkAccount.ps1
+│   │   ├── Invoke-AccountsList.ps1
+│   │   ├── Invoke-AccountsReconcile.ps1
+│   │   ├── Invoke-AccountsResumeAutoManagement.ps1
 │   │   ├── Invoke-AccountsUnlinkAccount.ps1
 │   │   ├── Invoke-AccountsUnlock.ps1
-│   │   ├── Invoke-AccountsCheckIn.ps1
-│   │   ├── Invoke-AccountsResumeAutoManagement.ps1
-│   │   ├── Invoke-AccountsCancelCpmTask.ps1
-│   │   ├── Invoke-AccountsVerify.ps1
-│   │   ├── Invoke-AccountsChangeInVault.ps1
-│   │   ├── Invoke-AccountsChangeImmediate.ps1
-│   │   └── Invoke-AccountsReconcile.ps1
-│   ├── Safes\
-│   │   ├── Invoke-SafesList.ps1
-│   │   ├── Invoke-SafesGet.ps1
+│   │   ├── Invoke-AccountsUpdate.ps1
+│   │   └── Invoke-AccountsVerify.ps1
+│   ├── Safes\                          # 8 actions
 │   │   ├── Invoke-SafesAdd.ps1
-│   │   ├── Invoke-SafesUpdate.ps1
-│   │   └── Invoke-SafesDelete.ps1
-│   ├── SafeMembers\
-│   │   ├── Invoke-SafeMembersList.ps1
+│   │   ├── Invoke-SafesAddFromTemplate.ps1
+│   │   ├── Invoke-SafesAssignCPM.ps1
+│   │   ├── Invoke-SafesDelete.ps1              # Offers a rename-instead fallback on HTTP 409
+│   │   ├── Invoke-SafesGet.ps1
+│   │   ├── Invoke-SafesList.ps1
+│   │   ├── Invoke-SafesUnassignCPM.ps1
+│   │   └── Invoke-SafesUpdate.ps1
+│   ├── SafeMembers\                    # 6 actions
 │   │   ├── Invoke-SafeMembersAdd.ps1
+│   │   ├── Invoke-SafeMembersAddFromTemplateRole.ps1
+│   │   ├── Invoke-SafeMembersList.ps1
+│   │   ├── Invoke-SafeMembersRemove.ps1
 │   │   ├── Invoke-SafeMembersUpdate.ps1
-│   │   └── Invoke-SafeMembersRemove.ps1
-│   ├── Platforms\
+│   │   └── Invoke-SafeMembersUpdateFromTemplateRole.ps1
+│   ├── Platforms\                      # 10 actions
+│   │   ├── Invoke-PlatformsCopy.ps1
+│   │   ├── Invoke-PlatformsDisable.ps1
+│   │   ├── Invoke-PlatformsEnable.ps1
+│   │   ├── Invoke-PlatformsExport.ps1          # Download a platform .zip (all 4 psPAS target types)
+│   │   ├── Invoke-PlatformsGet.ps1
+│   │   ├── Invoke-PlatformsImport.ps1
 │   │   ├── Invoke-PlatformsList.ps1
-│   │   └── Invoke-PlatformsGet.ps1
-│   ├── Users\
-│   │   ├── Invoke-UsersList.ps1
-│   │   └── Invoke-UsersGet.ps1
-│   ├── Groups\
-│   │   ├── Invoke-GroupsList.ps1
+│   │   ├── Invoke-PlatformsRemove.ps1
+│   │   ├── Invoke-PlatformsRename.ps1          # Self-Hosted only (PVWA 15.0+)
+│   │   └── Invoke-PlatformsSetPSMConfig.ps1
+│   ├── Policies\                       # 2 actions (PVWA 14.6+)
+│   │   ├── Invoke-PoliciesGetMasterPolicy.ps1  # Dual-use; confirmed absent on ISPSS, fails gracefully there
+│   │   └── Invoke-PoliciesSetMasterPolicy.ps1  # Self-Hosted only
+│   ├── Users\                          # 2 actions
+│   │   ├── Invoke-UsersGet.ps1
+│   │   └── Invoke-UsersList.ps1
+│   ├── Groups\                         # 7 actions
 │   │   ├── Invoke-GroupsAdd.ps1
-│   │   ├── Invoke-GroupsUpdate.ps1
+│   │   ├── Invoke-GroupsAddMember.ps1          # MemberID is the member's username, not a numeric ID
 │   │   ├── Invoke-GroupsDelete.ps1
 │   │   ├── Invoke-GroupsGetMembers.ps1
-│   │   ├── Invoke-GroupsAddMember.ps1
-│   │   └── Invoke-GroupsRemoveMember.ps1
-│   ├── Reports\
-│   │   └── Invoke-ReportsList.ps1          # SelfHosted only (GET /API/Reports)
-│   ├── Custom\
-│   │   ├── Invoke-CustomExportAll.ps1               # Export all list-module results to CSV
-│   │   ├── Invoke-CustomExportEntitlements.ps1      # All safes + members → single CSV
-│   │   ├── Invoke-CustomExportGroupMembersLocal.ps1 # Local group members with nesting
-│   │   ├── Invoke-CustomExportGroupMembersLDAP.ps1  # LDAP/Directory group members via ADSI (@ groups only)
-│   │   └── Invoke-CustomTestApi.ps1                 # Interactive raw API tester
-│   └── Applications\
-│       ├── Invoke-ApplicationsList.ps1             # SelfHosted only (GET /WebServices/PIMServices.svc/Applications)
-│       ├── Invoke-ApplicationsGet.ps1              # SelfHosted only
-│       ├── Invoke-ApplicationsAdd.ps1              # SelfHosted only
-│       ├── Invoke-ApplicationsDelete.ps1           # SelfHosted only
-│       ├── Invoke-ApplicationsListAuthMethods.ps1  # SelfHosted only
-│       ├── Invoke-ApplicationsAddAuthMethod.ps1    # SelfHosted only
-│       └── Invoke-ApplicationsDeleteAuthMethod.ps1 # SelfHosted only
+│   │   ├── Invoke-GroupsList.ps1
+│   │   ├── Invoke-GroupsRemoveMember.ps1
+│   │   └── Invoke-GroupsUpdate.ps1
+│   ├── Applications\                   # 7 actions, dual-use
+│   │   ├── Invoke-ApplicationsAdd.ps1
+│   │   ├── Invoke-ApplicationsAddAuthMethod.ps1
+│   │   ├── Invoke-ApplicationsDelete.ps1
+│   │   ├── Invoke-ApplicationsDeleteAuthMethod.ps1
+│   │   ├── Invoke-ApplicationsGet.ps1
+│   │   ├── Invoke-ApplicationsList.ps1
+│   │   └── Invoke-ApplicationsListAuthMethods.ps1
+│   ├── Reports\                        # 1 action, Self-Hosted only
+│   │   └── Invoke-ReportsList.ps1
+│   └── Custom\                         # 7 actions
+│       ├── Invoke-CustomExportAll.ps1               # Runs every List/ListAuthMethods action (+ opt-in modules) to CSV
+│       ├── Invoke-CustomExportEntitlements.ps1      # All safes + members -> single CSV
+│       ├── Invoke-CustomExportGroupMembersLDAP.ps1  # LDAP/Directory group members via ADSI
+│       ├── Invoke-CustomExportGroupMembersLocal.ps1 # Local group members with nesting
+│       ├── Invoke-CustomExportPlatformDetails.ps1   # Every active platform's INI/XML settings -> one CSV
+│       ├── Invoke-CustomTestApi.ps1                 # Interactive raw API tester
+│       └── Invoke-CustomTestConnectivity.ps1        # DNS/port/credential connectivity tester
 ├── Profiles\                           # Created at runtime (default: %APPDATA%\IdiraUnifiedScripts\Profiles\)
 │   ├── Production.json
-│   ├── Production.cred          # DPAPI-encrypted token (was .xml)
+│   ├── Production.cred                 # DPAPI-encrypted token
 │   ├── Development.json
 │   └── Development.cred
 └── Docs\
     ├── Architecture.md                 # This document
     ├── Interfaces.md
     ├── API-Module-Development-Guide.md
-    ├── SharedComms-Reference.md
-    ├── Logging-Reference.md
-    ├── Profile-Schema.md
-    ├── Driver-Reference.md
-    ├── Installation.md
-    ├── Troubleshooting.md
-    ├── API-Coverage-Matrix.md
+    ├── Testing-Plan.md
+    ├── User-Guide.md
+    ├── E2E-Automation-Design.md
+    ├── Lessons-Learned-PowerShell-Pester.md
     └── Documentation-Tracker.md
 ```
 
@@ -362,6 +375,16 @@ result object. See [API-Module-Development-Guide.md](API-Module-Development-Guid
 | Plink's unrecognized host key is trusted via a parsed retry, not skipped outright | On a "host key is not cached" failure, `Test-LinuxSshAuth` parses the `SHA256:...` fingerprint plink itself reports and retries once with `-hostkey <fingerprint>`, rather than any blanket bypass | PuTTY deliberately has no CLI equivalent to OpenSSH's `StrictHostKeyChecking=no` - `-hostkey` requires the exact key already known, by design, so it can't be used to blindly trust anything. Using the fingerprint plink already computed for *this specific connection* preserves that same trust-on-first-use tradeoff already made for the PS7 path, without inventing a bypass PuTTY itself doesn't offer. Confirmed live end-to-end against a real target, starting from a genuinely empty host-key cache: the retry succeeded automatically, a real login went through (`AuthStatus: Success`), and a wrong password still failed cleanly in ~3 seconds rather than hanging. |
 | A literal IP with no reverse-DNS record is not a resolution failure | `Resolve-ConnectivityTarget` treats a `GetHostEntry` exception on a literal IP address as a successful resolution (empty `FQDN`, the IP echoed back as `IPAddress`) rather than aborting the whole connectivity test | Confirmed live: a fully reachable real test host has no PTR (reverse DNS) record, which is normal for an internal/test host and unrelated to reachability - `GetHostEntry` throws "No such host is known" for exactly this case. The address was already fully usable (it's a literal IP) without any DNS lookup at all, so failing to also learn its hostname must not block the port/auth checks that follow. A *name* that fails to resolve is unchanged - that's still a hard failure, since there's nothing left to connect to. |
 | CSV filename can include an InputData field (`ModuleMeta.CsvFilenameField`) | A new optional `ModuleMeta` key names an `InputData` column whose value, when present and non-blank, is appended to the single-interactive-run auto-saved CSV filename (`Invoke-ActionModule`'s CSV-save block, `Manage-Privilege.ps1`) | Per user request: Test Connectivity's auto-saved filename was always just `"Test Connectivity <date>.csv"`, so testing several servers one at a time overwrote the same file each run. Implemented as a generic, opt-in mechanism rather than a name-check hardcoded to one module, so any future module can opt in the same way; only `Custom/TestConnectivity` declares it (`CsvFilenameField = 'Address'`) as of this change. |
+| `/API/Platforms/Targets` is fetched unfiltered, never with `search` | The 6 modules that resolve a `PlatformID` to CyberArk's internal numeric ID (`Platforms/Copy/Enable/Disable/Remove/Rename/SetPSMConfig`) fetch the endpoint with no query parameters and unwrap a `Platforms` property from the response, falling back to treating the response as a bare array for backward compatibility | Confirmed live, 2026-09-04, during a full end-to-end module test pass: the endpoint actually wraps its results as `{"Platforms": [...], "Total": N}` (not a bare array, as every one of these modules had assumed), and its `search` query parameter does not match against `PlatformID` at all - searching for the exact string `WinServerLocal` returned zero results for a platform confirmed to exist. See Testing-Plan.md F32. |
+| Safes `PUT` requires `SafeName` in the body, not just the URL | `Invoke-SafesUpdate.ps1`, `Invoke-SafesAssignCPM.ps1`, and `Invoke-SafesUnassignCPM.ps1` all include `SafeName` in their `PUT /API/Safes/{safeName}` request body | Confirmed live via a raw-HTTP isolation test: this PVWA version returns an empty-body HTTP 400 for every field combination tried unless `SafeName` is also present in the body - a real divergence from psPAS's own `Set-PASSafe.ps1`, whose `Format-PutRequestObject` keep-list never includes it. See Testing-Plan.md F33. |
+| Add Safe From Template excludes the template safe's own creator from the member copy | The member-copy filter (alongside the existing role-prefix and `$script:ExcludedTemplateMemberNames` exclusions) also excludes any member whose name matches the template safe's `creator.name`, read from the same `GET` response already fetched for the safe's settings | Confirmed live: CyberArk always includes the safe's creator as an implicit member with owner-level access, and rejects an explicit attempt to re-grant that same access on the new safe with `HTTP 403 Forbidden`. This member is never role-prefixed, so it was invisible to the existing exclusion logic until this fix. See Testing-Plan.md F34. |
+| Safe delete offers a rename-instead fallback on HTTP 409 | `Invoke-SafesDelete.ps1` asks (interactively, via `Read-Host`) whether to rename the safe to `1_DEL_<SafeName>` (truncated to CyberArk's 28-character limit) instead of just failing, when the delete itself returns HTTP 409. A successful rename counts as a `Success`, not a `Failure` | Per user direction, following up on a live-confirmed 409 that persisted even on a safe whose own `GET` showed zero accounts - most likely Safe History Retention, since an account is marked with the retention setting active on the safe when it was added, so mixed settings across a safe's history can block a full purge. No API-side "force delete" exists (confirmed against psPAS's `Remove-PASSafe.ps1`), so a rename achieves the practical goal (getting the safe out of normal use) without needing CyberArk to actually release the lock. See Testing-Plan.md F35/K10. |
+| `$InputData.Key` dot notation replaced with bracket notation across 9 modules | `Invoke-SafesAdd/Update/AssignCPM/UnassignCPM/Delete.ps1`, `Invoke-SafeMembersRemove.ps1`, and `Invoke-GroupsAdd/Update/Delete.ps1` now read every optional `InputData` field via `$InputData['Key']` instead of `$InputData.Key` | Confirmed live: dot notation on a hashtable throws `PropertyNotFoundException` under `Set-StrictMode -Version Latest` when the key is entirely absent (not merely blank) - a real, live-reachable crash whenever a caller (a CSV row missing a column, or a direct API caller) omits an optional field outright, rather than including it blank. The existing unit test suite never caught this because every fixture always supplies every key. See Testing-Plan.md F31 and Lessons-Learned Section 37. |
+| ISPSS `ClientCredentials` response fields are guarded, not assumed present | `Invoke-ISPSSClientCredentials` and `Update-ISPSSAuthToken`'s refresh branch read `access_token`/`expires_in`/`refresh_token` via `$resp.PSObject.Properties['field']` checks rather than unconditional dot access | Confirmed against CyberArk's own "Create an API token" reference and an isolated repro: the documented `POST /oauth2/platformtoken` response for this grant type is `{access_token, token_type, expires_in}` only, with no `refresh_token` field, and dot-accessing a genuinely absent JSON property throws under this project's strict mode - meaning every `ClientCredentials` login would have crashed immediately after a successful token request. See Testing-Plan.md F36. |
+| `Invoke-CyberArkAPI` determines JSON vs. binary from response headers, not a JSON-parse-and-catch guess | The response's actual `Content-Type` and `Content-Disposition` headers decide the response shape. `.Content` is used directly when `Invoke-WebRequest` already returned it as a `byte[]` (the normal case for a correctly-labeled binary `Content-Type`); `RawContentStream` is read instead whenever a `Content-Disposition` header is present on a non-JSON response, since a file mislabeled with e.g. `text/html` gets `.Content` lossily decoded as text by `Invoke-WebRequest` - `RawContentStream` always holds the untouched original bytes regardless. A new `DataType='File'` (already documented, but never implemented, in `Interfaces.md`) and `SuggestedFileName` (from `Content-Disposition`) complete the response object for file downloads | Needed for `Platforms/Export` to download a real platform `.zip`. Confirmed live, via a local `HttpListener` test under real Windows PowerShell 5.1, that a mislabeled `Content-Type` genuinely and irreversibly corrupts binary data read via `.Content`, while `RawContentStream` recovers the exact original bytes in every case tried - this is more robust than psPAS's own `Get-PASResponse`, which relies on `.Content`'s runtime type alone and has no `RawContentStream` fallback for that exact scenario. See `Lessons-Learned-PowerShell-Pester.md` Section 39. |
+| Platform export/download supports all 4 psPAS `Export-PASPlatform` target types | `Invoke-PlatformsExport.ps1` accepts exactly one of `PlatformID`, `RotationalGroupID`, `DependentID`, or `GroupPlatformID` in `InputData`, routing to the matching endpoint (`POST /API/Platforms/{id}/Export`, `/api/Platforms/RotationalGroups/{id}/Export`, `/api/Platforms/Dependents/{id}/Export`, or `/API/Platforms/Groups/{id}/Export` - casing preserved exactly as documented by psPAS, including the two lowercase `/api/` paths). The downloaded file is always auto-saved to the profile's `OutputFolder`, using the filename CyberArk suggests via `Content-Disposition`, or a generated `Platform-Export-<Type>-<ID>-<timestamp>.zip` if none is given | Per explicit user direction (all 4 variants, auto-save rather than prompting for a path). Unlike `Platforms/Copy/Enable/Disable/Remove/Rename/SetPSMConfig`, this endpoint takes the target's own string ID directly in the URL - no numeric-ID resolution via `/API/Platforms/Targets` is needed, confirmed directly from psPAS's `Export-PASPlatform.ps1`. Live-verified end-to-end for the `PlatformID` case against a real tenant: the downloaded file was a genuinely valid, openable `.zip` containing the platform's real policy files. The other 3 variants are unit-tested against psPAS's documented endpoint shapes but not yet live-confirmed, since no existing aPePAS module can discover a real rotational group/dependent/group-platform ID to test against. |
+| `Custom/ExportPlatformDetails` builds a dynamic, unioned column set across every active platform | `Invoke-CustomExportPlatformDetails.ps1` lists `/API/Platforms`, filters to `general.active=$true` entries of any `platformType`, downloads each via the same standard `/API/Platforms/{id}/Export` endpoint `Platforms/Export`'s `PlatformID` variant uses, and parses each `Policy-<id>.ini`/`.xml` into `Ini.<Key>`/`Ini.<Section>.<Key>`/`Xml.<Field>` hashtable entries (using XPath, never dot-notation, for the XML). Only after every platform is processed are the final CSV rows built, using the sorted union of every key seen across all platforms - a platform lacking a given setting gets a blank value on its row rather than a missing column, since `Export-Csv` requires uniform columns across rows | Per user request: "any type" of active platform, one spreadsheet, every setting as its own column. Confirmed live that `/API/Platforms` list entries nest fields (`id`, `active`, `platformType`, etc.) under a `general` sub-object, not at the root. Also confirmed live, contradicting an initial assumption, that the list's `platformType` value (`"regular"`/`"group"`) is unrelated to psPAS's separate `GroupPlatformID` concept: a `platformType="group"` platform exported successfully (HTTP 200) via the standard endpoint, while the same ID via the dedicated `/API/Platforms/Groups/{id}/Export` endpoint returned HTTP 400 - proving these are two distinct ID-spaces, and this bulk module needs only the one standard endpoint regardless of platform type. A per-platform export failure is a non-fatal `Failure`, not an abort, matching `Custom/ExportAll`'s established continue-on-error convention for bulk reports. An `OtherFiles` column lists any zip entry that isn't one of the two expected policy files, excluding a `META-INF` folder per explicit user direction - unit-tested but not live-confirmed, since no real example of extra bundled files existed on the test tenant. See Testing-Plan.md F39. |
+| `Policies/GetMasterPolicy` declared dual-use despite psPAS's Self-Hosted-only assertion (and despite Master Policy being confirmed absent on ISPSS); `Custom/ExportAll` gains a generic `IncludeInExportAll` opt-in | `Invoke-PoliciesGetMasterPolicy.ps1`'s `SupportedSystems` now includes `ISPSS` alongside `SelfHosted` (its write counterpart, `SetMasterPolicy`, was deliberately left Self-Hosted-only). A new `ModuleMeta.IncludeInExportAll = $true` flag lets `Invoke-CustomExportAll.ps1`'s module-discovery filter pick up a module whose `Action` isn't `List`/`ListAuthMethods` - the read counterpart to the pre-existing `ExcludeFromExportAll` opt-out | Per user request: "Within CyberArk's Self-Hosted and Privilege Cloud have a master policy. Is there a way to pull this information? I would like to include it in the Export All." psPAS's `Get-PASMasterPolicy.ps1` explicitly asserts `-SelfHosted`, and at the time no local CyberArk reference material documented a Privilege Cloud master-policy endpoint - though neither source confirmed one didn't exist, only that it was undocumented. The module was declared dual-use anyway, relying on its pre-existing non-fatal failure handling (a 404 or other error is a `Failure`, not a crash). Live-verified end-to-end on Self-Hosted: `Export All`, with only this module loaded, correctly discovered and ran it via the new opt-in, saving a real CSV with real policy values. **The user subsequently verified live against a real Privilege Cloud tenant that no Master Policy equivalent endpoint exists on ISPSS at all** - `SupportedSystems` was kept dual-use anyway per user direction, since the existing graceful failure handling already degrades cleanly there with no code change needed. See Testing-Plan.md F40. |
 
 ---
 

@@ -52,17 +52,22 @@ function script:New-ApiResponse {
         [object]$Data         = $null,
         [string]$DataType     = 'Empty',
         [string]$ErrorMessage = $null,
-        [object]$ErrorDetails = $null
+        [object]$ErrorDetails = $null,
+
+        # Filename suggested by the response's Content-Disposition header (e.g. an exported
+        # platform's .zip name) - populated only for DataType='File' responses. $null otherwise.
+        [string]$SuggestedFileName = $null
     )
     return [PSCustomObject]@{
-        IsSuccess     = $IsSuccess
-        StatusCode    = $StatusCode
-        StatusMessage = script:Get-StatusMessage -Code $StatusCode
-        ErrorMessage  = $ErrorMessage
-        ErrorDetails  = $ErrorDetails
-        Data          = $Data
-        RawResponse   = $RawResponse
-        DataType      = $DataType
+        IsSuccess          = $IsSuccess
+        StatusCode         = $StatusCode
+        StatusMessage      = script:Get-StatusMessage -Code $StatusCode
+        ErrorMessage       = $ErrorMessage
+        ErrorDetails       = $ErrorDetails
+        Data               = $Data
+        RawResponse        = $RawResponse
+        DataType           = $DataType
+        SuggestedFileName  = $SuggestedFileName
     }
 }
 
@@ -432,7 +437,35 @@ function Invoke-CyberArkAPI {
             $retryCount  = 0   # reset on success
             $gatewayTimeoutRetryCount = 0
             $statusCode  = [int]$response.StatusCode
-            $rawBody     = $response.Content
+
+            # --- Determine response body shape from the actual response headers, not by
+            # guessing from success/failure of a JSON parse attempt ---
+            $respContentType        = if ($response.Headers.ContainsKey('Content-Type'))        { "$($response.Headers['Content-Type'])" }        else { '' }
+            $respContentDisposition = if ($response.Headers.ContainsKey('Content-Disposition')) { "$($response.Headers['Content-Disposition'])" } else { '' }
+
+            $rawBody     = $null
+            $binaryBytes = $null
+
+            if ($response.Content -is [byte[]]) {
+                # Invoke-WebRequest already determined this response is non-textual (e.g.
+                # Content-Type: application/octet-stream or application/zip) - .Content is
+                # already the exact original bytes here, confirmed live (see
+                # Lessons-Learned-PowerShell-Pester.md Section 39).
+                $binaryBytes = $response.Content
+            } elseif ($respContentDisposition -and $respContentType -notmatch '(?i)application/json') {
+                # A Content-Disposition header (a file-attachment marker) on a non-JSON response
+                # means this is a file even though Invoke-WebRequest decoded .Content as a string
+                # - e.g. an endpoint that mislabels a file as text/html. Reading .Content in this
+                # case would silently and irreversibly corrupt the bytes (confirmed live: a
+                # charset-implied text decoding cannot be undone). RawContentStream always holds
+                # the untouched original bytes regardless of what Content-Type claims.
+                $ms          = $response.RawContentStream
+                $ms.Position = 0
+                $binaryBytes = New-Object byte[] $ms.Length
+                $ms.Read($binaryBytes, 0, $ms.Length) | Out-Null
+            } else {
+                $rawBody = $response.Content
+            }
 
         } catch [System.Net.WebException] {
             $webEx      = $_.Exception
@@ -523,15 +556,20 @@ function Invoke-CyberArkAPI {
         }
 
         # --- Parse response body ---
-        $dataType = 'Empty'
-        $data     = $null
+        $dataType         = 'Empty'
+        $data             = $null
+        $suggestedFileName = $null
 
-        if ($rawBody) {
+        if ($binaryBytes) {
+            $dataType = 'File'
+            $data     = $binaryBytes
+            if ($respContentDisposition -match 'filename\*?=\"?([^\";]+)\"?') { $suggestedFileName = $Matches[1] }
+        } elseif ($rawBody) {
             try {
                 $data     = $rawBody | ConvertFrom-Json
                 $dataType = 'JSON'
             } catch {
-                # Not JSON - treat as binary/file content
+                # Not valid JSON and not identified as a file above - keep the raw text as-is.
                 $data     = $rawBody
                 $dataType = 'Binary'
             }
@@ -539,8 +577,10 @@ function Invoke-CyberArkAPI {
 
         $isSuccess = ($statusCode -ge 200 -and $statusCode -le 299)
 
-        # --- Accumulate paginated items ---
-        if ($paginate -and $isSuccess -and $data) {
+        # --- Accumulate paginated items --- (never true for a File response: paginate itself is
+        # already GET-only and this endpoint class is POST-only today, but guarded explicitly
+        # for clarity/future-proofing rather than relying on that incidentally)
+        if ($paginate -and $isSuccess -and $data -and $dataType -ne 'File') {
             # CyberArk typically returns { value: [...], count: N, nextLink: "..." }
             # or { Safes: [...] } etc. Try common collection property names.
             $collection = $null
@@ -605,7 +645,7 @@ function Invoke-CyberArkAPI {
         if ($progressShown) { Write-Progress -Activity 'Fetching results' -Completed -Id 1 }
         return script:New-ApiResponse -IsSuccess $isSuccess -StatusCode $statusCode `
             -RawResponse $rawBody -Data $data -DataType $dataType `
-            -ErrorMessage $errMsg -ErrorDetails $errDetails
+            -ErrorMessage $errMsg -ErrorDetails $errDetails -SuggestedFileName $suggestedFileName
 
     } while ($true)
 }

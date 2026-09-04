@@ -408,10 +408,20 @@ function Invoke-SafesAddFromTemplate {
     # collapse to $null and crash on $excludedNames.Count below.
     [array]$excludedNames = @(if ($script:ExcludedTemplateMemberNames) { $script:ExcludedTemplateMemberNames })
 
+    # The template safe's creator is always present in its member list with implicit
+    # owner-level access CyberArk grants automatically on safe creation - confirmed live that
+    # re-adding that same membership explicitly on the new safe is rejected with HTTP 403
+    # Forbidden (the new safe already grants its own creator the same implicit access). Exclude
+    # it from the copy the same way role-prefixed and globally-excluded names are excluded.
+    $templateCreatorName = if ($templateSafeData.PSObject.Properties['creator'] -and $templateSafeData.creator.PSObject.Properties['name']) {
+        "$($templateSafeData.creator.name)"
+    } else { '' }
+
     [array]$membersToCopy = @($templateMembers | Where-Object {
         $memberName = if ($_.PSObject.Properties['memberName']) { "$($_.memberName)" } else { '' }
         if (-not $memberName) { return $false }
         if ($memberName.StartsWith($rolePrefix, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        if ($templateCreatorName -and $memberName.Equals($templateCreatorName, [StringComparison]::OrdinalIgnoreCase)) { return $false }
         foreach ($excluded in $excludedNames) {
             if ($memberName.Equals("$excluded", [StringComparison]::OrdinalIgnoreCase)) { return $false }
         }

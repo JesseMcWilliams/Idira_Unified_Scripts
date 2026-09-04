@@ -3253,3 +3253,203 @@ property's exact behavior varies by environment in a way that can't be predicted
 numbers or reflection, probe it defensively - on a disposable object, in a `try/catch` - rather
 than gating on a version check or a `GetType().GetProperty(...)` existence test that can itself
 be misleading.
+
+## 36. A Test Calling `.Count` on a Function's Return Value or a `Where-Object` Result Must Wrap It in `@()` First
+
+**Observation:** A routine pre-commit test run turned up 7 failures, all
+`PropertyNotFoundException: The property 'Count' cannot be found on this object`, across two
+unrelated test files - `Get-SafeMembersSearchInOptions` (`Invoke-SafeMembersAdd.Tests.ps1`,
+MA24/MA27/MA28) and `Invoke-SafesAddFromTemplate.Tests.ps1` (T08/T23/T27/T28). All seven were
+already on the branch from earlier work, unrelated to whatever was being changed at the time they
+were noticed - a reminder to always run the full suite before a commit, even a docs-only one,
+since a failure can be sitting undetected in already-committed code until something happens to
+run it again.
+
+**Root cause:** In every failing case, the right-hand side produced exactly one matching item -
+either a function that returns a single-element array (`Get-SafeMembersSearchInOptions` returning
+just the `Vault` fallback option), or `$r.Results | Where-Object { ... }` matching exactly one
+row. PowerShell's pipeline unwraps a single item written to the output stream: the caller receives
+that one object directly, not a one-element array containing it. A `[PSCustomObject]` (or any
+scalar) has no `.Count` property, so `Set-StrictMode -Version Latest` throws
+`PropertyNotFoundException` the moment the assertion runs. The *same* calls with 2+ matches never
+tripped this, because `.Count` genuinely exists on a real multi-element array - which is exactly
+why this kind of bug hides for a long time: it only reproduces for the exact cardinality (zero or
+one) that the pipeline collapses, so a test suite can look green for months until a case with
+exactly one match is added or exercised.
+
+This project's own production code already guards against this everywhere it matters - e.g. the
+real call site for `Get-SafeMembersSearchInOptions` reads
+`[array]$searchInOptions = @(script:Get-SafeMembersSearchInOptions -Token $Token)`
+(`APIModules\SafeMembers\Invoke-SafeMembersAdd.ps1`) - so none of this was a live bug; it was
+purely the unit tests skipping the same guard the product code uses everywhere else.
+
+**Wrong - fails whenever the right-hand side happens to produce exactly one item:**
+```powershell
+$opts = script:Get-SafeMembersSearchInOptions -Token $Token
+$opts.Count | Should -Be 1
+
+($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+```
+
+**Correct - force array semantics with `@(...)` before touching `.Count`, matching how the real
+call sites already do it:**
+```powershell
+$opts = @(script:Get-SafeMembersSearchInOptions -Token $Token)
+$opts.Count | Should -Be 1
+
+@($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+```
+
+**Rule:** Any expression that might return zero, one, or many items - a function call, a
+`Where-Object` filter, a property that's sometimes a single object and sometimes a collection -
+must be wrapped in `@(...)` before `.Count` (or any other array-only member) is used on it, in
+tests exactly as much as in product code. Don't assume a passing test proves the pattern is safe;
+it may only be passing because that particular mock data happens to produce 2+ matches.
+
+## 37. `$InputData.Key` Dot Notation Throws When a Caller Omits an Optional Key Entirely - Unit Tests Can't Catch This If Every Fixture Always Supplies Every Key
+
+**Observation:** A full live end-to-end test pass (every `Invoke-<Category><Action>` function
+called directly against a real Self-Hosted PVWA, calling each module the same way a user's input
+would after passing through the driver) crashed live on the very first write call:
+`Invoke-SafesAdd` threw `PropertyNotFoundException: The property 'ManagingCPM' cannot be found on
+this object` the moment the caller's `InputData` hashtable didn't include a `ManagingCPM` key at
+all - not blank, entirely absent. All 1052 unit tests passed at the time; none of them exercised
+this path, because every test fixture in this codebase always supplies every optional field
+(blank or not) rather than omitting the key outright.
+
+**Root cause:** This is the same bug class this project already fixed once, on 2026-08-15, for
+`$Defaults.Key` inside `Get-*Input` custom input functions (see the Documentation-Tracker entry
+"Fixed `$Defaults.Key` dot notation → `$Defaults['Key']` bracket notation in all `Get-*Input`
+custom input functions"). That earlier pass never touched the `Invoke-*` functions' own direct use
+of `$InputData` - a different, but structurally identical, set of call sites. PowerShell's
+hashtable dot notation (`$h.Foo`) is a convenience the ETS (Extended Type System) provides on top
+of `$h['Foo']`; it looks identical for a present key, but under `Set-StrictMode -Version Latest`
+it throws for an *absent* key while `$h['Foo']` quietly returns `$null` for the same case. A
+systematic grep for `$InputData\.[A-Za-z]` across all 65 API modules turned up 9 more real
+instances of this exact anti-pattern across `Invoke-SafesAdd.ps1`, `Invoke-SafesUpdate.ps1`,
+`Invoke-SafesUnassignCPM.ps1`, `Invoke-SafesAssignCPM.ps1`, `Invoke-SafeMembersRemove.ps1`,
+`Invoke-GroupsDelete.ps1`, `Invoke-GroupsUpdate.ps1`, and `Invoke-GroupsAdd.ps1` - every one of
+them reachable the same way, by a real CSV row missing a column or a direct caller omitting an
+optional key, not just by this test harness.
+
+**A `$InputData.ContainsKey('X')` guard on the same expression is fine and was left alone** -
+`ContainsKey` is a real method call (always safe via dot notation, regardless of what keys exist),
+and short-circuit `-and` evaluation means a subsequent `$InputData.X` dot access after
+`$InputData.ContainsKey('X') -and ...` never runs unless the key is already confirmed present.
+Only *unguarded* dot access - typically inside `if ($InputData.Foo) { ... } else { <default> }` -
+is unsafe.
+
+**Wrong - throws the instant `ManagingCPM` is entirely absent from the hashtable, not just blank:**
+```powershell
+$body = @{
+    ManagingCPM = if ($InputData.ManagingCPM) { $InputData.ManagingCPM } else { '' }
+}
+```
+
+**Correct:**
+```powershell
+$body = @{
+    ManagingCPM = if ($InputData['ManagingCPM']) { $InputData['ManagingCPM'] } else { '' }
+}
+```
+
+**Rule:** Never use dot notation on an `InputData`/`Defaults`-style hashtable whose keys are
+optional or caller-controlled - always use bracket notation, even for a quick one-line
+`if`/`else` default. And don't trust a passing unit test suite to prove this is safe: if every
+fixture in the suite always populates every key (even blank), the suite can never exercise the
+"key entirely absent" path that live CSV input or a minimal caller will eventually hit. A live
+end-to-end pass against a real system - not just mocked unit tests - is what actually caught this.
+
+## 38. An `It`/`Describe` Name Containing `<SomeWord>` Can Crash With "Variable Cannot Be Retrieved" - Only When Run As Part of the Full Suite
+
+**Observation:** A new test named `'D19 - user accepts rename: renames to 1_DEL_<SafeName>,
+reports Success not Failure'` passed when its file was run alone, then failed with
+`RuntimeException: The variable '$SafeName' cannot be retrieved because it has not been set` the
+moment it ran as part of the full `Tests\Run-Tests.ps1` suite - a classic "passes in isolation,
+fails in the full run" symptom that usually points at shared/leaked state between files.
+
+**Root cause:** Pester v6 (like v5) treats `<PlaceholderName>` inside an `It`/`Describe` name as a
+template token for `-ForEach` data-driven tests - it substitutes the value of a same-named
+variable from that test's data context when rendering the name for output. This test used no
+`-ForEach` at all; the `<SafeName>` was meant as plain descriptive text. Pester's name-rendering
+still tries to resolve `<SafeName>` as if it were a template token regardless, by looking for a
+variable of that name in scope - which normally doesn't exist and apparently either isn't reached
+or resolves silently in some run orders, but throws outright when nothing named `$SafeName` is in
+scope at render time in a different run order (i.e., depends on exactly what other tests ran
+before it and what they left in scope) - explaining why isolation and full-suite runs disagreed.
+
+**Wrong - any `<Word>` in a test name is interpreted as a template placeholder, not literal text:**
+```powershell
+It 'D19 - user accepts rename: renames to 1_DEL_<SafeName>, reports Success' { ... }
+```
+
+**Correct - avoid angle brackets in test names entirely unless deliberately using `-ForEach`:**
+```powershell
+It 'D19 - user accepts rename: renames to 1_DEL_ prefix plus SafeName, reports Success' { ... }
+```
+
+**Rule:** Never put `<...>` in an `It`/`Describe` name unless it's a genuine `-ForEach` template
+placeholder bound to that test's data. Running a single new/changed test file in isolation is not
+sufficient proof it's safe - this exact failure only appeared once the test ran inside the full
+suite, so always run the complete `Tests\Run-Tests.ps1` before considering a test finished.
+
+## 39. `Invoke-WebRequest`'s `.Content` Can Irreversibly Corrupt Binary Data - `RawContentStream` Is the Only Reliable Source
+
+**Observation:** Adding platform download support (`Platforms/Export`, which returns a real `.zip`
+file) required `Invoke-CyberArkAPI` to correctly receive binary response bodies for the first time.
+The existing code decided JSON-vs-binary by trying `ConvertFrom-Json` on `.Content` and catching
+failure - never inspecting the response headers at all, and never accounting for what `.Content`'s
+actual .NET type is for a real binary response.
+
+**Root cause, confirmed via a local `HttpListener` test under real Windows PowerShell 5.1 (not
+assumed):** `Invoke-WebRequest -UseBasicParsing`'s `.Content` property is:
+- A proper `[byte[]]`, byte-for-byte identical to the real response body, when the response's
+  `Content-Type` is genuinely binary (`application/octet-stream`, `application/zip`, etc.).
+- A **lossily, irreversibly decoded `[string]`** when `Content-Type` implies a text charset (e.g.
+  `text/html; charset=utf-8`) - even if the actual body is binary. Bytes outside the target
+  encoding's valid range become the Unicode replacement character during decoding; once that
+  happens, there is no encoding trick (Latin-1/ISO-8859-1 round-trip included) that recovers the
+  original bytes, because the information was already discarded going from bytes to string.
+
+In both cases, `.RawContentStream` (a `MemoryStream`) held the exact, untouched original bytes -
+confirmed identical to the real payload in every test, including the corrupted-string case. This
+makes `RawContentStream` the only reliable way to get raw bytes back when a server's `Content-Type`
+can't be trusted - a real risk, not a hypothetical one: even psPAS's own `Get-PASResponse.ps1`
+(this project's normal reference for CyberArk API behavior) relies on `.Content`'s runtime type
+alone and has no `RawContentStream` fallback, so it would suffer this same corruption if any
+CyberArk endpoint ever mislabels a file response the way the test reproduced.
+
+**Wrong - trusts `.Content` unconditionally, and decides "is this JSON" by whether parsing throws
+rather than by what the server actually said the content type is:**
+```powershell
+$rawBody = $response.Content
+try { $data = $rawBody | ConvertFrom-Json; $dataType = 'JSON' }
+catch { $data = $rawBody; $dataType = 'Binary' }   # may already be corrupted if .Content lied
+```
+
+**Correct - read the actual headers first, and fall back to `RawContentStream` whenever the
+`Content-Type` can't be trusted (a `Content-Disposition` file-attachment header on a non-JSON
+response is exactly that signal):**
+```powershell
+$contentType        = "$($response.Headers['Content-Type'])"
+$contentDisposition = "$($response.Headers['Content-Disposition'])"
+
+if ($response.Content -is [byte[]]) {
+    $bytes = $response.Content   # already correct - Invoke-WebRequest agreed this is binary
+} elseif ($contentDisposition -and $contentType -notmatch '(?i)application/json') {
+    $ms = $response.RawContentStream
+    $ms.Position = 0
+    $bytes = New-Object byte[] $ms.Length
+    $ms.Read($bytes, 0, $ms.Length) | Out-Null
+}
+```
+
+**Rule:** Never assume `.Content`'s .NET type or trustworthiness for a response that might be
+binary - check the actual `Content-Type`/`Content-Disposition` headers, and read from
+`RawContentStream` whenever there's any doubt. Don't rely on a JSON-parse-attempt's success/failure
+as a proxy for "what kind of content is this" - it can't distinguish a genuinely non-JSON text
+response from data that's already been silently and unrecoverably corrupted before you ever see it.
+When a shared function like this is changed, verify every existing caller's expectations still
+hold: here, that meant confirming no module anywhere in the codebase depended on the old `Binary`
+fallback's exact shape (a grep found none), and updating every test's mock response object to
+include a `Headers` property, since none of them had one before this fix needed to read it.

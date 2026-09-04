@@ -63,9 +63,13 @@ Describe 'ModuleMeta' {
     It 'PGMP01 - Name = Get Master Policy' {
         $ModuleMeta.Name | Should -Be 'Get Master Policy'
     }
-    It 'PGMP02 - SupportedSystems is SelfHosted only' {
+    It 'PGMP02 - SupportedSystems is dual-use (ISPSS support attempted but unconfirmed)' {
         $ModuleMeta.SupportedSystems | Should -Contain 'SelfHosted'
-        $ModuleMeta.SupportedSystems.Count | Should -Be 1
+        $ModuleMeta.SupportedSystems | Should -Contain 'ISPSS'
+        $ModuleMeta.SupportedSystems.Count | Should -Be 2
+    }
+    It 'PGMP08 - IncludeInExportAll is true so Export All picks it up despite its non-List action' {
+        $ModuleMeta.IncludeInExportAll | Should -BeTrue
     }
 }
 
@@ -132,5 +136,16 @@ Describe 'Invoke-PoliciesGetMasterPolicy - validation and API failures' {
         $r = Invoke-PoliciesGetMasterPolicy -Token $script:MockToken -InputData @{}
         $r.Failures | Should -Be 1
         $r.IsFatal  | Should -BeTrue
+    }
+
+    It 'PGMP09 - a 404 (confirmed live: ISPSS/Privilege Cloud has no Master Policy endpoint) is a non-fatal Failure' {
+        $ispssToken = $script:MockToken.PSObject.Copy()
+        $ispssToken.SystemType = 'ISPSS'
+        Mock Invoke-CyberArkAPI {
+            [PSCustomObject]@{ IsSuccess = $false; StatusCode = 404; ErrorMessage = 'Not Found'; ErrorDetails = $null; Data = $null }
+        }
+        $r = Invoke-PoliciesGetMasterPolicy -Token $ispssToken -InputData @{}
+        $r.Failures | Should -Be 1
+        $r.IsFatal  | Should -BeFalse
     }
 }

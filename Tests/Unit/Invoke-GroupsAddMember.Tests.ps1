@@ -36,7 +36,10 @@ BeforeAll {
     }
 
     # $script:MockToken above is SelfHosted - Domain/Vault are its valid MemberType values.
-    $script:ValidInput = @{ GroupID = '42'; MemberID = '7'; MemberType = 'Vault' }
+    # MemberID is the username despite its name (confirmed: CyberArk's "memberId" field expects
+    # the username, e.g. "ca_jesse", not a numeric user ID) - use a realistic username, not '7',
+    # so these tests can't accidentally pass only because a numeric string still parses as [int].
+    $script:ValidInput = @{ GroupID = '42'; MemberID = 'ca_jesse'; MemberType = 'Vault' }
 
     # Factory: build a mock API success response for member POST
     function script:New-AddMemberApiResponse {
@@ -115,13 +118,13 @@ Describe 'Invoke-GroupsAddMember - success (201)' {
         Should -Invoke Invoke-CyberArkAPI -Times 1 -ParameterFilter { $Endpoint -eq '/API/UserGroups/42/Members' }
     }
 
-    It 'GAM07 - result entry has Added=$true, MemberID=7' {
+    It 'GAM07 - result entry has Added=$true, MemberID=ca_jesse' {
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput
         $r.Results[0].Added    | Should -BeTrue
-        $r.Results[0].MemberID | Should -Be '7'
+        $r.Results[0].MemberID | Should -Be 'ca_jesse'
     }
 
-    It 'GAM08 - body contains memberId=7 as integer' {
+    It 'GAM08 - body contains memberId as the username string, not cast to an integer' {
         $capturedBody = $null
         Mock Invoke-CyberArkAPI {
             param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
@@ -129,8 +132,8 @@ Describe 'Invoke-GroupsAddMember - success (201)' {
             script:New-AddMemberApiResponse -StatusCode 201
         }
         Invoke-GroupsAddMember -Token $script:MockToken -InputData $script:ValidInput
-        $script:capturedBody.memberId        | Should -Be 7
-        $script:capturedBody.memberId.GetType().Name | Should -Be 'Int32'
+        $script:capturedBody.memberId | Should -Be 'ca_jesse'
+        $script:capturedBody.memberId.GetType().Name | Should -Be 'String'
     }
 
     It 'GAM09 - body contains memberType=Vault' {
@@ -257,14 +260,14 @@ Describe 'Invoke-GroupsAddMember - MemberType by platform' {
             Set-Variable -Name capturedBody -Value $PSBoundParameters.Body -Scope Script
             script:New-AddMemberApiResponse -StatusCode 201
         }
-        $noTypeInput = @{ GroupID = '42'; MemberID = '7' }
+        $noTypeInput = @{ GroupID = '42'; MemberID = 'ca_jesse' }
         Invoke-GroupsAddMember -Token $script:MockToken -InputData $noTypeInput
         $script:capturedBody.memberType | Should -Be 'Vault'
     }
 
     It 'GAM17 - Self-Hosted, MemberType=Domain is accepted' {
         Mock Invoke-CyberArkAPI { script:New-AddMemberApiResponse -StatusCode 201 }
-        $domainTypeInput = @{ GroupID = '42'; MemberID = '7'; MemberType = 'Domain' }
+        $domainTypeInput = @{ GroupID = '42'; MemberID = 'ca_jesse'; MemberType = 'Domain' }
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $domainTypeInput
         $r.Failures | Should -Be 0
         Should -Invoke Invoke-CyberArkAPI -Times 1
@@ -272,7 +275,7 @@ Describe 'Invoke-GroupsAddMember - MemberType by platform' {
 
     It 'GAM18 - Self-Hosted, MemberType=EPVUser is rejected (not a Self-Hosted value)' {
         Mock Invoke-CyberArkAPI { throw 'Should not be called when validation fails' }
-        $badInput = @{ GroupID = '42'; MemberID = '7'; MemberType = 'EPVUser' }
+        $badInput = @{ GroupID = '42'; MemberID = 'ca_jesse'; MemberType = 'EPVUser' }
         $r = Invoke-GroupsAddMember -Token $script:MockToken -InputData $badInput
         $r.Failures | Should -Be 1
         $r.IsFatal  | Should -BeFalse
@@ -286,14 +289,14 @@ Describe 'Invoke-GroupsAddMember - MemberType by platform' {
             Set-Variable -Name capturedBody -Value $PSBoundParameters.Body -Scope Script
             script:New-AddMemberApiResponse -StatusCode 201
         }
-        $noTypeInput = @{ GroupID = '42'; MemberID = '7' }
+        $noTypeInput = @{ GroupID = '42'; MemberID = 'ca_jesse' }
         Invoke-GroupsAddMember -Token $script:MockTokenISPSS -InputData $noTypeInput
         $script:capturedBody.memberType | Should -Be 'EPVUser'
     }
 
     It 'GAM20 - ISPSS, MemberType=Group is accepted' {
         Mock Invoke-CyberArkAPI { script:New-AddMemberApiResponse -StatusCode 201 }
-        $groupTypeInput = @{ GroupID = '42'; MemberID = '7'; MemberType = 'Group' }
+        $groupTypeInput = @{ GroupID = '42'; MemberID = 'ca_jesse'; MemberType = 'Group' }
         $r = Invoke-GroupsAddMember -Token $script:MockTokenISPSS -InputData $groupTypeInput
         $r.Failures | Should -Be 0
         Should -Invoke Invoke-CyberArkAPI -Times 1
@@ -301,7 +304,7 @@ Describe 'Invoke-GroupsAddMember - MemberType by platform' {
 
     It 'GAM21 - ISPSS, MemberType=Vault is rejected (not an ISPSS value)' {
         Mock Invoke-CyberArkAPI { throw 'Should not be called when validation fails' }
-        $badInput = @{ GroupID = '42'; MemberID = '7'; MemberType = 'Vault' }
+        $badInput = @{ GroupID = '42'; MemberID = 'ca_jesse'; MemberType = 'Vault' }
         $r = Invoke-GroupsAddMember -Token $script:MockTokenISPSS -InputData $badInput
         $r.Failures | Should -Be 1
         $r.IsFatal  | Should -BeFalse
