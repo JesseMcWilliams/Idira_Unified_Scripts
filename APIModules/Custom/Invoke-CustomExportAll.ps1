@@ -4,7 +4,7 @@ $ModuleMeta = @{
     Name             = 'Export All'
     Category         = 'Custom'
     Action           = 'ExportAll'
-    Description      = 'Run the List action (and Applications'' ListAuthMethods) for every loaded module and save each result as a separate CSV file.'
+    Description      = 'Run the List action (plus Applications'' ListAuthMethods and any other module explicitly opted in via IncludeInExportAll, e.g. Policies'' GetMasterPolicy) for every loaded module and save each result as a separate CSV file.'
     SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $false
     AcceptsInputFile = $false
@@ -12,7 +12,7 @@ $ModuleMeta = @{
     HasCustomInput   = $false
     InputSchema      = @()
     Priority         = 80
-    Version          = '1.1.0'
+    Version          = '1.2.0'
 }
 
 function Invoke-CustomExportAll {
@@ -44,10 +44,12 @@ function Invoke-CustomExportAll {
     # ListAuthMethods is included alongside List: with no AppID supplied (the default,
     # empty InputData below), it now lists auth methods for every application - the same
     # "leave the identifier blank for all" contract every other List action already has.
+    # A module with any other Action (e.g. Policies' GetMasterPolicy, a single-row settings
+    # snapshot rather than a list) can still opt in via ModuleMeta.IncludeInExportAll = $true.
     $listModules = @()
     if ($null -ne $script:LoadedModules) {
         $listModules = @($script:LoadedModules | Where-Object {
-            $_.Meta.Action -in @('List', 'ListAuthMethods') -and
+            ($_.Meta.Action -in @('List', 'ListAuthMethods') -or $_.Meta['IncludeInExportAll'] -eq $true) -and
             $_.Meta.ProducesOutput -eq $true -and
             $_.Meta.Category -ne 'Custom' -and
             -not $_.Meta['ExcludeFromExportAll']

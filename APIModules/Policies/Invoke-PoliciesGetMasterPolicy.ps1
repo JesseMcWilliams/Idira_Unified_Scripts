@@ -4,12 +4,16 @@ $ModuleMeta = @{
     Name             = 'Get Master Policy'
     Category         = 'Policies'
     Action           = 'GetMasterPolicy'
-    # Self-Hosted only, matching psPAS's Get-PASMasterPolicy.ps1, which explicitly asserts
-    # -SelfHosted and PVWA 14.6+. Confirmed against the CyberArk 14.6 self-hosted Swagger spec's
-    # /API/Policies/{policyId} GET, which returns each of the 15 fields below wrapped as
-    # { Value: ... } (a Rule[Boolean]/Rule[UInt32] object) - flattened to plain values here.
-    Description      = 'Retrieve the Master Policy (Self-Hosted PVWA 14.6+ only), matching psPAS''s Get-PASMasterPolicy.ps1.'
-    SupportedSystems = @('SelfHosted')
+    # psPAS's Get-PASMasterPolicy.ps1 explicitly asserts -SelfHosted and PVWA 14.6+, and no
+    # ISPSS/Privilege Cloud equivalent endpoint is documented anywhere in the local CyberArk
+    # reference materials - but nothing there confirms Privilege Cloud actually LACKS this
+    # endpoint either, it's simply undocumented. Per user direction, declared dual-use and left
+    # to this project's established response-driven (not version/system-detection) fallback:
+    # a 404 or other failure on ISPSS is handled exactly like any other non-fatal API failure
+    # below, rather than being blocked at the menu level by an assumption. Live-unconfirmed
+    # against a real Privilege Cloud tenant.
+    Description      = 'Retrieve the Master Policy, matching psPAS''s Get-PASMasterPolicy.ps1 (documented Self-Hosted PVWA 14.6+; ISPSS/Privilege Cloud support attempted but unconfirmed).'
+    SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $false
     AcceptsInputFile = $false
     ProducesOutput   = $true
@@ -17,8 +21,11 @@ $ModuleMeta = @{
     InputSchema      = @(
         @{ Column = 'PolicyId'; Required = $false; Description = 'Policy ID to retrieve. Defaults to 1 (the Master Policy).' }
     )
+    # Opt-in for Custom/ExportAll, which otherwise only auto-discovers List/ListAuthMethods
+    # actions - a single Master Policy snapshot is a natural fit for that same bulk report.
+    IncludeInExportAll = $true
     Priority         = 90
-    Version          = '1.0.0'
+    Version          = '1.1.0'
 }
 
 # Every Master Policy field is wrapped as { Value: ... } on the wire - flatten to plain
