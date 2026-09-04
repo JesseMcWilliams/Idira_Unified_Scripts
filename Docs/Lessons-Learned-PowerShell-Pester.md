@@ -3392,3 +3392,64 @@ It 'D19 - user accepts rename: renames to 1_DEL_ prefix plus SafeName, reports S
 placeholder bound to that test's data. Running a single new/changed test file in isolation is not
 sufficient proof it's safe - this exact failure only appeared once the test ran inside the full
 suite, so always run the complete `Tests\Run-Tests.ps1` before considering a test finished.
+
+## 39. `Invoke-WebRequest`'s `.Content` Can Irreversibly Corrupt Binary Data - `RawContentStream` Is the Only Reliable Source
+
+**Observation:** Adding platform download support (`Platforms/Export`, which returns a real `.zip`
+file) required `Invoke-CyberArkAPI` to correctly receive binary response bodies for the first time.
+The existing code decided JSON-vs-binary by trying `ConvertFrom-Json` on `.Content` and catching
+failure - never inspecting the response headers at all, and never accounting for what `.Content`'s
+actual .NET type is for a real binary response.
+
+**Root cause, confirmed via a local `HttpListener` test under real Windows PowerShell 5.1 (not
+assumed):** `Invoke-WebRequest -UseBasicParsing`'s `.Content` property is:
+- A proper `[byte[]]`, byte-for-byte identical to the real response body, when the response's
+  `Content-Type` is genuinely binary (`application/octet-stream`, `application/zip`, etc.).
+- A **lossily, irreversibly decoded `[string]`** when `Content-Type` implies a text charset (e.g.
+  `text/html; charset=utf-8`) - even if the actual body is binary. Bytes outside the target
+  encoding's valid range become the Unicode replacement character during decoding; once that
+  happens, there is no encoding trick (Latin-1/ISO-8859-1 round-trip included) that recovers the
+  original bytes, because the information was already discarded going from bytes to string.
+
+In both cases, `.RawContentStream` (a `MemoryStream`) held the exact, untouched original bytes -
+confirmed identical to the real payload in every test, including the corrupted-string case. This
+makes `RawContentStream` the only reliable way to get raw bytes back when a server's `Content-Type`
+can't be trusted - a real risk, not a hypothetical one: even psPAS's own `Get-PASResponse.ps1`
+(this project's normal reference for CyberArk API behavior) relies on `.Content`'s runtime type
+alone and has no `RawContentStream` fallback, so it would suffer this same corruption if any
+CyberArk endpoint ever mislabels a file response the way the test reproduced.
+
+**Wrong - trusts `.Content` unconditionally, and decides "is this JSON" by whether parsing throws
+rather than by what the server actually said the content type is:**
+```powershell
+$rawBody = $response.Content
+try { $data = $rawBody | ConvertFrom-Json; $dataType = 'JSON' }
+catch { $data = $rawBody; $dataType = 'Binary' }   # may already be corrupted if .Content lied
+```
+
+**Correct - read the actual headers first, and fall back to `RawContentStream` whenever the
+`Content-Type` can't be trusted (a `Content-Disposition` file-attachment header on a non-JSON
+response is exactly that signal):**
+```powershell
+$contentType        = "$($response.Headers['Content-Type'])"
+$contentDisposition = "$($response.Headers['Content-Disposition'])"
+
+if ($response.Content -is [byte[]]) {
+    $bytes = $response.Content   # already correct - Invoke-WebRequest agreed this is binary
+} elseif ($contentDisposition -and $contentType -notmatch '(?i)application/json') {
+    $ms = $response.RawContentStream
+    $ms.Position = 0
+    $bytes = New-Object byte[] $ms.Length
+    $ms.Read($bytes, 0, $ms.Length) | Out-Null
+}
+```
+
+**Rule:** Never assume `.Content`'s .NET type or trustworthiness for a response that might be
+binary - check the actual `Content-Type`/`Content-Disposition` headers, and read from
+`RawContentStream` whenever there's any doubt. Don't rely on a JSON-parse-attempt's success/failure
+as a proxy for "what kind of content is this" - it can't distinguish a genuinely non-JSON text
+response from data that's already been silently and unrecoverably corrupted before you ever see it.
+When a shared function like this is changed, verify every existing caller's expectations still
+hold: here, that meant confirming no module anywhere in the codebase depended on the old `Binary`
+fallback's exact shape (a grep found none), and updating every test's mock response object to
+include a `Headers` property, since none of them had one before this fix needed to read it.

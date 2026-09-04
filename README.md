@@ -94,13 +94,13 @@ aPePAS/
 - Modules/
   - CyberArkComms.psm1          # REST communication layer (pagination, rate limiting, query/filter builders)
   - CyberArkLogging.psm1        # Structured log writer
-- APIModules/                   # 65 action modules across 10 categories - see `Invoke-<Category><Action>.ps1`
+- APIModules/                   # 66 action modules across 10 categories - see `Invoke-<Category><Action>.ps1`
   - Accounts/                   # 17 actions: Add, CancelCpmTask, ChangeImmediate, ChangeInVault, CheckIn, Delete,
                                  #   Get, GetActivity, GetCredential, LinkAccount, List, Reconcile,
                                  #   ResumeAutoManagement, UnlinkAccount, Unlock, Update, Verify
   - Safes/                      # 8 actions: Add, AddFromTemplate, AssignCPM, Delete, Get, List, UnassignCPM, Update
   - SafeMembers/                # 6 actions: Add, AddFromTemplateRole, List, Remove, Update, UpdateFromTemplateRole
-  - Platforms/                  # 9 actions: Copy, Disable, Enable, Get, Import, List, Remove,
+  - Platforms/                  # 10 actions: Copy, Disable, Enable, Export, Get, Import, List, Remove,
                                  #   Rename (Self-Hosted only, PVWA 15.0+), SetPSMConfig
   - Policies/                   # 2 actions: GetMasterPolicy, SetMasterPolicy (Self-Hosted only, PVWA 14.6+)
   - Users/                      # 2 actions: Get, List

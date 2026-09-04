@@ -326,16 +326,39 @@ Every module must check `IsSuccess` before accessing `Data`.
 
 ```powershell
 [PSCustomObject]@{
-    IsSuccess     = [bool]      # $true for HTTP 200-299; $false for all other codes
-    StatusCode    = [int]       # Actual HTTP status code (200, 201, 400, 401, 404, 429, etc.)
-    StatusMessage = [string]    # Plain-language description (e.g., 'OK', 'Not Found')
-    ErrorMessage  = [string]    # $null on success; human-readable error summary on failure
-    ErrorDetails  = [object]    # $null on success; parsed CyberArk error body on failure
-    Data          = [object]    # Parsed response body — PSCustomObject for JSON, byte[] for Binary
-    RawResponse   = [string]    # Raw response body string (always populated)
-    DataType      = [string]    # 'JSON' | 'Binary' | 'File' | 'Empty'
+    IsSuccess         = [bool]      # $true for HTTP 200-299; $false for all other codes
+    StatusCode        = [int]       # Actual HTTP status code (200, 201, 400, 401, 404, 429, etc.)
+    StatusMessage     = [string]    # Plain-language description (e.g., 'OK', 'Not Found')
+    ErrorMessage      = [string]    # $null on success; human-readable error summary on failure
+    ErrorDetails      = [object]    # $null on success; parsed CyberArk error body on failure
+    Data              = [object]    # PSCustomObject for JSON; byte[] for File; raw string for Binary
+    RawResponse       = [string]    # Raw response body string — empty for a File response, since
+                                     # Data holds the actual bytes and a string can't represent them
+    DataType          = [string]    # 'JSON' | 'Binary' | 'File' | 'Empty'
+    SuggestedFileName = [string]    # Filename from the response's Content-Disposition header -
+                                     # populated only for DataType='File'; $null otherwise
 }
 ```
+
+### How `DataType` is determined (not by guessing from a JSON-parse attempt)
+
+`Invoke-CyberArkAPI` inspects the actual response headers rather than trying `ConvertFrom-Json` and
+catching failure:
+
+- **`File`** — the response is binary (e.g. a downloaded platform `.zip` from `Platforms/Export`).
+  Determined either because `Invoke-WebRequest` itself already returned `.Content` as a `byte[]`
+  (the normal case for a correctly-labeled `Content-Type` like `application/octet-stream`/
+  `application/zip`), or because a `Content-Disposition` header is present alongside a non-JSON
+  `Content-Type` (a file mislabeled with something like `text/html`). In the second case, the exact
+  original bytes are read from `RawContentStream`, never from `.Content` — confirmed live that
+  `.Content` can irreversibly corrupt binary data once `Invoke-WebRequest` has decoded it as text
+  (see `Lessons-Learned-PowerShell-Pester.md` Section 39).
+- **`JSON`** — `.Content` is a string that parses successfully via `ConvertFrom-Json` (the normal
+  case for nearly every other endpoint).
+- **`Binary`** — a string response that isn't valid JSON and wasn't identified as a file above
+  (e.g. an unexpected plain-text or HTML error page). Kept for backward compatibility; not used by
+  any module today.
+- **`Empty`** — no response body at all (e.g. HTTP 204).
 
 ### CyberArk error body shape (ErrorDetails)
 
