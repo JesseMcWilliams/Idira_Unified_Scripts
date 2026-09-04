@@ -3253,3 +3253,55 @@ property's exact behavior varies by environment in a way that can't be predicted
 numbers or reflection, probe it defensively - on a disposable object, in a `try/catch` - rather
 than gating on a version check or a `GetType().GetProperty(...)` existence test that can itself
 be misleading.
+
+## 36. A Test Calling `.Count` on a Function's Return Value or a `Where-Object` Result Must Wrap It in `@()` First
+
+**Observation:** A routine pre-commit test run turned up 7 failures, all
+`PropertyNotFoundException: The property 'Count' cannot be found on this object`, across two
+unrelated test files - `Get-SafeMembersSearchInOptions` (`Invoke-SafeMembersAdd.Tests.ps1`,
+MA24/MA27/MA28) and `Invoke-SafesAddFromTemplate.Tests.ps1` (T08/T23/T27/T28). All seven were
+already on the branch from earlier work, unrelated to whatever was being changed at the time they
+were noticed - a reminder to always run the full suite before a commit, even a docs-only one,
+since a failure can be sitting undetected in already-committed code until something happens to
+run it again.
+
+**Root cause:** In every failing case, the right-hand side produced exactly one matching item -
+either a function that returns a single-element array (`Get-SafeMembersSearchInOptions` returning
+just the `Vault` fallback option), or `$r.Results | Where-Object { ... }` matching exactly one
+row. PowerShell's pipeline unwraps a single item written to the output stream: the caller receives
+that one object directly, not a one-element array containing it. A `[PSCustomObject]` (or any
+scalar) has no `.Count` property, so `Set-StrictMode -Version Latest` throws
+`PropertyNotFoundException` the moment the assertion runs. The *same* calls with 2+ matches never
+tripped this, because `.Count` genuinely exists on a real multi-element array - which is exactly
+why this kind of bug hides for a long time: it only reproduces for the exact cardinality (zero or
+one) that the pipeline collapses, so a test suite can look green for months until a case with
+exactly one match is added or exercised.
+
+This project's own production code already guards against this everywhere it matters - e.g. the
+real call site for `Get-SafeMembersSearchInOptions` reads
+`[array]$searchInOptions = @(script:Get-SafeMembersSearchInOptions -Token $Token)`
+(`APIModules\SafeMembers\Invoke-SafeMembersAdd.ps1`) - so none of this was a live bug; it was
+purely the unit tests skipping the same guard the product code uses everywhere else.
+
+**Wrong - fails whenever the right-hand side happens to produce exactly one item:**
+```powershell
+$opts = script:Get-SafeMembersSearchInOptions -Token $Token
+$opts.Count | Should -Be 1
+
+($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+```
+
+**Correct - force array semantics with `@(...)` before touching `.Count`, matching how the real
+call sites already do it:**
+```powershell
+$opts = @(script:Get-SafeMembersSearchInOptions -Token $Token)
+$opts.Count | Should -Be 1
+
+@($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+```
+
+**Rule:** Any expression that might return zero, one, or many items - a function call, a
+`Where-Object` filter, a property that's sometimes a single object and sometimes a collection -
+must be wrapped in `@(...)` before `.Count` (or any other array-only member) is used on it, in
+tests exactly as much as in product code. Don't assume a passing test proves the pattern is safe;
+it may only be passing because that particular mock data happens to produce 2+ matches.

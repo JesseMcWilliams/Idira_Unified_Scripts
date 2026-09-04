@@ -236,7 +236,7 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
 
     It 'T08 - creates the safe: one Results row with ItemType=Safe' {
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
-        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
     }
 
     It 'T09 - copies only the two non-role members (excludes the CyberArk_ group)' {
@@ -382,8 +382,8 @@ Describe 'Invoke-SafesAddFromTemplate - ExtraMembers' {
         $testInput.ExtraMembers = 'NotAType:baduser:CyberArk_TemplateSafe_Admins;User:gooduser:CyberArk_TemplateSafe_Admins'
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
 
-        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
-        ($r.Results | Where-Object { $_.MemberName -eq 'gooduser' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.MemberName -eq 'gooduser' }).Count | Should -Be 1
         $r.Errors.Count | Should -Be 1
         $r.IsFatal       | Should -BeFalse
     }
@@ -393,7 +393,7 @@ Describe 'Invoke-SafesAddFromTemplate - ExtraMembers' {
         $testInput.ExtraMembers = 'User:newuser:CyberArk_NoSuchRole'
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $testInput
 
-        ($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.ItemType -eq 'Safe' }).Count | Should -Be 1
         $r.Errors.Count | Should -Be 1
         $r.IsFatal       | Should -BeFalse
         Should -Invoke Invoke-CyberArkAPI -ParameterFilter {
@@ -762,7 +762,7 @@ Describe 'Invoke-SafesAddFromTemplate - errors' {
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
         $r.IsFatal        | Should -BeFalse
         $r.Failures       | Should -Be 1
-        ($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 1
+        @($r.Results | Where-Object { $_.ItemType -eq 'Member' }).Count | Should -Be 1
     }
 
     It 'T24 - member POST returns 401: IsFatal=$true, loop stops' {
