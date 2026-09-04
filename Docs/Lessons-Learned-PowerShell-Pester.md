@@ -3359,3 +3359,36 @@ optional or caller-controlled - always use bracket notation, even for a quick on
 fixture in the suite always populates every key (even blank), the suite can never exercise the
 "key entirely absent" path that live CSV input or a minimal caller will eventually hit. A live
 end-to-end pass against a real system - not just mocked unit tests - is what actually caught this.
+
+## 38. An `It`/`Describe` Name Containing `<SomeWord>` Can Crash With "Variable Cannot Be Retrieved" - Only When Run As Part of the Full Suite
+
+**Observation:** A new test named `'D19 - user accepts rename: renames to 1_DEL_<SafeName>,
+reports Success not Failure'` passed when its file was run alone, then failed with
+`RuntimeException: The variable '$SafeName' cannot be retrieved because it has not been set` the
+moment it ran as part of the full `Tests\Run-Tests.ps1` suite - a classic "passes in isolation,
+fails in the full run" symptom that usually points at shared/leaked state between files.
+
+**Root cause:** Pester v6 (like v5) treats `<PlaceholderName>` inside an `It`/`Describe` name as a
+template token for `-ForEach` data-driven tests - it substitutes the value of a same-named
+variable from that test's data context when rendering the name for output. This test used no
+`-ForEach` at all; the `<SafeName>` was meant as plain descriptive text. Pester's name-rendering
+still tries to resolve `<SafeName>` as if it were a template token regardless, by looking for a
+variable of that name in scope - which normally doesn't exist and apparently either isn't reached
+or resolves silently in some run orders, but throws outright when nothing named `$SafeName` is in
+scope at render time in a different run order (i.e., depends on exactly what other tests ran
+before it and what they left in scope) - explaining why isolation and full-suite runs disagreed.
+
+**Wrong - any `<Word>` in a test name is interpreted as a template placeholder, not literal text:**
+```powershell
+It 'D19 - user accepts rename: renames to 1_DEL_<SafeName>, reports Success' { ... }
+```
+
+**Correct - avoid angle brackets in test names entirely unless deliberately using `-ForEach`:**
+```powershell
+It 'D19 - user accepts rename: renames to 1_DEL_ prefix plus SafeName, reports Success' { ... }
+```
+
+**Rule:** Never put `<...>` in an `It`/`Describe` name unless it's a genuine `-ForEach` template
+placeholder bound to that test's data. Running a single new/changed test file in isolation is not
+sufficient proof it's safe - this exact failure only appeared once the test ran inside the full
+suite, so always run the complete `Tests\Run-Tests.ps1` before considering a test finished.
