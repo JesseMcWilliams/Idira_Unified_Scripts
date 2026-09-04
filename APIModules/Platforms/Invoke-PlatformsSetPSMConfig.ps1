@@ -120,8 +120,7 @@ function Invoke-PlatformsSetPSMConfig {
     $lookupResp = Invoke-CyberArkAPI `
         -Token       $Token `
         -Method      'GET' `
-        -Endpoint    '/API/Platforms/Targets' `
-        -QueryParams @{ search = $platformID }
+        -Endpoint    '/API/Platforms/Targets'
 
     if (-not $lookupResp.IsSuccess) {
         $msg = "Platform lookup failed (HTTP $($lookupResp.StatusCode)): $($lookupResp.ErrorMessage)"
@@ -133,7 +132,18 @@ function Invoke-PlatformsSetPSMConfig {
         return $result
     }
 
-    [array]$candidates = if ($lookupResp.Data) { @($lookupResp.Data) } else { @() }
+    # /API/Platforms/Targets wraps its results under a 'Platforms' property - confirmed live
+    # against a real tenant, not a bare array as previously assumed. Its 'search' query param
+    # also does not reliably match against PlatformID (confirmed live: searching for the exact
+    # PlatformID string returned zero results for a platform that does exist) - fetch unfiltered
+    # and match client-side by PlatformID instead.
+    [array]$candidates = if ($lookupResp.Data -and $lookupResp.Data.PSObject.Properties['Platforms']) {
+        @($lookupResp.Data.Platforms)
+    } elseif ($lookupResp.Data) {
+        @($lookupResp.Data)
+    } else {
+        @()
+    }
     $match = $candidates | Where-Object {
         $_ -and $_.PSObject.Properties['PlatformID'] -and $_.PlatformID -eq $platformID
     } | Select-Object -First 1

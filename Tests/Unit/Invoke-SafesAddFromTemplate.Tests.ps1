@@ -264,6 +264,25 @@ Describe 'Invoke-SafesAddFromTemplate - success' {
         $memberRows.MemberName | Should -Contain 'AdminGroup'
     }
 
+    It 'T09c - the template safe creator is excluded from the copy even though not role-prefixed (confirmed live: CyberArk rejects re-adding it with HTTP 403)' {
+        $script:TemplateSafeResponse | Add-Member -NotePropertyName 'creator' -NotePropertyValue ([PSCustomObject]@{ id = '34'; name = 'CA_Admin' }) -Force
+        $script:TemplateMembersResponse.value += [PSCustomObject]@{
+            memberName = 'CA_Admin'
+            memberType = 'User'
+            membershipExpirationDate = $null
+            permissions = [PSCustomObject]@{ manageSafe = $true }
+        }
+        try {
+            $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
+            $memberRows = @($r.Results | Where-Object { $_.ItemType -eq 'Member' })
+            $memberRows.MemberName | Should -Not -Contain 'CA_Admin'
+            $memberRows.MemberName | Should -Contain 'AdminGroup'
+        } finally {
+            $script:TemplateSafeResponse.PSObject.Properties.Remove('creator')
+            $script:TemplateMembersResponse.value = @($script:TemplateMembersResponse.value | Where-Object { $_.memberName -ne 'CA_Admin' })
+        }
+    }
+
     It 'T10 - Successes=3 (1 safe + 2 members), Failures=0' {
         $r = Invoke-SafesAddFromTemplate -Token $script:MockToken -InputData $script:ValidInput
         $r.Successes | Should -Be 3

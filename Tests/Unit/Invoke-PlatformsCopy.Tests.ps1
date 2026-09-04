@@ -94,6 +94,22 @@ Describe 'Invoke-PlatformsCopy - success' {
         $r.Results[0].NewPlatformID | Should -Be 'WinServerLocal-Copy'
     }
 
+    It 'PC10 - resolves numeric ID when /API/Platforms/Targets wraps results under a Platforms property (real live shape)' {
+        $capturedCalls = [System.Collections.Generic.List[object]]::new()
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+            $capturedCalls.Add($PSBoundParameters) | Out-Null
+            if ($Method -eq 'GET') {
+                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{ Platforms = @(script:New-TargetPlatformCandidate); Total = 1 } }
+            } else {
+                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{ PlatformID = 'WinServerLocal-Copy' } }
+            }
+        }
+        $r = Invoke-PlatformsCopy -Token $script:MockToken -InputData $script:ValidInput
+        $r.Successes | Should -Be 1
+        $capturedCalls[1].Endpoint | Should -Be '/API/Platforms/Targets/42/Duplicate'
+    }
+
     It 'PC04 - Description omitted from body when not provided' {
         $capturedCalls = [System.Collections.Generic.List[object]]::new()
         Mock Invoke-CyberArkAPI {

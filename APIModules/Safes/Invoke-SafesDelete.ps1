@@ -85,7 +85,7 @@ function Invoke-SafesDelete {
     }
 
     # Validate SafeName
-    $safeName = if ($InputData.SafeName) { "$($InputData.SafeName)".Trim() } else { '' }
+    $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } else { '' }
 
     if (-not $safeName) {
         $msg = 'SafeName is required and must not be empty.'

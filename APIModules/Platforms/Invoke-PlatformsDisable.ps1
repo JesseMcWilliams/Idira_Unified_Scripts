@@ -39,11 +39,13 @@ function Get-PlatformsDisableInput {
             -Description 'Platform name to search for.'
         if ($searchTerm) {
             $ignoreSSL = if ($script:ActiveProfile) { [bool]$script:ActiveProfile.IgnoreSSL } else { $false }
-            # /API/Platforms/Targets returns a bare array (no wrapper property), incompatible
-            # with Invoke-EntitySearch's -ResponseProperty contract - search the classic
-            # /API/Platforms endpoint instead (same one Invoke-PlatformsGet.ps1 uses), which
-            # returns the string PlatformID this function needs. The main Invoke-X function
-            # resolves that to the numeric internal ID separately before the actual API call.
+            # /API/Platforms/Targets also wraps its results under a 'Platforms' property, but
+            # its 'search' query param does not reliably match against PlatformID (confirmed
+            # live) - search the classic /API/Platforms endpoint instead (same one
+            # Invoke-PlatformsGet.ps1 uses), which returns the string PlatformID this function
+            # needs. The main Invoke-X function resolves that to the numeric internal ID
+            # separately (by fetching /API/Platforms/Targets unfiltered and matching
+            # client-side) before the actual API call.
             $platformID = Invoke-EntitySearch -Token $Token `
                 -Endpoint '/API/Platforms' `
                 -SearchTerm $searchTerm `
@@ -106,8 +108,7 @@ function Invoke-PlatformsDisable {
     $lookupResp = Invoke-CyberArkAPI `
         -Token       $Token `
         -Method      'GET' `
-        -Endpoint    '/API/Platforms/Targets' `
-        -QueryParams @{ search = $platformID }
+        -Endpoint    '/API/Platforms/Targets'
 
     if (-not $lookupResp.IsSuccess) {
         $msg = "Platform lookup failed (HTTP $($lookupResp.StatusCode)): $($lookupResp.ErrorMessage)"
@@ -119,7 +120,18 @@ function Invoke-PlatformsDisable {
         return $result
     }
 
-    [array]$candidates = if ($lookupResp.Data) { @($lookupResp.Data) } else { @() }
+    # /API/Platforms/Targets wraps its results under a 'Platforms' property - confirmed live
+    # against a real tenant, not a bare array as previously assumed. Its 'search' query param
+    # also does not reliably match against PlatformID (confirmed live: searching for the exact
+    # PlatformID string returned zero results for a platform that does exist) - fetch unfiltered
+    # and match client-side by PlatformID instead.
+    [array]$candidates = if ($lookupResp.Data -and $lookupResp.Data.PSObject.Properties['Platforms']) {
+        @($lookupResp.Data.Platforms)
+    } elseif ($lookupResp.Data) {
+        @($lookupResp.Data)
+    } else {
+        @()
+    }
     $match = $candidates | Where-Object {
         $_ -and $_.PSObject.Properties['PlatformID'] -and $_.PlatformID -eq $platformID
     } | Select-Object -First 1

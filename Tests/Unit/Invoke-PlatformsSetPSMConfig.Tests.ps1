@@ -98,6 +98,25 @@ Describe 'Invoke-PlatformsSetPSMConfig - success' {
         $putCall.Body['PSMServerId'] | Should -Be 'PSMServer_new'
         $putCall.Body['PSMConnectors'][0].PSMConnectorID | Should -Be 'PSM-RDP'
     }
+
+    It 'PPSM10 - resolves numeric ID when /API/Platforms/Targets wraps results under a Platforms property (real live shape)' {
+        $capturedCalls = [System.Collections.Generic.List[object]]::new()
+        Mock Invoke-CyberArkAPI {
+            param($Token, $Method, $Endpoint, $Uri, $Body, $QueryParams, [switch]$WhatIf, [switch]$IgnoreSSL, $PageSizeParam, $PageOffsetParam, $PageSize)
+            $capturedCalls.Add($PSBoundParameters) | Out-Null
+            if ($Method -eq 'GET' -and $Endpoint -eq '/API/Platforms/Targets') {
+                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = [PSCustomObject]@{ Platforms = @(script:New-TargetPlatformCandidate); Total = 1 } }
+            } elseif ($Method -eq 'GET') {
+                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = script:New-PSMConfigResponse }
+            } else {
+                [PSCustomObject]@{ IsSuccess = $true; StatusCode = 200; ErrorMessage = ''; ErrorDetails = $null; Data = $null }
+            }
+        }
+        $r = Invoke-PlatformsSetPSMConfig -Token $script:MockToken -InputData @{ PlatformID = 'WinServerLocal'; PSMServerID = 'PSMServer_new' }
+        $r.Successes | Should -Be 1
+        $putCall = $capturedCalls | Where-Object { $_.Method -eq 'PUT' } | Select-Object -First 1
+        $putCall.Endpoint | Should -Be '/API/Platforms/Targets/42/PrivilegedSessionManagement'
+    }
 }
 
 Describe 'Invoke-PlatformsSetPSMConfig - validation and lookup failures' {

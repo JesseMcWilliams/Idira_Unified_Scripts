@@ -111,7 +111,7 @@ function Invoke-SafesUpdate {
     }
 
     # Validate SafeName
-    $safeName = if ($InputData.SafeName) { "$($InputData.SafeName)".Trim() } else { '' }
+    $safeName = if ($InputData['SafeName']) { "$($InputData['SafeName'])".Trim() } else { '' }
 
     if (-not $safeName) {
         Write-CyberArkLog -Level 'ERROR' -Message 'Invoke-SafesUpdate: SafeName is required but was empty.'
@@ -187,11 +187,14 @@ function Invoke-SafesUpdate {
     # Location is not updatable via PUT - keep current value as-is
     $currentLocation = if ($currentSafe.location) { $currentSafe.location } else { '' }
 
-    # Step 3: Build PUT body (SafeName is in the URL, not the body). OLACEnabled is intentionally
-    # never sent - it is not a supported input for this module. NumberOfVersionsRetention and
-    # NumberOfDaysRetention are mutually exclusive on this API - only one may be sent; Days wins
-    # when the merged value is greater than 0, otherwise Versions is sent.
+    # Step 3: Build PUT body. SafeName must be included in the body as well as the URL - confirmed
+    # live that this PUT returns HTTP 400 (no error detail in the response body) when SafeName is
+    # omitted, contrary to psPAS's Set-PASSafe.ps1, which never sends it. OLACEnabled is
+    # intentionally never sent - it is not a supported input for this module.
+    # NumberOfVersionsRetention and NumberOfDaysRetention are mutually exclusive on this API - only
+    # one may be sent; Days wins when the merged value is greater than 0, otherwise Versions is sent.
     $body = @{
+        SafeName         = $safeName
         Description      = $mergedDescription
         Location         = $currentLocation
         ManagingCPM      = $mergedManagingCPM

@@ -3305,3 +3305,57 @@ $opts.Count | Should -Be 1
 must be wrapped in `@(...)` before `.Count` (or any other array-only member) is used on it, in
 tests exactly as much as in product code. Don't assume a passing test proves the pattern is safe;
 it may only be passing because that particular mock data happens to produce 2+ matches.
+
+## 37. `$InputData.Key` Dot Notation Throws When a Caller Omits an Optional Key Entirely - Unit Tests Can't Catch This If Every Fixture Always Supplies Every Key
+
+**Observation:** A full live end-to-end test pass (every `Invoke-<Category><Action>` function
+called directly against a real Self-Hosted PVWA, calling each module the same way a user's input
+would after passing through the driver) crashed live on the very first write call:
+`Invoke-SafesAdd` threw `PropertyNotFoundException: The property 'ManagingCPM' cannot be found on
+this object` the moment the caller's `InputData` hashtable didn't include a `ManagingCPM` key at
+all - not blank, entirely absent. All 1052 unit tests passed at the time; none of them exercised
+this path, because every test fixture in this codebase always supplies every optional field
+(blank or not) rather than omitting the key outright.
+
+**Root cause:** This is the same bug class this project already fixed once, on 2026-08-15, for
+`$Defaults.Key` inside `Get-*Input` custom input functions (see the Documentation-Tracker entry
+"Fixed `$Defaults.Key` dot notation → `$Defaults['Key']` bracket notation in all `Get-*Input`
+custom input functions"). That earlier pass never touched the `Invoke-*` functions' own direct use
+of `$InputData` - a different, but structurally identical, set of call sites. PowerShell's
+hashtable dot notation (`$h.Foo`) is a convenience the ETS (Extended Type System) provides on top
+of `$h['Foo']`; it looks identical for a present key, but under `Set-StrictMode -Version Latest`
+it throws for an *absent* key while `$h['Foo']` quietly returns `$null` for the same case. A
+systematic grep for `$InputData\.[A-Za-z]` across all 65 API modules turned up 9 more real
+instances of this exact anti-pattern across `Invoke-SafesAdd.ps1`, `Invoke-SafesUpdate.ps1`,
+`Invoke-SafesUnassignCPM.ps1`, `Invoke-SafesAssignCPM.ps1`, `Invoke-SafeMembersRemove.ps1`,
+`Invoke-GroupsDelete.ps1`, `Invoke-GroupsUpdate.ps1`, and `Invoke-GroupsAdd.ps1` - every one of
+them reachable the same way, by a real CSV row missing a column or a direct caller omitting an
+optional key, not just by this test harness.
+
+**A `$InputData.ContainsKey('X')` guard on the same expression is fine and was left alone** -
+`ContainsKey` is a real method call (always safe via dot notation, regardless of what keys exist),
+and short-circuit `-and` evaluation means a subsequent `$InputData.X` dot access after
+`$InputData.ContainsKey('X') -and ...` never runs unless the key is already confirmed present.
+Only *unguarded* dot access - typically inside `if ($InputData.Foo) { ... } else { <default> }` -
+is unsafe.
+
+**Wrong - throws the instant `ManagingCPM` is entirely absent from the hashtable, not just blank:**
+```powershell
+$body = @{
+    ManagingCPM = if ($InputData.ManagingCPM) { $InputData.ManagingCPM } else { '' }
+}
+```
+
+**Correct:**
+```powershell
+$body = @{
+    ManagingCPM = if ($InputData['ManagingCPM']) { $InputData['ManagingCPM'] } else { '' }
+}
+```
+
+**Rule:** Never use dot notation on an `InputData`/`Defaults`-style hashtable whose keys are
+optional or caller-controlled - always use bracket notation, even for a quick one-line
+`if`/`else` default. And don't trust a passing unit test suite to prove this is safe: if every
+fixture in the suite always populates every key (even blank), the suite can never exercise the
+"key entirely absent" path that live CSV input or a minimal caller will eventually hit. A live
+end-to-end pass against a real system - not just mocked unit tests - is what actually caught this.
