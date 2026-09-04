@@ -1,6 +1,8 @@
-# Idira Unified Scripts
+# aPePAS
 
-A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS), supporting both **ISPSS (Privilege Cloud)** and **Self-Hosted PVWA** environments. Provides a menu-driven console interface for common administrative tasks — account management, safe management, user and group operations, platform administration, and bulk exports.
+A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS), supporting both **ISPSS (Privilege Cloud)** and **Self-Hosted PVWA** environments. Provides a menu-driven console interface for common administrative tasks — account management, safe management, user and group operations, platform administration, connectivity testing, and bulk exports.
+
+> **New to the tool?** See [Docs/User-Guide.md](Docs/User-Guide.md) for a full walkthrough of profiles, menus, CSV batch mode, and every module category. This README is a technical/developer-facing overview.
 
 ---
 
@@ -15,8 +17,9 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 - **CSV template generation** — Generate a header-only CSV template for any module's input schema.
 - **Safe-scoped account lookup** — Account modules accept `AccountName` + `Safe` in CSV input and resolve the account ID server-side, avoiding the need to know internal account IDs.
 - **List drill-down** — From any list result, enter a row number to open the corresponding Get/Details view pre-populated with that row's data.
-- **WhatIf mode** — Toggle a session-wide dry-run flag; all write operations are suppressed and logged.
+- **WhatIf mode** — A session-wide dry-run flag, set via the `-WhatIf` launch parameter or a profile's WhatIf Default setting; all write operations are suppressed and logged instead of executed.
 - **Interactive API tester** — Send raw requests to any CyberArk API endpoint, inspect request and response headers, and save full session details to JSON.
+- **Connectivity testing** — Check DNS resolution, TCP port reachability, and Windows (SMB) or Linux (SSH) credential validation against a target server, single-item or CSV batch, with the credential looked up from the vault if not supplied.
 - **Token lifecycle management** — Automatic keepalive, expiry warnings, transparent re-authentication, and token persistence across sessions.
 - **Structured logging** — All actions, errors, and summaries are written to a rotating log file. POST/PUT/PATCH bodies and error responses are written to the log file at DEBUG level.
 - **Configurable display limit** — Profile setting controls how many rows are shown on screen for list results (default 20, 0 = unlimited).
@@ -35,6 +38,8 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 
 > **SAML / OIDC authentication** additionally requires the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) and its WinForms assembly (`Microsoft.Web.WebView2.WinForms.dll`).
 
+> **Custom > Test Connectivity's Linux (SSH) password validation** works most reliably with PuTTY's `plink.exe` available - checked on PATH, then the project root, then the standard PuTTY install locations (`Program Files (x86)`, then `Program Files`). Without it, the tool falls back to PowerShell 7's SSH transport, which can confirm reachability and key-based auth but cannot reliably validate a password non-interactively.
+
 ---
 
 ## Installation
@@ -42,8 +47,8 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 1. **Clone or download** this repository to a local folder.
 
    ```powershell
-   git clone <repo-url> C:\Tools\IdiraUnifiedScripts
-   cd C:\Tools\IdiraUnifiedScripts
+   git clone <repo-url> C:\Tools\aPePAS
+   cd C:\Tools\aPePAS
    ```
 
 2. **Unblock files** if downloaded as a ZIP (Windows marks files from the internet as untrusted).
@@ -80,33 +85,43 @@ A PowerShell 5.1 interactive driver for CyberArk Privileged Access Security (PAS
 ## Project Structure
 
 ```
-IdiraUnifiedScripts/
+aPePAS/
 - Manage-Privilege.ps1          # Main interactive driver
 - Auth/
   - CyberArk.Auth.Common.psm1   # Shared auth utilities: token object, WebView2, profile I/O
   - CyberArk.Auth.ISPSS.psm1    # Privilege Cloud / CyberArk Identity authentication
   - CyberArk.Auth.SelfHosted.psm1 # Self-Hosted PVWA authentication
 - Modules/
-  - CyberArkComms.psm1          # REST communication layer (pagination, rate limiting)
+  - CyberArkComms.psm1          # REST communication layer (pagination, rate limiting, query/filter builders)
   - CyberArkLogging.psm1        # Structured log writer
-- APIModules/
-  - Accounts/                   # Add, Get, List, Update, Delete accounts
-  - Safes/                      # Add, Get, List, Update, Delete, AddFromTemplate, AssignCPM, UnassignCPM safes
-  - SafeMembers/                # Add, List, Update, Remove, AddFromTemplateRole, UpdateFromTemplateRole safe members
-  - Platforms/                  # Get, List (SystemType filter), Enable, Disable, Copy, Rename (Self-Hosted only), Remove, Import, SetPSMConfig platforms
-  - Policies/                   # Get, Set Master Policy (Self-Hosted only)
-  - Users/                      # Get, List users
-  - Groups/                     # Add, Get, List, Update, Delete groups; Add/Remove members
-  - Applications/               # List, Add, Add auth methods
-  - Reports/                    # List reports
-  - Custom/                     # Export All, Export Entitlements, Export Group Members (Local/LDAP), Test API, Test Connectivity
+- APIModules/                   # 65 action modules across 10 categories - see `Invoke-<Category><Action>.ps1`
+  - Accounts/                   # 17 actions: Add, CancelCpmTask, ChangeImmediate, ChangeInVault, CheckIn, Delete,
+                                 #   Get, GetActivity, GetCredential, LinkAccount, List, Reconcile,
+                                 #   ResumeAutoManagement, UnlinkAccount, Unlock, Update, Verify
+  - Safes/                      # 8 actions: Add, AddFromTemplate, AssignCPM, Delete, Get, List, UnassignCPM, Update
+  - SafeMembers/                # 6 actions: Add, AddFromTemplateRole, List, Remove, Update, UpdateFromTemplateRole
+  - Platforms/                  # 9 actions: Copy, Disable, Enable, Get, Import, List, Remove,
+                                 #   Rename (Self-Hosted only, PVWA 15.0+), SetPSMConfig
+  - Policies/                   # 2 actions: GetMasterPolicy, SetMasterPolicy (Self-Hosted only, PVWA 14.6+)
+  - Users/                      # 2 actions: Get, List
+  - Groups/                     # 7 actions: Add, AddMember, Delete, GetMembers, List, RemoveMember, Update
+  - Applications/               # 7 actions: Add, AddAuthMethod, Delete, DeleteAuthMethod, Get, List, ListAuthMethods
+  - Reports/                    # 1 action: List (Self-Hosted only)
+  - Custom/                     # 6 actions: ExportAll, ExportEntitlements, ExportGroupMembersLDAP,
+                                 #   ExportGroupMembersLocal, TestApi, TestConnectivity
 - Tests/
-  - Unit/                       # Pester v6 unit tests
+  - Unit/                       # Pester v6 unit tests, one file per module plus shared modules/driver
+  - Integration/                # Live-tenant integration test scaffolding (opt-in, not run by default)
+  - Run-Tests.ps1               # Runs the full Unit suite
 - Docs/
-  - Architecture.md             # System design and data flow
+  - User-Guide.md               # End-user usage guide - profiles, menus, CSV mode, every category
+  - Architecture.md             # System design, data flow, and design-decision log
   - API-Module-Development-Guide.md  # How to write new API modules
-  - Lessons-Learned-PowerShell-Pester.md  # Notes on PS 5.1 gotchas
-  - Documentation-Tracker.md
+  - Interfaces.md               # Data shapes: driver profile schema, auth token object, etc.
+  - Testing-Plan.md             # Component test matrix, manual test checklist, known findings
+  - Lessons-Learned-PowerShell-Pester.md  # Notes on PS 5.1 / Pester gotchas
+  - Documentation-Tracker.md    # Dated changelog of documentation and design changes
+  - (plus dated design/planning documents for specific features or review passes)
 ```
 
 ---
@@ -135,7 +150,7 @@ Invoke-Pester .\Tests\Unit\ -Output Detailed
 
 ## Configuration
 
-Profiles are stored as encrypted XML files under `%APPDATA%\IdiraUnifiedScripts\Profiles\`. Each profile contains:
+Profiles are stored as encrypted XML files under `%APPDATA%\IdiraUnifiedScripts\Profiles\` — that folder name is unchanged from the tool's prior name and is not renamed by the aPePAS rebrand, so existing users' saved profiles and tokens keep working without any migration step. Each profile contains:
 
 | Field | Description |
 |---|---|
@@ -151,10 +166,11 @@ Profiles are stored as encrypted XML files under `%APPDATA%\IdiraUnifiedScripts\
 | IgnoreSSL | Skip TLS certificate validation (not recommended for production) |
 | Limit | Maximum API results to fetch (0 = no limit) |
 | DisplayLimit | Maximum rows to display on screen (default 20, 0 = unlimited) |
+| WhatIfDefault | When set, every session opened with this profile starts in WhatIf mode (all write operations suppressed and logged, nothing actually changed) - equivalent to always launching with `-WhatIf` |
 | IsDefault | Marks this profile as the default selection on startup |
-| Role_Template_Safe | Safe name used as a settings/membership template by Safes > Add Safe From Template |
-| Role_Group_Prefix | Name prefix identifying role groups to exclude when copying members in Add Safe From Template |
-| CPM_List | Comma-separated CPM usernames; shown as a picker (default: none) on pages that ask for a CPM, currently Safes > Add Safe From Template |
+| Role_Template_Safe | Safe name used as a settings/membership template by Safes > Add Safe From Template, and as the source of "role" permission sets by SafeMembers > Add/Update From Template Role |
+| Role_Group_Prefix | Name prefix identifying role groups on the template safe - excluded when copying members in Add Safe From Template; matched exactly (not as a prefix) when picking a role by name in SafeMembers > Add/Update From Template Role |
+| CPM_List | Comma-separated CPM usernames, used as the picker's fallback source on every page that asks for a CPM (Safes > Add, Add Safe From Template, Assign CPM to Safe) only if a live query for registered CPM users fails - the live query is tried first and used whenever it succeeds |
 | TenantPortal | Auto-computed ISPSS portal URL (`{sub}.cyberark.com`) |
 | TenantVault | Auto-computed ISPSS vault URL (`vault-{sub}.privilegecloud.cyberark.com`) |
 | TenantAuth | Auto-computed CyberArk Identity tenant URL (discovered on first login, cached) |
