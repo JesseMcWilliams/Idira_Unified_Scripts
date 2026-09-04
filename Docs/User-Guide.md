@@ -77,8 +77,9 @@ within whichever category you pick.
 - The **category menu** lists every module category available for your environment (some, like
   Reports, are Self-Hosted-only and won't appear on an ISPSS profile; others, like Policies, show
   only their dual-use actions on ISPSS - e.g. `SetMasterPolicy` won't appear there, but
-  `GetMasterPolicy` will), each showing how many actions it contains. Categories are always listed
-  alphabetically.
+  `GetMasterPolicy` will, even though it's confirmed to always fail on ISPSS since Privilege Cloud
+  has no Master Policy equivalent at all - it fails cleanly rather than crashing), each showing how
+  many actions it contains. Categories are always listed alphabetically.
 - Picking a category shows its **action menu** - each action numbered, with its name, a short
   description, and tags like `[CSV]` (accepts CSV/bulk input) or `[WhatIf]` (currently suppressed
   because WhatIf mode is on). Within a category, actions are sorted alphabetically by name, except
@@ -161,7 +162,7 @@ produce output, a results table on screen.
 | Safes | Add, retrieve, update, delete safes; create a safe from a template safe's settings and members; assign/unassign a CPM | Self-Hosted and ISPSS |
 | SafeMembers | Add, list, update, remove safe members; grant permissions matching a "role" member on a template safe | Self-Hosted and ISPSS |
 | Platforms | Retrieve, list, enable, disable, copy, remove, import, export platforms; configure PSM settings | Self-Hosted and ISPSS; `Rename` is Self-Hosted only (PVWA 15.0+) |
-| Policies | View/update the Master Policy | PVWA 14.6+; viewing is Self-Hosted and ISPSS (ISPSS support attempted but unconfirmed), updating is Self-Hosted only |
+| Policies | View/update the Master Policy | PVWA 14.6+; viewing (`GetMasterPolicy`) appears on both but is confirmed to always fail on ISPSS - Privilege Cloud has no Master Policy equivalent; updating (`SetMasterPolicy`) is Self-Hosted only |
 | Users | Retrieve and list vault users | Self-Hosted and ISPSS |
 | Groups | Add, list, update, delete groups; add/remove members | Self-Hosted and ISPSS |
 | Applications | Add, retrieve, list, update, delete applications and their authentication methods | Self-Hosted and ISPSS |
@@ -230,7 +231,9 @@ including ones you're unlikely to need to touch by hand, is in the
 - **Export All / Export Entitlements / Export Group Members (Local, LDAP)** - bulk reporting
   tools that page through the relevant `List` endpoints and write a complete CSV, handling
   pagination and large result sets for you. Export All also includes a one-row Master Policy
-  snapshot (`Export_PoliciesGetMasterPolicy.csv`) alongside the other exports.
+  snapshot (`Export_PoliciesGetMasterPolicy.csv`) alongside the other exports - on an ISPSS
+  profile this one will show as a failed item rather than a saved CSV, since Privilege Cloud has
+  no Master Policy equivalent to retrieve.
 - **Export Platform Details** - downloads every *active* platform (of any type) and builds one
   CSV row per platform summarizing its policy settings: every INI and XML setting becomes its own
   column, plus an `OtherFiles` column listing any file bundled with the platform besides its two

@@ -138,7 +138,7 @@ Describe 'Invoke-PoliciesGetMasterPolicy - validation and API failures' {
         $r.IsFatal  | Should -BeTrue
     }
 
-    It 'PGMP09 - a 404 (e.g. an ISPSS tenant with no Master Policy endpoint) is a non-fatal Failure' {
+    It 'PGMP09 - a 404 (confirmed live: ISPSS/Privilege Cloud has no Master Policy endpoint) is a non-fatal Failure' {
         $ispssToken = $script:MockToken.PSObject.Copy()
         $ispssToken.SystemType = 'ISPSS'
         Mock Invoke-CyberArkAPI {

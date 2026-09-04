@@ -102,7 +102,8 @@ aPePAS/
   - SafeMembers/                # 6 actions: Add, AddFromTemplateRole, List, Remove, Update, UpdateFromTemplateRole
   - Platforms/                  # 10 actions: Copy, Disable, Enable, Export, Get, Import, List, Remove,
                                  #   Rename (Self-Hosted only, PVWA 15.0+), SetPSMConfig
-  - Policies/                   # 2 actions: GetMasterPolicy (PVWA 14.6+; ISPSS attempted but unconfirmed),
+  - Policies/                   # 2 actions: GetMasterPolicy (PVWA 14.6+; declared dual-use, but
+                                 #   confirmed absent on ISPSS - fails gracefully there),
                                  #   SetMasterPolicy (Self-Hosted only, PVWA 14.6+)
   - Users/                      # 2 actions: Get, List
   - Groups/                     # 7 actions: Add, AddMember, Delete, GetMembers, List, RemoveMember, Update

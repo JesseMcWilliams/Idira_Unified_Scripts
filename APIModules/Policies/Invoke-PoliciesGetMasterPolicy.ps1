@@ -5,14 +5,13 @@ $ModuleMeta = @{
     Category         = 'Policies'
     Action           = 'GetMasterPolicy'
     # psPAS's Get-PASMasterPolicy.ps1 explicitly asserts -SelfHosted and PVWA 14.6+, and no
-    # ISPSS/Privilege Cloud equivalent endpoint is documented anywhere in the local CyberArk
-    # reference materials - but nothing there confirms Privilege Cloud actually LACKS this
-    # endpoint either, it's simply undocumented. Per user direction, declared dual-use and left
-    # to this project's established response-driven (not version/system-detection) fallback:
-    # a 404 or other failure on ISPSS is handled exactly like any other non-fatal API failure
-    # below, rather than being blocked at the menu level by an assumption. Live-unconfirmed
-    # against a real Privilege Cloud tenant.
-    Description      = 'Retrieve the Master Policy, matching psPAS''s Get-PASMasterPolicy.ps1 (documented Self-Hosted PVWA 14.6+; ISPSS/Privilege Cloud support attempted but unconfirmed).'
+    # ISPSS/Privilege Cloud equivalent endpoint was documented anywhere in the local CyberArk
+    # reference materials when this was written. The user has since verified live against a real
+    # Privilege Cloud tenant that no Master Policy equivalent exists there at all. SupportedSystems
+    # is kept dual-use anyway (per user direction, current behavior is fine): a 404 on ISPSS is
+    # handled exactly like any other non-fatal API failure below, so this degrades cleanly without
+    # needing a system-type branch.
+    Description      = 'Retrieve the Master Policy, matching psPAS''s Get-PASMasterPolicy.ps1 (Self-Hosted PVWA 14.6+; confirmed absent on ISPSS/Privilege Cloud, fails gracefully there).'
     SupportedSystems = @('ISPSS', 'SelfHosted')
     SupportsWhatIf   = $false
     AcceptsInputFile = $false
