@@ -250,6 +250,13 @@ including ones you're unlikely to need to touch by hand, is in the
 - **Where are my log files?** - your profile's Log Folder (default: a `Logs` folder next to
   `Manage-Privilege.ps1`). The log records what happened at a level of detail useful for
   reporting an issue.
+- **Deleting a safe fails and asks if you want to rename it instead** - this happens when
+  CyberArk refuses the delete (HTTP 409) even though the safe has no accounts left in it, most
+  likely because Safe History Retention is still holding onto history from accounts previously
+  added or removed under different retention settings. Accepting the rename marks the safe
+  `1_DEL_<name>` (with a "Delete requested" note added to its description) so it's out of normal
+  use and clearly flagged for later cleanup, since there's no way to force the delete through the
+  API. If the rename also fails, the safe needs manual attention via the PVWA UI.
 
 ---
 
