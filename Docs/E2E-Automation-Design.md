@@ -128,7 +128,7 @@ the phased rollout in Section 6.
 
 ## 7. Progress Tracker
 
-All 65 current module actions, grouped by category. **Automation Status** starts at "Not started"
+All 67 current module actions, grouped by category. **Automation Status** starts at "Not started"
 for everything except the interactive-only Custom/TestApi tool, which is out of scope by design
 (it's itself a manual testing tool, not something with a fixed expected result to assert against).
 Update this table as work happens — this is the living record this document exists to provide.
@@ -182,13 +182,14 @@ High = destructive and/or tenant-wide — Phase 3, disposable-tenant-only (see S
 | Update | Low | Not started | |
 | UpdateFromTemplateRole | Low | Not started | |
 
-### Platforms (9 actions)
+### Platforms (10 actions)
 
 | Action | Risk | Automation Status | Notes |
 |---|---|---|---|
 | Copy | Low | Not started | Needs a source platform to duplicate — use a low-value built-in platform, not a production one |
 | Disable | Low | Not started | Scoped to the copied sandbox platform, not a real one |
 | Enable | Low | Not started | |
+| Export | RO | Not started | `PlatformID` variant is live-confirmed manually (see Testing-Plan.md F38); the other 3 target-type variants (RotationalGroupID/DependentID/GroupPlatformID) need a real ID of that type to test against, which no existing module can currently discover |
 | Get | RO | Not started | |
 | Import | Low | Not started | Needs a prepared test platform `.zip` fixture checked into the repo or test assets |
 | List | RO | Not started | |
@@ -200,7 +201,7 @@ High = destructive and/or tenant-wide — Phase 3, disposable-tenant-only (see S
 
 | Action | Risk | Automation Status | Notes |
 |---|---|---|---|
-| GetMasterPolicy | RO | Not started | Self-Hosted only |
+| GetMasterPolicy | RO | Not started | Declared dual-use, but confirmed live to have no equivalent endpoint on ISPSS/Privilege Cloud at all (see Testing-Plan.md F40) - fails gracefully there rather than crashing |
 | SetMasterPolicy | **High** | Not started | Self-Hosted only. This mutates **tenant-wide** configuration, not a scoped object — never run against a shared lab tenant. Disposable-tenant-only, or leave manual by design (see Section 8) |
 
 ### Users (2 actions)
@@ -292,3 +293,5 @@ High = destructive and/or tenant-wide — Phase 3, disposable-tenant-only (see S
 |---|---|
 | 2026-09-02 | Initial version — captures the design discussion, level-of-effort estimate, and per-action progress tracker for the E2E automation layer |
 | 2026-09-02 | Added `Custom/TestConnectivity` (new this session) to the Progress Tracker; total module count updated from 64 to 65 |
+| 2026-09-04 | Added `Custom/ExportPlatformDetails` to the Progress Tracker (Custom: 6 -> 7 actions) |
+| 2026-09-04 | Fixed staleness this update pass had missed earlier: added the `Platforms/Export` row (9 -> 10 actions), corrected `Policies/GetMasterPolicy`'s note (now dual-use, confirmed absent on ISPSS rather than "Self-Hosted only"), and corrected the Section 7 intro's total module count (65 -> 67) |

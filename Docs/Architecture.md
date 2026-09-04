@@ -20,7 +20,7 @@ the driver.
 | `Modules\CyberArkLogging.psm1` | Complete |
 | `Modules\CyberArkComms.psm1` | Complete |
 | `Manage-Privilege.ps1` | Complete |
-| API Modules (40+ modules across 9 categories) | Complete |
+| API Modules (67 modules across 10 categories) | Complete |
 
 ---
 
@@ -64,93 +64,106 @@ the driver.
 ## Folder Structure
 
 ```
-PowerShell\
+aPePAS\
 ├── Manage-Privilege.ps1                # Interactive driver script
 ├── Auth\
 │   ├── CyberArk.Auth.Common.psm1       # Shared auth utilities: token object, WebView2, profile persistence
 │   ├── CyberArk.Auth.ISPSS.psm1        # Privilege Cloud / CyberArk Identity authentication
 │   └── CyberArk.Auth.SelfHosted.psm1   # Self-Hosted PVWA authentication
 ├── Modules\
-│   ├── CyberArkComms.psm1              # Shared REST communications module
-│   ├── CyberArkLogging.psm1            # Logging module
-│   ├── CyberArk_Driver_REST.psm1       # Legacy — superseded by CyberArkComms
-│   └── Credential.psm1                 # Existing credential helper
-├── APIModules\
-│   ├── Accounts\
-│   │   ├── Invoke-AccountsList.ps1
-│   │   ├── Invoke-AccountsGet.ps1
+│   ├── CyberArkComms.psm1              # Shared REST communications module (pagination, rate limiting, binary/JSON detection)
+│   └── CyberArkLogging.psm1            # Structured log writer
+├── APIModules\                         # 67 action modules across 10 categories
+│   ├── Accounts\                       # 17 actions
 │   │   ├── Invoke-AccountsAdd.ps1
-│   │   ├── Invoke-AccountsUpdate.ps1
+│   │   ├── Invoke-AccountsCancelCpmTask.ps1
+│   │   ├── Invoke-AccountsChangeImmediate.ps1
+│   │   ├── Invoke-AccountsChangeInVault.ps1
+│   │   ├── Invoke-AccountsCheckIn.ps1
 │   │   ├── Invoke-AccountsDelete.ps1
-│   │   ├── Invoke-AccountsGetCredential.ps1
+│   │   ├── Invoke-AccountsGet.ps1
 │   │   ├── Invoke-AccountsGetActivity.ps1
+│   │   ├── Invoke-AccountsGetCredential.ps1
 │   │   ├── Invoke-AccountsLinkAccount.ps1
+│   │   ├── Invoke-AccountsList.ps1
+│   │   ├── Invoke-AccountsReconcile.ps1
+│   │   ├── Invoke-AccountsResumeAutoManagement.ps1
 │   │   ├── Invoke-AccountsUnlinkAccount.ps1
 │   │   ├── Invoke-AccountsUnlock.ps1
-│   │   ├── Invoke-AccountsCheckIn.ps1
-│   │   ├── Invoke-AccountsResumeAutoManagement.ps1
-│   │   ├── Invoke-AccountsCancelCpmTask.ps1
-│   │   ├── Invoke-AccountsVerify.ps1
-│   │   ├── Invoke-AccountsChangeInVault.ps1
-│   │   ├── Invoke-AccountsChangeImmediate.ps1
-│   │   └── Invoke-AccountsReconcile.ps1
-│   ├── Safes\
-│   │   ├── Invoke-SafesList.ps1
-│   │   ├── Invoke-SafesGet.ps1
+│   │   ├── Invoke-AccountsUpdate.ps1
+│   │   └── Invoke-AccountsVerify.ps1
+│   ├── Safes\                          # 8 actions
 │   │   ├── Invoke-SafesAdd.ps1
-│   │   ├── Invoke-SafesUpdate.ps1
-│   │   └── Invoke-SafesDelete.ps1
-│   ├── SafeMembers\
-│   │   ├── Invoke-SafeMembersList.ps1
+│   │   ├── Invoke-SafesAddFromTemplate.ps1
+│   │   ├── Invoke-SafesAssignCPM.ps1
+│   │   ├── Invoke-SafesDelete.ps1              # Offers a rename-instead fallback on HTTP 409
+│   │   ├── Invoke-SafesGet.ps1
+│   │   ├── Invoke-SafesList.ps1
+│   │   ├── Invoke-SafesUnassignCPM.ps1
+│   │   └── Invoke-SafesUpdate.ps1
+│   ├── SafeMembers\                    # 6 actions
 │   │   ├── Invoke-SafeMembersAdd.ps1
+│   │   ├── Invoke-SafeMembersAddFromTemplateRole.ps1
+│   │   ├── Invoke-SafeMembersList.ps1
+│   │   ├── Invoke-SafeMembersRemove.ps1
 │   │   ├── Invoke-SafeMembersUpdate.ps1
-│   │   └── Invoke-SafeMembersRemove.ps1
-│   ├── Platforms\
+│   │   └── Invoke-SafeMembersUpdateFromTemplateRole.ps1
+│   ├── Platforms\                      # 10 actions
+│   │   ├── Invoke-PlatformsCopy.ps1
+│   │   ├── Invoke-PlatformsDisable.ps1
+│   │   ├── Invoke-PlatformsEnable.ps1
+│   │   ├── Invoke-PlatformsExport.ps1          # Download a platform .zip (all 4 psPAS target types)
+│   │   ├── Invoke-PlatformsGet.ps1
+│   │   ├── Invoke-PlatformsImport.ps1
 │   │   ├── Invoke-PlatformsList.ps1
-│   │   └── Invoke-PlatformsGet.ps1
-│   ├── Users\
-│   │   ├── Invoke-UsersList.ps1
-│   │   └── Invoke-UsersGet.ps1
-│   ├── Groups\
-│   │   ├── Invoke-GroupsList.ps1
+│   │   ├── Invoke-PlatformsRemove.ps1
+│   │   ├── Invoke-PlatformsRename.ps1          # Self-Hosted only (PVWA 15.0+)
+│   │   └── Invoke-PlatformsSetPSMConfig.ps1
+│   ├── Policies\                       # 2 actions (PVWA 14.6+)
+│   │   ├── Invoke-PoliciesGetMasterPolicy.ps1  # Dual-use; confirmed absent on ISPSS, fails gracefully there
+│   │   └── Invoke-PoliciesSetMasterPolicy.ps1  # Self-Hosted only
+│   ├── Users\                          # 2 actions
+│   │   ├── Invoke-UsersGet.ps1
+│   │   └── Invoke-UsersList.ps1
+│   ├── Groups\                         # 7 actions
 │   │   ├── Invoke-GroupsAdd.ps1
-│   │   ├── Invoke-GroupsUpdate.ps1
+│   │   ├── Invoke-GroupsAddMember.ps1          # MemberID is the member's username, not a numeric ID
 │   │   ├── Invoke-GroupsDelete.ps1
 │   │   ├── Invoke-GroupsGetMembers.ps1
-│   │   ├── Invoke-GroupsAddMember.ps1
-│   │   └── Invoke-GroupsRemoveMember.ps1
-│   ├── Reports\
-│   │   └── Invoke-ReportsList.ps1          # SelfHosted only (GET /API/Reports)
-│   ├── Custom\
-│   │   ├── Invoke-CustomExportAll.ps1               # Export all list-module results to CSV
-│   │   ├── Invoke-CustomExportEntitlements.ps1      # All safes + members → single CSV
-│   │   ├── Invoke-CustomExportGroupMembersLocal.ps1 # Local group members with nesting
-│   │   ├── Invoke-CustomExportGroupMembersLDAP.ps1  # LDAP/Directory group members via ADSI (@ groups only)
-│   │   └── Invoke-CustomTestApi.ps1                 # Interactive raw API tester
-│   └── Applications\
-│       ├── Invoke-ApplicationsList.ps1             # SelfHosted only (GET /WebServices/PIMServices.svc/Applications)
-│       ├── Invoke-ApplicationsGet.ps1              # SelfHosted only
-│       ├── Invoke-ApplicationsAdd.ps1              # SelfHosted only
-│       ├── Invoke-ApplicationsDelete.ps1           # SelfHosted only
-│       ├── Invoke-ApplicationsListAuthMethods.ps1  # SelfHosted only
-│       ├── Invoke-ApplicationsAddAuthMethod.ps1    # SelfHosted only
-│       └── Invoke-ApplicationsDeleteAuthMethod.ps1 # SelfHosted only
+│   │   ├── Invoke-GroupsList.ps1
+│   │   ├── Invoke-GroupsRemoveMember.ps1
+│   │   └── Invoke-GroupsUpdate.ps1
+│   ├── Applications\                   # 7 actions, dual-use
+│   │   ├── Invoke-ApplicationsAdd.ps1
+│   │   ├── Invoke-ApplicationsAddAuthMethod.ps1
+│   │   ├── Invoke-ApplicationsDelete.ps1
+│   │   ├── Invoke-ApplicationsDeleteAuthMethod.ps1
+│   │   ├── Invoke-ApplicationsGet.ps1
+│   │   ├── Invoke-ApplicationsList.ps1
+│   │   └── Invoke-ApplicationsListAuthMethods.ps1
+│   ├── Reports\                        # 1 action, Self-Hosted only
+│   │   └── Invoke-ReportsList.ps1
+│   └── Custom\                         # 7 actions
+│       ├── Invoke-CustomExportAll.ps1               # Runs every List/ListAuthMethods action (+ opt-in modules) to CSV
+│       ├── Invoke-CustomExportEntitlements.ps1      # All safes + members -> single CSV
+│       ├── Invoke-CustomExportGroupMembersLDAP.ps1  # LDAP/Directory group members via ADSI
+│       ├── Invoke-CustomExportGroupMembersLocal.ps1 # Local group members with nesting
+│       ├── Invoke-CustomExportPlatformDetails.ps1   # Every active platform's INI/XML settings -> one CSV
+│       ├── Invoke-CustomTestApi.ps1                 # Interactive raw API tester
+│       └── Invoke-CustomTestConnectivity.ps1        # DNS/port/credential connectivity tester
 ├── Profiles\                           # Created at runtime (default: %APPDATA%\IdiraUnifiedScripts\Profiles\)
 │   ├── Production.json
-│   ├── Production.cred          # DPAPI-encrypted token (was .xml)
+│   ├── Production.cred                 # DPAPI-encrypted token
 │   ├── Development.json
 │   └── Development.cred
 └── Docs\
     ├── Architecture.md                 # This document
     ├── Interfaces.md
     ├── API-Module-Development-Guide.md
-    ├── SharedComms-Reference.md
-    ├── Logging-Reference.md
-    ├── Profile-Schema.md
-    ├── Driver-Reference.md
-    ├── Installation.md
-    ├── Troubleshooting.md
-    ├── API-Coverage-Matrix.md
+    ├── Testing-Plan.md
+    ├── User-Guide.md
+    ├── E2E-Automation-Design.md
+    ├── Lessons-Learned-PowerShell-Pester.md
     └── Documentation-Tracker.md
 ```
 
