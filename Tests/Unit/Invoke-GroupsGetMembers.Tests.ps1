@@ -254,3 +254,34 @@ Describe 'Invoke-GroupsGetMembers - IncludeMembers' {
         $script:capturedQueryParams.ContainsKey('includeMembers') | Should -Be $false
     }
 }
+
+# ─────────────────────────────────────────────────────────────────
+# Confirmed live (2026-09-04) against a real Self-Hosted tenant: a real member entry is only
+# { "username", "id" } - no userType/componentUser at all, with or without includeMembers=true.
+# $script:Member1/Member2 above use psPAS's documented (fuller) shape, which is why this gap was
+# never caught before - dot-accessing a genuinely absent property throws PropertyNotFoundException
+# under Set-StrictMode, and every member mapped that way became a silent Failure instead of a
+# Result row (confirmed live: "Members retrieved: 0" for a group that actually had 1 member).
+Describe 'Invoke-GroupsGetMembers - real live member shape (no userType/componentUser)' {
+
+    BeforeEach {
+        Mock Write-CyberArkLog { }
+    }
+
+    It 'GM17 - a member with only id/username (the real live shape) does not throw and maps correctly' {
+        Set-StrictMode -Version Latest
+        try {
+            $realMember = [PSCustomObject]@{ id = 34; username = 'CA_Admin' }
+            Mock Invoke-CyberArkAPI { script:New-MembersApiResponse -Members @($realMember) }
+            $r = Invoke-GroupsGetMembers -Token $script:MockToken -InputData $script:ValidInput
+            $r.Failures            | Should -Be 0
+            $r.Successes           | Should -Be 1
+            $r.Results[0].MemberID | Should -Be 34
+            $r.Results[0].Username | Should -Be 'CA_Admin'
+            $r.Results[0].UserType | Should -BeNullOrEmpty
+            $r.Results[0].ComponentUser | Should -BeNullOrEmpty
+        } finally {
+            Set-StrictMode -Off
+        }
+    }
+}
