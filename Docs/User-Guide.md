@@ -158,13 +158,13 @@ produce output, a results table on screen.
 | Accounts | Add, retrieve, update, delete privileged accounts; manage their credentials (change/reconcile/verify in the vault or on the target), check them in/out, and manage automatic CPM management | Self-Hosted and ISPSS |
 | Safes | Add, retrieve, update, delete safes; create a safe from a template safe's settings and members; assign/unassign a CPM | Self-Hosted and ISPSS |
 | SafeMembers | Add, list, update, remove safe members; grant permissions matching a "role" member on a template safe | Self-Hosted and ISPSS |
-| Platforms | Retrieve, list, enable, disable, copy, remove, import platforms; configure PSM settings | Self-Hosted and ISPSS; `Rename` is Self-Hosted only (PVWA 15.0+) |
+| Platforms | Retrieve, list, enable, disable, copy, remove, import, export platforms; configure PSM settings | Self-Hosted and ISPSS; `Rename` is Self-Hosted only (PVWA 15.0+) |
 | Policies | View/update the Master Policy | Self-Hosted only (PVWA 14.6+) |
 | Users | Retrieve and list vault users | Self-Hosted and ISPSS |
 | Groups | Add, list, update, delete groups; add/remove members | Self-Hosted and ISPSS |
 | Applications | Add, retrieve, list, update, delete applications and their authentication methods | Self-Hosted and ISPSS |
 | Reports | List PVWA reports | Self-Hosted only |
-| Custom | Bulk export tools, a raw API request tester, and the connectivity tester (see below) | Self-Hosted and ISPSS |
+| Custom | Bulk export tools (including a per-platform policy detail report), a raw API request tester, and the connectivity tester (see below) | Self-Hosted and ISPSS |
 
 A category not supported by your current environment simply won't appear in the category menu -
 you don't need to remember which is which.
@@ -228,6 +228,12 @@ including ones you're unlikely to need to touch by hand, is in the
 - **Export All / Export Entitlements / Export Group Members (Local, LDAP)** - bulk reporting
   tools that page through the relevant `List` endpoints and write a complete CSV, handling
   pagination and large result sets for you.
+- **Export Platform Details** - downloads every *active* platform (of any type) and builds one
+  CSV row per platform summarizing its policy settings: every INI and XML setting becomes its own
+  column, plus an `OtherFiles` column listing any file bundled with the platform besides its two
+  policy files (a `META-INF` folder, if present, is excluded from that list). Since different
+  platform types have different settings, a platform missing a given setting simply shows a blank
+  value in that column rather than the column being left out.
 
 ---
 

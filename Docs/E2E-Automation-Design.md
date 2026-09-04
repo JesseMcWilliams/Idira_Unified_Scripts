@@ -240,7 +240,7 @@ High = destructive and/or tenant-wide — Phase 3, disposable-tenant-only (see S
 |---|---|---|---|
 | List | RO | Not started | |
 
-### Custom (6 actions)
+### Custom (7 actions)
 
 | Action | Risk | Automation Status | Notes |
 |---|---|---|---|
@@ -248,6 +248,7 @@ High = destructive and/or tenant-wide — Phase 3, disposable-tenant-only (see S
 | ExportEntitlements | RO | Not started | |
 | ExportGroupMembersLDAP | RO | Not started | Requires AD line-of-sight from wherever the harness runs, not just the CyberArk API |
 | ExportGroupMembersLocal | RO | Not started | |
+| ExportPlatformDetails | RO | Not started | Downloads and unzips every active platform - live-verified manually (see Testing-Plan.md F39), not yet wired into an automated harness |
 | TestApi | N/A | Out of scope by design | This is itself an ad-hoc manual testing tool with no fixed expected result — not a candidate for automated assertions |
 | TestConnectivity | Low | Not started | Needs a real Windows target (for the SMB admin-share auth test) and a real Linux target with a known account (for the SSH auth test) as fixtures; the SSH path additionally depends on PS7 or plink.exe being present on the machine running the harness — see the module's own code comments on the PS7-SSH-transport password-auth limitation |
 

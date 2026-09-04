@@ -94,7 +94,7 @@ aPePAS/
 - Modules/
   - CyberArkComms.psm1          # REST communication layer (pagination, rate limiting, query/filter builders)
   - CyberArkLogging.psm1        # Structured log writer
-- APIModules/                   # 66 action modules across 10 categories - see `Invoke-<Category><Action>.ps1`
+- APIModules/                   # 67 action modules across 10 categories - see `Invoke-<Category><Action>.ps1`
   - Accounts/                   # 17 actions: Add, CancelCpmTask, ChangeImmediate, ChangeInVault, CheckIn, Delete,
                                  #   Get, GetActivity, GetCredential, LinkAccount, List, Reconcile,
                                  #   ResumeAutoManagement, UnlinkAccount, Unlock, Update, Verify
@@ -107,8 +107,8 @@ aPePAS/
   - Groups/                     # 7 actions: Add, AddMember, Delete, GetMembers, List, RemoveMember, Update
   - Applications/               # 7 actions: Add, AddAuthMethod, Delete, DeleteAuthMethod, Get, List, ListAuthMethods
   - Reports/                    # 1 action: List (Self-Hosted only)
-  - Custom/                     # 6 actions: ExportAll, ExportEntitlements, ExportGroupMembersLDAP,
-                                 #   ExportGroupMembersLocal, TestApi, TestConnectivity
+  - Custom/                     # 7 actions: ExportAll, ExportEntitlements, ExportGroupMembersLDAP,
+                                 #   ExportGroupMembersLocal, ExportPlatformDetails, TestApi, TestConnectivity
 - Tests/
   - Unit/                       # Pester v6 unit tests, one file per module plus shared modules/driver
   - Integration/                # Live-tenant integration test scaffolding (opt-in, not run by default)
